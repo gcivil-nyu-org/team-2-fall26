@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · SemesterPilot{% endblock %}
+{% block content %}
+<div class="py-4">
+  <h1 class="h3 mb-1">Welcome back</h1>
+  <p class="text-muted mb-4">{{ user.email }}</p>
+
+  <div class="row g-3 mb-4">
+    <div class="col-sm-4">
+      <div class="card text-center shadow-sm h-100">
+        <div class="card-body">
+          <div class="display-6 fw-bold text-muted">0</div>
+          <div class="text-muted small">Courses</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-4">
+      <div class="card text-center shadow-sm h-100">
+        <div class="card-body">
+          <div class="display-6 fw-bold text-muted">0</div>
+          <div class="text-muted small">Assignments due this week</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-4">
+      <div class="card text-center shadow-sm h-100">
+        <div class="card-body">
+          <div class="display-6 fw-bold text-muted">0</div>
+          <div class="text-muted small">Overdue</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+          <span class="fw-semibold">My Courses</span>
+          <button class="btn btn-sm btn-primary" disabled title="Ships with Coursework Management">+ Add course</button>
+        </div>
+        <div class="card-body text-center text-muted py-5">
+          No courses yet. Course management ships in the next sprint.
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card shadow-sm h-100">
+        <div class="card-header bg-white">
+          <span class="fw-semibold">Outstanding Assignments</span>
+        </div>
+        <div class="card-body text-center text-muted py-5">
+          No assignments yet. Add a course to get started.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
