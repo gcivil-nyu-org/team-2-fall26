@@ -1,7 +1,13 @@
+from datetime import timedelta
+
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.shortcuts import render, redirect
+from django.utils import timezone
 from django.views.decorators.http import require_POST
+
+from apps.coursework.models import Assignment
 from .forms import SignUpForm
 
 
@@ -25,4 +31,15 @@ def logout_view(request):
 
 @login_required(login_url='accounts:login')
 def dashboard_view(request):
-    return render(request, 'accounts/dashboard.html')
+    courses = request.user.courses.all()
+    today = timezone.localdate()
+    week_end = today + timedelta(days=7)
+    assignments = Assignment.objects.filter(course__owner=request.user)
+    outstanding = assignments.filter(Q(due_date__gte=today) | Q(due_date__isnull=True))
+    return render(request, 'accounts/dashboard.html', {
+        'courses': courses,
+        'course_count': courses.count(),
+        'due_this_week_count': assignments.filter(due_date__gte=today, due_date__lte=week_end).count(),
+        'overdue_count': assignments.filter(due_date__lt=today).count(),
+        'outstanding_assignments': outstanding.order_by('due_date', 'title'),
+    })

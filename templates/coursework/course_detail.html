@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ course.name }} · SemesterPilot{% endblock %}
+{% block content %}
+<a href="{% url 'accounts:dashboard' %}" class="back-link">&larr; Back to dashboard</a>
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Your course</div>
+    <h1 class="mb-2">{{ course.name }}</h1>
+    <p>{% if course.code %}{{ course.code }} <span class="mx-2" aria-hidden="true">&middot;</span>{% endif %}<span class="term-badge">{{ course.semester }}</span></p>
+  </div>
+  <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-primary">+ Add assignment</a>
+</div>
+<section class="card" aria-labelledby="assignments-heading">
+  <div class="card-header"><h2 class="section-title" id="assignments-heading">Assignments</h2></div>
+  {% if assignments %}
+    <ul class="item-list">
+      {% for assignment in assignments %}
+        <li class="assignment-row">
+          <div class="item-copy item-title">{{ assignment.title }}</div>
+          <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date }}{% else %}No due date{% endif %}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="empty-state">
+      <span class="empty-icon">{% include 'includes/book_icon.html' %}</span>
+      <h3>No assignments yet</h3>
+      <p>Add one to start tracking work for this course.</p>
+      <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-outline-primary btn-sm">+ Add assignment</a>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

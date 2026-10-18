@@ -5,7 +5,6 @@ from django.views.generic import RedirectView
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/', include('apps.accounts.urls')),
+    path('', include('apps.coursework.urls')),
     path('', RedirectView.as_view(pattern_name='accounts:dashboard', permanent=False)),
-
-    # path('', include('apps.coursework.urls')),  # replace the line above once apps/coursework exists
 ]
