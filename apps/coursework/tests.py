@@ -1,10 +1,61 @@
 from datetime import date, timedelta
+from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
 from apps.accounts.models import User
 from .models import Assignment, Course
+from .forms import CourseForm
+
+
+class CourseFormTests(SimpleTestCase):
+    def test_semester_defaults_follow_calendar_boundaries(self):
+        cases = [
+            (date(2026, 1, 1), 'Spring 2026'),
+            (date(2026, 5, 31), 'Spring 2026'),
+            (date(2026, 6, 1), 'Summer 2026'),
+            (date(2026, 8, 31), 'Summer 2026'),
+            (date(2026, 9, 1), 'Fall 2026'),
+            (date(2026, 12, 31), 'Fall 2026'),
+            (date(2027, 1, 1), 'Spring 2027'),
+        ]
+        for today, expected in cases:
+            with self.subTest(today=today), patch('apps.coursework.forms.timezone.localdate', return_value=today):
+                self.assertEqual(CourseForm()['semester'].value(), expected)
+
+    @patch('apps.coursework.forms.timezone.localdate', return_value=date(2026, 9, 15))
+    def test_can_choose_previous_semester_and_varied_course_code(self, mock_today):
+        form = CourseForm(data={
+            'name': 'Independent Study', 'code': 'CS-GY 9033', 'semester': 'Summer 2026',
+        })
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.save(commit=False).semester, 'Summer 2026')
+        self.assertEqual(form['semester'].value(), 'Summer 2026')
+        self.assertIn(('Spring 2027', 'Spring 2027'), form.fields['semester'].choices)
+
+    @patch('apps.coursework.forms.timezone.localdate', return_value=date(2026, 10, 18))
+    def test_validation_keeps_selected_semester_and_does_not_fill_missing_input(self, mock_today):
+        form = CourseForm(data={'name': '', 'semester': 'Summer 2026'})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form['semester'].value(), 'Summer 2026')
+        missing = CourseForm(data={'name': 'Independent Study', 'semester': ''})
+        self.assertFalse(missing.is_valid())
+        self.assertEqual(missing.errors['semester'], ['Semester is required.'])
+
+    def test_only_adjacent_semesters_are_offered_across_year_boundaries(self):
+        cases = [
+            (date(2026, 1, 1), ['Fall 2025', 'Spring 2026', 'Summer 2026']),
+            (date(2026, 7, 1), ['Spring 2026', 'Summer 2026', 'Fall 2026']),
+            (date(2026, 10, 18), ['Summer 2026', 'Fall 2026', 'Spring 2027']),
+        ]
+        for today, expected in cases:
+            with self.subTest(today=today), patch('apps.coursework.forms.timezone.localdate', return_value=today):
+                form = CourseForm()
+                self.assertEqual([value for value, label in form.fields['semester'].choices], expected)
+                invalid = CourseForm(data={'name': 'Independent Study', 'semester': 'Fall 2024'})
+                self.assertFalse(invalid.is_valid())
+                self.assertIn('semester', invalid.errors)
 
 
 class CourseCreateTests(TestCase):

@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Add assignment · {{ course.name }}{% endblock %}
 {% block content %}
-<div class="py-4" style="max-width: 520px;">
-  <h1 class="h3 mb-1">Add an assignment</h1>
-  <p class="text-muted">{{ course.name }}{% if course.code %} · {{ course.code }}{% endif %}</p>
+<div class="form-page">
+  <a href="{% url 'coursework:course_detail' course.pk %}" class="back-link">&larr; Back to course</a>
+  <div class="eyebrow">One step ahead</div>
+  <h1 class="mb-2">Add an assignment</h1>
+  <p class="text-muted mb-4">{{ course.name }}{% if course.code %} · {{ course.code }}{% endif %}</p>
 
-  <form method="post" novalidate class="card shadow-sm">
+  <form method="post" novalidate class="card">
     {% csrf_token %}
     <div class="card-body">
       <div class="mb-3">
@@ -18,8 +20,10 @@
         {{ form.due_date }}
         {% for error in form.due_date.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
       </div>
-      <button type="submit" class="btn btn-primary">Save assignment</button>
-      <a href="{% url 'coursework:course_detail' course.pk %}" class="btn btn-outline-secondary">Cancel</a>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Save assignment</button>
+        <a href="{% url 'coursework:course_detail' course.pk %}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
     </div>
   </form>
 </div>

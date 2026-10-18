@@ -1,29 +1,31 @@
 {% extends "accounts/auth_base.html" %}
 {% block title %}Sign up · SemesterPilot{% endblock %}
 {% block form_content %}
-<h2 class="h4 mb-4">Create your account</h2>
+<div class="eyebrow">A fresh start</div>
+<h2>Create your account</h2>
+<p class="auth-intro">Get your semester together, one course at a time.</p>
 
 <form method="post" novalidate>
   {% csrf_token %}
   <div class="mb-3">
-    <label class="form-label">Email</label>
+    <label class="form-label" for="{{ form.email.id_for_label }}">Email</label>
     {{ form.email }}
     {% for error in form.email.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
   </div>
   <div class="mb-3">
-    <label class="form-label">Password</label>
+    <label class="form-label" for="{{ form.password1.id_for_label }}">Password</label>
     {{ form.password1 }}
     {% for error in form.password1.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
   </div>
   <div class="mb-3">
-    <label class="form-label">Confirm Password</label>
+    <label class="form-label" for="{{ form.password2.id_for_label }}">Confirm Password</label>
     {{ form.password2 }}
     {% for error in form.password2.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
   </div>
   <button type="submit" class="btn btn-primary w-100">Sign up</button>
 </form>
 
-<p class="mt-3 mb-0 text-center">
+<p class="mt-4 mb-0 text-center auth-footer">
   <a href="{% url 'accounts:login' %}">Already have an account? Log in</a>
 </p>
 {% endblock %}

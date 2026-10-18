@@ -1,35 +1,33 @@
 {% extends "base.html" %}
 {% block title %}{{ course.name }} · SemesterPilot{% endblock %}
 {% block content %}
-<div class="py-4">
-  <a href="{% url 'accounts:dashboard' %}" class="text-decoration-none small">&larr; Back to dashboard</a>
-  <h1 class="h3 mt-2 mb-1">{{ course.name }}</h1>
-  <p class="text-muted mb-4">
-    {% if course.code %}{{ course.code }} · {% endif %}{{ course.semester }}
-  </p>
-
-  <div class="card shadow-sm">
-    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-      <span class="fw-semibold">Assignments</span>
-      <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-sm btn-primary">+ Add assignment</a>
-    </div>
-    {% if assignments %}
-      <ul class="list-group list-group-flush">
-        {% for assignment in assignments %}
-          <li class="list-group-item d-flex justify-content-between">
-            <span>{{ assignment.title }}</span>
-            <span class="text-muted small">
-              {% if assignment.due_date %}Due {{ assignment.due_date }}{% else %}No due date{% endif %}
-            </span>
-          </li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <div class="card-body text-center text-muted py-5">
-        <p class="mb-3">No assignments yet. Add one to start tracking work for this course.</p>
-        <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-primary">+ Add assignment</a>
-      </div>
-    {% endif %}
+<a href="{% url 'accounts:dashboard' %}" class="back-link">&larr; Back to dashboard</a>
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Your course</div>
+    <h1 class="mb-2">{{ course.name }}</h1>
+    <p>{% if course.code %}{{ course.code }} <span class="mx-2" aria-hidden="true">&middot;</span>{% endif %}<span class="term-badge">{{ course.semester }}</span></p>
   </div>
+  <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-primary">+ Add assignment</a>
 </div>
+<section class="card" aria-labelledby="assignments-heading">
+  <div class="card-header"><h2 class="section-title" id="assignments-heading">Assignments</h2></div>
+  {% if assignments %}
+    <ul class="item-list">
+      {% for assignment in assignments %}
+        <li class="assignment-row">
+          <div class="item-copy item-title">{{ assignment.title }}</div>
+          <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date }}{% else %}No due date{% endif %}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="empty-state">
+      <span class="empty-icon">{% include 'includes/book_icon.html' %}</span>
+      <h3>No assignments yet</h3>
+      <p>Add one to start tracking work for this course.</p>
+      <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-outline-primary btn-sm">+ Add assignment</a>
+    </div>
+  {% endif %}
+</section>
 {% endblock %}
