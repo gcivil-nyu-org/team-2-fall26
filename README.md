@@ -50,7 +50,7 @@ Each feature lives in its own app under `apps/`, registered in `config/settings.
 ```
 apps/
   accounts/      # login, signup, auth (#61)
-  coursework/    # courses, assignments (in progress)
+  coursework/    # courses, assignments (#9)
 config/          # project settings, root URLs
 templates/       # shared + per-app templates
 ```

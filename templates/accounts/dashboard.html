@@ -9,7 +9,7 @@
     <div class="col-sm-4">
       <div class="card text-center shadow-sm h-100">
         <div class="card-body">
-          <div class="display-6 fw-bold text-muted">0</div>
+          <div class="display-6 fw-bold text-muted">{{ course_count }}</div>
           <div class="text-muted small">Courses</div>
         </div>
       </div>
@@ -17,7 +17,7 @@
     <div class="col-sm-4">
       <div class="card text-center shadow-sm h-100">
         <div class="card-body">
-          <div class="display-6 fw-bold text-muted">0</div>
+          <div class="display-6 fw-bold text-muted">{{ due_this_week_count }}</div>
           <div class="text-muted small">Assignments due this week</div>
         </div>
       </div>
@@ -25,7 +25,7 @@
     <div class="col-sm-4">
       <div class="card text-center shadow-sm h-100">
         <div class="card-body">
-          <div class="display-6 fw-bold text-muted">0</div>
+          <div class="display-6 fw-bold text-muted">{{ overdue_count }}</div>
           <div class="text-muted small">Overdue</div>
         </div>
       </div>
@@ -37,11 +37,24 @@
       <div class="card shadow-sm h-100">
         <div class="card-header bg-white d-flex justify-content-between align-items-center">
           <span class="fw-semibold">My Courses</span>
-          <button class="btn btn-sm btn-primary" disabled title="Ships with Coursework Management">+ Add course</button>
+          <a href="{% url 'coursework:course_add' %}" class="btn btn-sm btn-primary">+ Add course</a>
         </div>
-        <div class="card-body text-center text-muted py-5">
-          No courses yet. Course management ships in the next sprint.
-        </div>
+        {% if courses %}
+          <ul class="list-group list-group-flush">
+            {% for course in courses %}
+              <a href="{% url 'coursework:course_detail' course.pk %}" class="list-group-item list-group-item-action">
+                <div class="fw-semibold">{{ course.name }}</div>
+                <div class="small text-muted">
+                  {% if course.code %}{{ course.code }} · {% endif %}{{ course.semester }}
+                </div>
+              </a>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="card-body text-center text-muted py-5">
+            No courses yet. Add a course to organize your assignments by class.
+          </div>
+        {% endif %}
       </div>
     </div>
     <div class="col-md-6">
@@ -49,9 +62,23 @@
         <div class="card-header bg-white">
           <span class="fw-semibold">Outstanding Assignments</span>
         </div>
-        <div class="card-body text-center text-muted py-5">
-          No assignments yet. Add a course to get started.
-        </div>
+        {% if outstanding_assignments %}
+          <ul class="list-group list-group-flush">
+            {% for assignment in outstanding_assignments %}
+              <a href="{% url 'coursework:course_detail' assignment.course.pk %}" class="list-group-item list-group-item-action">
+                <div class="fw-semibold">{{ assignment.title }}</div>
+                <div class="small text-muted">
+                  {{ assignment.course.name }}
+                  {% if assignment.due_date %} · Due {{ assignment.due_date }}{% endif %}
+                </div>
+              </a>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <div class="card-body text-center text-muted py-5">
+            No assignments yet. Add a course to get started.
+          </div>
+        {% endif %}
       </div>
     </div>
   </div>
