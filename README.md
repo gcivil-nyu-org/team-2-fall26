@@ -62,3 +62,34 @@ Add a new feature as a new app under `apps/` with its own `urls.py` (namespaced)
 1. Branch off `develop`: `feature/<issue-number>-<short-name>`
 2. Commit, push, open a PR into `develop`
 3. Get it reviewed by a teammate before merging (per our Definition of Done)
+
+## Deployment (AWS Elastic Beanstalk)
+
+Two environments: `develop` → **staging**, `main` → **production**.
+
+| Environment | Branch | EB environment name |
+|---|---|---|
+| Staging | `develop` | `semesterpilot-staging` |
+| Production | `main` | `semesterpilot-prod` |
+
+Config lives in `.ebextensions/01_django.config` (runs `migrate` and `collectstatic` on each deploy). Static files are served by WhiteNoise.
+
+Each environment needs these environment properties (EB console → Configuration → Updates, monitoring, and logging → Environment properties):
+
+```
+DJANGO_SECRET_KEY=<long random string, different per environment>
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=<env-url>.elasticbeanstalk.com
+DJANGO_CSRF_TRUSTED_ORIGINS=http://<env-url>.elasticbeanstalk.com
+DATABASE_ENGINE=postgresql
+DATABASE_NAME=... DATABASE_USER=... DATABASE_PASSWORD=... DATABASE_HOST=... DATABASE_PORT=5432
+```
+
+Deploy:
+
+```bash
+pip install awsebcli
+eb init                       # once: Python 3.13 (Amazon Linux 2023), region us-east-1
+git checkout develop && eb deploy semesterpilot-staging
+git checkout main    && eb deploy semesterpilot-prod
+```
