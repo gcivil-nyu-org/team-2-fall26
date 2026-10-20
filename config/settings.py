@@ -153,3 +153,19 @@ STORAGES = {
     },
 }
 
+
+# Send warnings and errors (including 500 tracebacks) to stdout so they show up
+# in `eb logs` (web.stdout.log). Without this, DEBUG=False hides them.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler'},
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': os.environ.get('DJANGO_LOG_LEVEL', 'WARNING'),
+        },
+    },
+}
