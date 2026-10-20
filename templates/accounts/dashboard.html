@@ -63,24 +63,35 @@
   </section>
   <section class="col-lg-6" aria-labelledby="assignments-heading">
     <div class="card h-100">
-      <div class="card-header"><h2 class="section-title" id="assignments-heading">Outstanding Assignments</h2></div>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="section-title" id="assignments-heading">Outstanding Assignments</h2>
+        <a href="{% url 'coursework:completed_assignments' %}" class="header-link">View completed</a>
+      </div>
       {% if outstanding_assignments %}
         <ul class="item-list">
           {% for assignment in outstanding_assignments %}
-            <li><a href="{% url 'coursework:course_detail' assignment.course.pk %}" class="item-link">
-              <div class="item-copy">
-                <div class="item-title">{{ assignment.title }}</div>
-                <div class="item-meta">{{ assignment.course.name }}</div>
-              </div>
-              <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date|date:'M j' }}{% else %}No due date{% endif %}</span>
-            </a></li>
+            <li class="action-row">
+              <a href="{% url 'coursework:course_detail' assignment.course.pk %}" class="item-link">
+                <div class="item-copy">
+                  <div class="item-title">{{ assignment.title }}</div>
+                  <div class="item-meta">{{ assignment.course.name }}</div>
+                </div>
+                {% if assignment.is_overdue %}<span class="overdue-badge">Overdue</span>{% endif %}
+                <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date|date:'M j' }}{% else %}No due date{% endif %}</span>
+              </a>
+              <form method="post" action="{% url 'coursework:assignment_complete' assignment.pk %}" class="row-action">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button type="submit" class="btn btn-outline-primary btn-sm">Mark complete</button>
+              </form>
+            </li>
           {% endfor %}
         </ul>
       {% else %}
         <div class="empty-state">
           <span class="empty-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 3h6v4H9zm0 11 2 2 4-5"/></svg></span>
-          <h3>No assignments yet</h3>
-          <p>{% if courses %}Open a course to add an assignment and keep track of what comes next.{% else %}Start with a course, then add your assignments here.{% endif %}</p>
+          <h3>No outstanding assignments</h3>
+          <p>{% if courses %}You're all caught up. Open a course to add an assignment and keep track of what comes next.{% else %}Start with a course, then add your assignments here.{% endif %}</p>
         </div>
       {% endif %}
     </div>

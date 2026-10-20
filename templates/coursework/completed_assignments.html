@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Completed assignments · SemesterPilot{% endblock %}
+{% block content %}
+<a href="{% url 'accounts:dashboard' %}" class="back-link">&larr; Back to dashboard</a>
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Done and dusted</div>
+    <h1 class="mb-2">Completed assignments</h1>
+    <p>Reopen anything you need to revisit and it goes back to your outstanding work.</p>
+  </div>
+</div>
+<section class="card" aria-labelledby="completed-heading">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h2 class="section-title" id="completed-heading">Completed</h2>
+    <span class="term-badge">{{ assignments|length }} assignment{{ assignments|length|pluralize }}</span>
+  </div>
+  {% if assignments %}
+    <ul class="item-list">
+      {% for assignment in assignments %}
+        <li class="assignment-row">
+          <div class="item-copy">
+            <div class="item-title">{{ assignment.title }}</div>
+            <div class="item-meta"><a href="{% url 'coursework:course_detail' assignment.course.pk %}">{{ assignment.course.name }}</a> · Completed {{ assignment.completed_at|date:'M j' }}</div>
+          </div>
+          <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date|date:'M j' }}{% else %}No due date{% endif %}</span>
+          <form method="post" action="{% url 'coursework:assignment_reopen' assignment.pk %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">Reopen</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <div class="empty-state">
+      <span class="empty-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 3h6v4H9zm0 11 2 2 4-5"/></svg></span>
+      <h3>Nothing completed yet</h3>
+      <p>Assignments you mark as complete will show up here.</p>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -56,6 +56,14 @@
   .item-chevron { color: #aaa2b6; font-size: 1.3rem; }
   .term-badge { display: inline-block; padding: .3rem .65rem; border-radius: 6px; background: #f1eaf8; color: #6a358f; font-size: .75rem; font-weight: 600; }
   .due-label { color: var(--muted); font-size: .78rem; white-space: nowrap; }
+  .overdue-badge, .complete-badge { display: inline-block; padding: .25rem .55rem; border-radius: 6px; font-size: .72rem; font-weight: 650; white-space: nowrap; }
+  .overdue-badge { background: #fff1e9; color: #a34836; }
+  .complete-badge { background: #eaf3ef; color: #327453; }
+  .assignment-row.is-complete .item-title { color: var(--muted); text-decoration: line-through; }
+  .action-row { display: flex; align-items: center; }
+  .action-row .item-link { flex: 1; min-width: 0; padding-right: .75rem; }
+  .row-action { flex-shrink: 0; padding-right: 1.5rem; }
+  .header-link { font-size: .8rem; font-weight: 600; text-decoration: none; }
   .empty-state { padding: 3rem 1.75rem; text-align: center; }
   .empty-icon { width: 52px; height: 52px; margin-bottom: 1rem; }
   .empty-state h3 { font-size: 1rem; letter-spacing: -.015em; }
@@ -95,6 +103,9 @@
     .form-page .card-body { padding: 1.4rem; }
     .card-header, .item-link, .assignment-row { padding: 1.1rem; }
     .assignment-row { align-items: flex-start; flex-wrap: wrap; }
+    .action-row { flex-wrap: wrap; }
+    .action-row .item-link { flex-basis: 100%; }
+    .row-action { padding: 0 1.1rem 1.1rem; }
     .term-badge { white-space: nowrap; }
     .stat-card .card-body { padding: 1.2rem; }
     .auth-form-side { min-height: 100vh; padding: 2rem 1.5rem; }
