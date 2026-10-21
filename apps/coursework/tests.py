@@ -643,3 +643,149 @@ class AssignmentEditTests(TestCase):
         self.assertRedirects(response, f"{reverse('accounts:login')}?next={self.url}")
         self.assignment.refresh_from_db()
         self.assertEqual(self.assignment.title, 'Sprint report')
+
+
+class CourseEditTests(TestCase):
+    def setUp(self):
+        patcher = patch('apps.coursework.forms.timezone.localdate', return_value=date(2026, 10, 18))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.user = User.objects.create_user(
+            username='student@nyu.edu', email='student@nyu.edu', password='testpass123',
+        )
+        self.client.login(username='student@nyu.edu', password='testpass123')
+        self.course = Course.objects.create(
+            owner=self.user, name='Software Engneering', code='CSCI-UA 101', semester='Fall 2026',
+        )
+        self.edit_url = reverse('coursework:course_edit', args=[self.course.pk])
+        self.detail_url = reverse('coursework:course_detail', args=[self.course.pk])
+
+    def assert_course_unchanged(self):
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.name, 'Software Engneering')
+        self.assertEqual(self.course.code, 'CSCI-UA 101')
+        self.assertEqual(self.course.semester, 'Fall 2026')
+
+    def test_edit_form_shows_current_information(self):
+        response = self.client.get(self.edit_url)
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        self.assertEqual(form['name'].value(), 'Software Engneering')
+        self.assertEqual(form['code'].value(), 'CSCI-UA 101')
+        self.assertEqual(form['semester'].value(), 'Fall 2026')
+        self.assertContains(response, 'value="Software Engneering"')
+
+    def test_can_edit_name_code_and_semester(self):
+        response = self.client.post(self.edit_url, {
+            'name': 'Software Engineering',
+            'code': 'CS-GY 6063',
+            'semester': 'Spring 2027',
+        })
+        self.assertRedirects(response, self.detail_url)
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.name, 'Software Engineering')
+        self.assertEqual(self.course.code, 'CS-GY 6063')
+        self.assertEqual(self.course.semester, 'Spring 2027')
+        self.assertEqual(self.course.owner, self.user)
+        self.assertEqual(Course.objects.count(), 1)
+
+    def test_missing_name_is_rejected_and_nothing_saved(self):
+        response = self.client.post(self.edit_url, {
+            'name': '', 'code': 'CS-GY 6063', 'semester': 'Spring 2027',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Course name is required.')
+        self.assert_course_unchanged()
+
+    def test_missing_semester_is_rejected_and_nothing_saved(self):
+        response = self.client.post(self.edit_url, {
+            'name': 'Software Engineering', 'code': 'CS-GY 6063', 'semester': '',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Semester is required.')
+        self.assert_course_unchanged()
+
+    def test_saved_changes_appear_on_course_page_and_dashboard_after_refresh(self):
+        self.client.post(self.edit_url, {
+            'name': 'Software Engineering', 'code': 'CS-GY 6063', 'semester': 'Fall 2026',
+        })
+        for _ in range(2):
+            detail = self.client.get(self.detail_url)
+            self.assertContains(detail, 'Software Engineering')
+            self.assertContains(detail, 'CS-GY 6063')
+            self.assertNotContains(detail, 'Software Engneering')
+            dashboard = self.client.get(reverse('accounts:dashboard'))
+            self.assertContains(dashboard, 'Software Engineering')
+            self.assertNotContains(dashboard, 'Software Engneering')
+
+    def test_existing_assignments_stay_with_course(self):
+        assignment = Assignment.objects.create(course=self.course, title='Homework 1')
+        self.client.post(self.edit_url, {
+            'name': 'Software Engineering', 'code': 'CS-GY 6063', 'semester': 'Fall 2026',
+        })
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.course, self.course)
+        self.assertEqual(self.course.assignments.count(), 1)
+        self.assertContains(self.client.get(self.detail_url), 'Homework 1')
+
+    def test_cancel_returns_to_course_and_leaves_it_unchanged(self):
+        response = self.client.get(self.edit_url)
+        self.assertContains(response, f'href="{self.detail_url}" class="btn btn-outline-secondary">Cancel</a>', html=False)
+        self.assertEqual(self.client.get(self.detail_url).status_code, 200)
+        self.assert_course_unchanged()
+
+    def test_course_page_links_to_edit(self):
+        response = self.client.get(self.detail_url)
+        self.assertContains(response, 'Edit course')
+        self.assertContains(response, self.edit_url)
+
+    def test_course_with_past_semester_keeps_it_when_editing(self):
+        old = Course.objects.create(owner=self.user, name='Old Course', semester='Fall 2024')
+        url = reverse('coursework:course_edit', args=[old.pk])
+        self.assertEqual(self.client.get(url).context['form']['semester'].value(), 'Fall 2024')
+        response = self.client.post(url, {'name': 'Old Course (renamed)', 'code': '', 'semester': 'Fall 2024'})
+        self.assertRedirects(response, reverse('coursework:course_detail', args=[old.pk]))
+        old.refresh_from_db()
+        self.assertEqual(old.name, 'Old Course (renamed)')
+        self.assertEqual(old.semester, 'Fall 2024')
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        self.client.logout()
+        response = self.client.get(self.edit_url)
+        self.assertRedirects(response, f"{reverse('accounts:login')}?next={self.edit_url}")
+        self.client.post(self.edit_url, {'name': 'Hacked', 'semester': 'Fall 2026'})
+        self.assert_course_unchanged()
+
+
+class CourseEditOwnershipTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner@nyu.edu', email='owner@nyu.edu', password='testpass123',
+        )
+        User.objects.create_user(
+            username='other@nyu.edu', email='other@nyu.edu', password='testpass123',
+        )
+        self.course = Course.objects.create(
+            owner=self.owner, name='Owner Course', code='CSCI-UA 2', semester='Fall 2026',
+        )
+        self.edit_url = reverse('coursework:course_edit', args=[self.course.pk])
+        self.client.login(username='other@nyu.edu', password='testpass123')
+
+    def test_other_student_cannot_open_edit_form(self):
+        self.assertEqual(self.client.get(self.edit_url).status_code, 404)
+
+    def test_other_student_cannot_save_changes(self):
+        response = self.client.post(self.edit_url, {
+            'name': 'Not mine', 'code': '', 'semester': 'Fall 2026',
+        })
+        self.assertEqual(response.status_code, 404)
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.name, 'Owner Course')
+        self.assertEqual(self.course.owner, self.owner)
+
+
+class CourseFormEditTests(SimpleTestCase):
+    @patch('apps.coursework.forms.timezone.localdate', return_value=date(2026, 10, 18))
+    def test_new_course_form_does_not_offer_out_of_window_semesters(self, mock_today):
+        form = CourseForm(instance=Course(name='Unsaved', semester='Fall 2024'))
+        self.assertNotIn('Fall 2024', dict(form.fields['semester'].choices))

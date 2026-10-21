@@ -9,7 +9,10 @@
     <h1 class="mb-2">{{ course.name }}</h1>
     <p>{% if course.code %}{{ course.code }} <span class="mx-2" aria-hidden="true">&middot;</span>{% endif %}<span class="term-badge">{{ course.semester }}</span></p>
   </div>
-  <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-primary">+ Add assignment</a>
+  <div class="d-flex gap-2">
+    <a href="{% url 'coursework:course_edit' course.pk %}" class="btn btn-outline-secondary">Edit course</a>
+    <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-primary">+ Add assignment</a>
+  </div>
 </div>
 <section class="card" aria-labelledby="assignments-heading">
   <div class="card-header"><h2 class="section-title" id="assignments-heading">Assignments</h2></div>

@@ -39,6 +39,10 @@ class CourseForm(forms.ModelForm):
             )
             for year, index in (divmod(current + offset, len(terms)) for offset in (-1, 0, 1))
         ]
+        # Keep an edited course's semester selectable after it ages out of the window.
+        saved = self.instance.semester if self.instance.pk else ''
+        if saved and saved not in dict(self.fields['semester'].choices):
+            self.fields['semester'].choices.insert(0, (saved, saved))
         self.initial.setdefault('semester', f'{terms[term_index]} {today.year}')
         self.fields['name'].required = True
         self.fields['semester'].required = True
