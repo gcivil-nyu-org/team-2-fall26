@@ -15,9 +15,27 @@
   {% if assignments %}
     <ul class="item-list">
       {% for assignment in assignments %}
-        <li class="assignment-row">
+        <li class="assignment-row{% if assignment.is_complete %} is-complete{% endif %}">
           <div class="item-copy item-title">{{ assignment.title }}</div>
+          {% if assignment.is_complete %}
+            <span class="complete-badge">Complete</span>
+          {% elif assignment.is_overdue %}
+            <span class="overdue-badge">Overdue</span>
+          {% endif %}
           <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date }}{% else %}No due date{% endif %}</span>
+          {% if assignment.is_complete %}
+            <form method="post" action="{% url 'coursework:assignment_reopen' assignment.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit" class="btn btn-outline-secondary btn-sm">Reopen</button>
+            </form>
+          {% else %}
+            <form method="post" action="{% url 'coursework:assignment_complete' assignment.pk %}">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit" class="btn btn-outline-primary btn-sm">Mark complete</button>
+            </form>
+          {% endif %}
         </li>
       {% endfor %}
     </ul>

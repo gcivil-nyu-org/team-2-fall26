@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import F
+from django.utils import timezone
 
 
 class Course(models.Model):
@@ -20,7 +22,27 @@ class Course(models.Model):
         return self.name
 
 
+class AssignmentQuerySet(models.QuerySet):
+    def owned_by(self, user):
+        return self.filter(course__owner=user)
+
+    def outstanding(self):
+        return self.filter(status=Assignment.Status.INCOMPLETE).order_by(
+            F('due_date').asc(nulls_last=True), 'title',
+        )
+
+    def completed(self):
+        return self.filter(status=Assignment.Status.COMPLETE).order_by('-completed_at', 'title')
+
+    def overdue(self):
+        return self.filter(status=Assignment.Status.INCOMPLETE, due_date__lt=timezone.localdate())
+
+
 class Assignment(models.Model):
+    class Status(models.TextChoices):
+        INCOMPLETE = 'incomplete', 'Incomplete'
+        COMPLETE = 'complete', 'Complete'
+
     course = models.ForeignKey(
         Course,
         on_delete=models.CASCADE,
@@ -28,9 +50,35 @@ class Assignment(models.Model):
     )
     title = models.CharField(max_length=200)
     due_date = models.DateField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.INCOMPLETE)
+    completed_at = models.DateTimeField(blank=True, null=True)
+
+    objects = AssignmentQuerySet.as_manager()
 
     class Meta:
         ordering = ['due_date', 'title']
 
     def __str__(self):
         return self.title
+
+    @property
+    def is_complete(self):
+        return self.status == self.Status.COMPLETE
+
+    @property
+    def is_overdue(self):
+        return (
+            not self.is_complete
+            and self.due_date is not None
+            and self.due_date < timezone.localdate()
+        )
+
+    def mark_complete(self):
+        self.status = self.Status.COMPLETE
+        self.completed_at = timezone.now()
+        self.save(update_fields=['status', 'completed_at'])
+
+    def reopen(self):
+        self.status = self.Status.INCOMPLETE
+        self.completed_at = None
+        self.save(update_fields=['status', 'completed_at'])

@@ -11,4 +11,5 @@ class CourseAdmin(admin.ModelAdmin):
 
 @admin.register(Assignment)
 class AssignmentAdmin(admin.ModelAdmin):
-    list_display = ('title', 'course', 'due_date')
+    list_display = ('title', 'course', 'due_date', 'status')
+    list_filter = ('status',)
