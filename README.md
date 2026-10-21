@@ -85,6 +85,10 @@ DATABASE_ENGINE=postgresql
 DATABASE_NAME=... DATABASE_USER=... DATABASE_PASSWORD=... DATABASE_HOST=... DATABASE_PORT=5432
 ```
 
+With `DJANGO_DEBUG=False` the app refuses to start unless `DJANGO_SECRET_KEY` and all of the Postgres `DATABASE_*` vars are set, so a misconfigured environment fails the deploy instead of silently using SQLite. The RDS connection uses `sslmode=require` (override with `DATABASE_SSLMODE` for a local Postgres without SSL). HTTPS settings (SSL redirect, secure cookies, HSTS) are off until an environment has a certificate; then set `DJANGO_SECURE_HTTPS=True`.
+
+Both environments are single-instance (`eb create --single`), so there's no load balancer health check hitting the instance IP. If we ever switch to a load-balanced environment, ALLOWED_HOSTS will need the instance's private IP or a health-check exemption.
+
 Deploy:
 
 ```bash
