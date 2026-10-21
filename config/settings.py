@@ -12,16 +12,30 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env')
 
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-only-secret-do-not-use-in-prod')
-
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = []
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if not DEBUG:
+        # Deployed environments must set their own key; never fall back to the dev default.
+        raise ImproperlyConfigured('DJANGO_SECRET_KEY must be set when DJANGO_DEBUG=False.')
+    SECRET_KEY = 'dev-only-secret-do-not-use-in-prod'
+
+def _env_list(name, default=''):
+    return [item.strip() for item in os.environ.get(name, default).split(',') if item.strip()]
+
+
+# Comma-separated, e.g. "semesterpilot-prod.us-east-2.elasticbeanstalk.com"
+ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1')
+
+# Comma-separated full origins, e.g. "http://semesterpilot-prod.us-east-2.elasticbeanstalk.com"
+CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
 AUTH_USER_MODEL = 'accounts.User'
 
@@ -44,6 +58,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -77,17 +92,35 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Defaults to SQLite (no setup needed). Set DATABASE_ENGINE=postgresql in .env
 # to point at Postgres instead, e.g. for AWS RDS in production.
 
-if os.environ.get('DATABASE_ENGINE') == 'postgresql':
+DATABASE_ENGINE = os.environ.get('DATABASE_ENGINE', 'sqlite')
+
+if DATABASE_ENGINE == 'postgresql':
+    _required_db_vars = ['DATABASE_NAME', 'DATABASE_USER', 'DATABASE_PASSWORD', 'DATABASE_HOST']
+    _missing_db_vars = [name for name in _required_db_vars if not os.environ.get(name)]
+    if _missing_db_vars:
+        raise ImproperlyConfigured(
+            'DATABASE_ENGINE=postgresql but these are not set: ' + ', '.join(_missing_db_vars)
+        )
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('DATABASE_NAME'),
-            'USER': os.environ.get('DATABASE_USER'),
-            'PASSWORD': os.environ.get('DATABASE_PASSWORD'),
-            'HOST': os.environ.get('DATABASE_HOST', 'localhost'),
+            'NAME': os.environ['DATABASE_NAME'],
+            'USER': os.environ['DATABASE_USER'],
+            'PASSWORD': os.environ['DATABASE_PASSWORD'],
+            'HOST': os.environ['DATABASE_HOST'],
             'PORT': os.environ.get('DATABASE_PORT', '5432'),
+            'OPTIONS': {
+                # Always encrypt the RDS connection; a local Postgres without SSL can
+                # set DATABASE_SSLMODE=disable (or prefer) in .env.
+                'sslmode': os.environ.get('DATABASE_SSLMODE', 'require'),
+            },
         }
     }
+elif not DEBUG:
+    # Deployed environments must use Postgres: SQLite on EB is wiped on every redeploy.
+    raise ImproperlyConfigured(
+        'DATABASE_ENGINE=postgresql (and the DATABASE_* vars) must be set when DJANGO_DEBUG=False.'
+    )
 else:
     DATABASES = {
         'default': {
@@ -132,4 +165,42 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+# WhiteNoise serves collected static files from gunicorn, so no S3/nginx setup is needed.
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
+
+
+# HTTPS hardening. Off by default because the EB environments currently serve plain
+# HTTP; turn on with DJANGO_SECURE_HTTPS=True once an environment has a certificate.
+if os.environ.get('DJANGO_SECURE_HTTPS', 'False') == 'True':
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(os.environ.get('DJANGO_HSTS_SECONDS', '3600'))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
+
+# Send warnings and errors (including 500 tracebacks) to stdout so they show up
+# in `eb logs` (web.stdout.log). Without this, DEBUG=False hides them.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler'},
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': os.environ.get('DJANGO_LOG_LEVEL', 'WARNING'),
+        },
+    },
+}
