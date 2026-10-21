@@ -25,10 +25,10 @@ def _env_list(name, default=''):
     return [item.strip() for item in os.environ.get(name, default).split(',') if item.strip()]
 
 
-# Comma-separated, e.g. "semesterpilot-prod.us-east-1.elasticbeanstalk.com"
+# Comma-separated, e.g. "semesterpilot-prod.us-east-2.elasticbeanstalk.com"
 ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1')
 
-# Comma-separated full origins, e.g. "http://semesterpilot-prod.us-east-1.elasticbeanstalk.com"
+# Comma-separated full origins, e.g. "http://semesterpilot-prod.us-east-2.elasticbeanstalk.com"
 CSRF_TRUSTED_ORIGINS = _env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
 AUTH_USER_MODEL = 'accounts.User'

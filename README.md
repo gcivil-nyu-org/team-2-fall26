@@ -89,7 +89,7 @@ Deploy:
 
 ```bash
 pip install awsebcli
-eb init                       # once: Python 3.13 (Amazon Linux 2023), region us-east-1
+eb init                       # once: Python 3.13 (Amazon Linux 2023), region us-east-2 (Ohio; our account is limited to this region)
 git checkout develop && eb deploy semesterpilot-staging
 git checkout main    && eb deploy semesterpilot-prod
 ```
