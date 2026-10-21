@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% load tz %}
+{% block title %}Dashboard · SemesterPilot{% endblock %}
+{% block content %}
+<div class="page-heading">
+  <div>
+    <div class="eyebrow">Your semester, organized</div>
+    <h1 class="mb-2">Welcome back</h1>
+    <p>A little clarity for everything on your plate.</p>
+  </div>
+  <a href="{% url 'coursework:course_add' %}" class="btn btn-primary">+ Add course</a>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card stat-card h-100"><div class="card-body">
+      <div><div class="stat-label">Your courses</div><div class="stat-value">{{ course_count }}</div></div>
+      <span class="stat-icon">{% include 'includes/book_icon.html' %}</span>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card stat-due h-100"><div class="card-body">
+      <div><div class="stat-label">Assignments due this week</div><div class="stat-value">{{ due_this_week_count }}</div></div>
+      <span class="stat-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="4" y="5" width="16" height="16" rx="3"/><path d="M8 3v4m8-4v4M4 11h16m-12 4h3"/></svg></span>
+    </div></div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card stat-overdue h-100 {% if overdue_count %}has-overdue{% endif %}"><div class="card-body">
+      <div><div class="stat-label">Overdue</div><div class="stat-value">{{ overdue_count }}</div></div>
+      <span class="stat-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/></svg></span>
+    </div></div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <section class="col-lg-6" aria-labelledby="courses-heading">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="section-title" id="courses-heading">My Courses</h2>
+        <span class="term-badge">{{ course_count }} course{{ course_count|pluralize }}</span>
+      </div>
+      {% if courses %}
+        <ul class="item-list">
+          {% for course in courses %}
+            <li><a href="{% url 'coursework:course_detail' course.pk %}" class="item-link">
+              <span class="course-icon" aria-hidden="true">{{ course.name|slice:':2'|upper }}</span>
+              <div class="item-copy">
+                <div class="item-title">{{ course.name }}</div>
+                <div class="item-meta">{% if course.code %}{{ course.code }} · {% endif %}{{ course.semester }}</div>
+              </div>
+              <span class="item-chevron" aria-hidden="true">&rsaquo;</span>
+            </a></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty-state">
+          <span class="empty-icon">{% include 'includes/book_icon.html' %}</span>
+          <h3>No courses yet</h3>
+          <p>Add your first course to give your semester a home.</p>
+          <a href="{% url 'coursework:course_add' %}" class="btn btn-outline-primary btn-sm">+ Add your first course</a>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+  <section class="col-lg-6" aria-labelledby="assignments-heading">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="section-title" id="assignments-heading">Outstanding Assignments</h2>
+        <a href="{% url 'coursework:completed_assignments' %}" class="header-link">View completed</a>
+      </div>
+      {% if outstanding_assignments %}
+        <ul class="item-list">
+          {% for assignment in outstanding_assignments %}
+            <li class="action-row">
+              <a href="{% url 'coursework:course_detail' assignment.course.pk %}" class="item-link">
+                <div class="item-copy">
+                  <div class="item-title">{{ assignment.title }}</div>
+                  <div class="item-meta">{{ assignment.course.name }}</div>
+                </div>
+                {% if assignment.is_overdue %}<span class="overdue-badge">Overdue</span>{% endif %}
+                <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date|localtime|date:'M j, Y, g:i a e' }}{% else %}No due date{% endif %}</span>
+              </a>
+              <div class="row-action d-flex gap-2">
+                <a href="{% url 'coursework:assignment_edit' assignment.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-secondary btn-sm" aria-label="Edit {{ assignment.title }}">Edit</a>
+                <form method="post" action="{% url 'coursework:assignment_complete' assignment.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit" class="btn btn-outline-primary btn-sm">Mark complete</button>
+                </form>
+              </div>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="empty-state">
+          <span class="empty-icon"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="3"/><path d="M9 3h6v4H9zm0 11 2 2 4-5"/></svg></span>
+          <h3>No outstanding assignments</h3>
+          <p>{% if courses %}You're all caught up. Open a course to add an assignment and keep track of what comes next.{% else %}Start with a course, then add your assignments here.{% endif %}</p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}
