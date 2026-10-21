@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load tz %}
 {% block title %}{{ course.name }} · SemesterPilot{% endblock %}
 {% block content %}
 <a href="{% url 'accounts:dashboard' %}" class="back-link">&larr; Back to dashboard</a>
@@ -16,13 +17,17 @@
     <ul class="item-list">
       {% for assignment in assignments %}
         <li class="assignment-row{% if assignment.is_complete %} is-complete{% endif %}">
-          <div class="item-copy item-title">{{ assignment.title }}</div>
+          <div class="item-copy">
+            <div class="item-title">{{ assignment.title }}</div>
+            <div class="item-meta">{{ assignment.get_status_display }}</div>
+            {% if assignment.description %}<div class="item-meta">{{ assignment.description|linebreaksbr }}</div>{% endif %}
+          </div>
           {% if assignment.is_complete %}
             <span class="complete-badge">Complete</span>
           {% elif assignment.is_overdue %}
             <span class="overdue-badge">Overdue</span>
           {% endif %}
-          <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date }}{% else %}No due date{% endif %}</span>
+          <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date|localtime|date:'M j, Y, g:i a e' }}{% else %}No due date{% endif %}</span>
           {% if assignment.is_complete %}
             <form method="post" action="{% url 'coursework:assignment_reopen' assignment.pk %}">
               {% csrf_token %}

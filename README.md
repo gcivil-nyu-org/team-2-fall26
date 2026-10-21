@@ -30,6 +30,16 @@ Visit `http://localhost:8000/accounts/signup/` to create an account.
 python manage.py test
 ```
 
+## Assignment deadlines
+
+Assignments require a title and deadline date and time; descriptions are optional.
+Deadlines are entered and displayed in UTC, as labeled on the form and assignment
+lists. Past deadlines are accepted. New assignments start as Incomplete.
+
+Run `python manage.py migrate` after updating to apply the assignment schema changes.
+Existing dated assignments retain their date at midnight UTC; existing assignments
+without a deadline remain readable. New submissions must include a deadline.
+
 ## Database
 
 Defaults to SQLite, no setup required. To use Postgres instead (e.g. for AWS RDS), set these in `.env`:

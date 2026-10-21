@@ -159,7 +159,7 @@ class CourseDetailTests(TestCase):
     def test_can_add_assignment_to_course(self):
         response = self.client.post(reverse('coursework:assignment_add', args=[self.course.pk]), {
             'title': 'Homework 1',
-            'due_date': date.today() + timedelta(days=3),
+            'due_date': '2026-10-24T14:30',
         })
         self.assertRedirects(response, reverse('coursework:course_detail', args=[self.course.pk]))
         self.assertEqual(self.course.assignments.count(), 1)
@@ -208,7 +208,7 @@ class AssignmentStatusTestCase(TestCase):
         self.course = Course.objects.create(
             owner=self.user, name='Software Engineering', code='CSCI-UA 101', semester='Fall 2026',
         )
-        self.today = timezone.localdate()
+        self.today = timezone.now().replace(second=0, microsecond=0)
 
     def make_assignment(self, title, days_from_today=3, **kwargs):
         due_date = None if days_from_today is None else self.today + timedelta(days=days_from_today)
@@ -232,7 +232,7 @@ class AssignmentStatusTestCase(TestCase):
 class AssignmentCompletionTests(AssignmentStatusTestCase):
     def test_new_assignment_starts_incomplete(self):
         self.client.post(reverse('coursework:assignment_add', args=[self.course.pk]), {
-            'title': 'Homework 1', 'due_date': self.today + timedelta(days=3),
+            'title': 'Homework 1', 'due_date': (self.today + timedelta(days=3)).strftime('%Y-%m-%dT%H:%M'),
         })
         assignment = Assignment.objects.get()
         self.assertEqual(assignment.status, Assignment.Status.INCOMPLETE)
@@ -405,3 +405,81 @@ class AssignmentStatusIsolationTests(AssignmentStatusTestCase):
         self.assertRedirects(response, f"{reverse('accounts:login')}?next={completed_url}")
         self.assignment.refresh_from_db()
         self.assertEqual(self.assignment.status, Assignment.Status.INCOMPLETE)
+
+
+class AssignmentDeadlineTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='deadline@nyu.edu', email='deadline@nyu.edu', password='testpass123')
+        self.course = Course.objects.create(owner=self.user, name='Deadlines', semester='Fall 2026')
+        self.client.force_login(self.user)
+        self.url = reverse('coursework:assignment_add', args=[self.course.pk])
+
+    def test_creation_persists_deadline_description_and_initial_status(self):
+        response = self.client.post(self.url, {
+            'title': 'Project', 'due_date': '2026-11-02T14:30', 'description': 'Submit report',
+            'status': 'complete',
+        })
+        self.assertRedirects(response, reverse('coursework:course_detail', args=[self.course.pk]))
+        assignment = Assignment.objects.get()
+        self.assertEqual(assignment.status, Assignment.Status.INCOMPLETE)
+        self.assertEqual(assignment.description, 'Submit report')
+        self.assertEqual(assignment.due_date.isoformat(), '2026-11-02T14:30:00+00:00')
+        for _ in range(2):
+            detail = self.client.get(reverse('coursework:course_detail', args=[self.course.pk]))
+            self.assertContains(detail, 'Project')
+            self.assertContains(detail, 'Submit report')
+            self.assertContains(detail, 'Incomplete')
+            self.assertContains(detail, '2:30 p.m. UTC')
+
+    def test_required_and_invalid_input_prevents_saving(self):
+        for title, deadline, error in [
+            ('', '2026-11-02T14:30', 'This field is required.'),
+            ('Project', '', 'A deadline date and time are required.'),
+            ('Project', 'invalid', 'Enter a valid deadline date and time.'),
+            ('Project', '2026-02-30T12:00', 'Enter a valid deadline date and time.'),
+            ('Project', '2026-11-02', 'Enter a valid deadline date and time.'),
+        ]:
+            with self.subTest(title=title, deadline=deadline):
+                response = self.client.post(self.url, {'title': title, 'due_date': deadline})
+                self.assertContains(response, error)
+                self.assertFalse(Assignment.objects.exists())
+
+    def test_past_deadline_without_description_is_allowed_and_visible(self):
+        self.client.post(self.url, {'title': 'Overdue report', 'due_date': '2020-01-01T09:00'})
+        self.assertEqual(Assignment.objects.get().description, '')
+        response = self.client.get(reverse('accounts:dashboard'))
+        self.assertContains(response, 'Overdue report')
+        self.assertEqual(response.context['overdue_count'], 1)
+
+    def test_timezone_is_indicated_on_form(self):
+        self.assertContains(self.client.get(self.url), 'Time zone: UTC.')
+
+    def test_anonymous_creation_is_rejected(self):
+        self.client.logout()
+        response = self.client.post(self.url, {'title': 'Hidden', 'due_date': '2026-11-02T14:30'})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Assignment.objects.exists())
+
+    def test_other_account_cannot_read_or_create_assignments(self):
+        Assignment.objects.create(course=self.course, title='Private project', due_date='2026-11-02T14:30:00Z')
+        other = User.objects.create_user(username='outsider', email='outsider@nyu.edu')
+        self.client.force_login(other)
+        for method in [self.client.get, self.client.post]:
+            response = method(self.url, {'title': 'Intrusion', 'due_date': '2026-11-02T14:30'})
+            self.assertEqual(response.status_code, 404)
+        self.assertEqual(Assignment.objects.count(), 1)
+        response = self.client.get(reverse('accounts:dashboard'))
+        self.assertNotContains(response, 'Private project')
+        self.assertEqual(response.context['overdue_count'], 0)
+
+    def test_deadline_time_controls_overdue_status_on_same_day(self):
+        now = timezone.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        earlier = Assignment.objects.create(course=self.course, title='Earlier today', due_date=now - timedelta(hours=1))
+        later = Assignment.objects.create(course=self.course, title='Later today', due_date=now + timedelta(hours=1))
+        with patch('apps.coursework.models.timezone.now', return_value=now):
+            self.assertTrue(earlier.is_overdue)
+            self.assertFalse(later.is_overdue)
+            self.assertEqual(list(Assignment.objects.overdue()), [earlier])
+            response = self.client.get(reverse('accounts:dashboard'))
+            self.assertEqual(response.context['overdue_count'], 1)
+            self.assertEqual(response.context['due_this_week_count'], 1)

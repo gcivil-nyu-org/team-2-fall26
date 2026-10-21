@@ -31,14 +31,14 @@ def logout_view(request):
 @login_required(login_url='accounts:login')
 def dashboard_view(request):
     courses = request.user.courses.all()
-    today = timezone.localdate()
-    week_end = today + timedelta(days=7)
+    now = timezone.now()
+    week_end = now + timedelta(days=7)
     assignments = Assignment.objects.owned_by(request.user)
     outstanding = assignments.outstanding()
     return render(request, 'accounts/dashboard.html', {
         'courses': courses,
         'course_count': courses.count(),
-        'due_this_week_count': outstanding.filter(due_date__gte=today, due_date__lte=week_end).count(),
+        'due_this_week_count': outstanding.filter(due_date__gte=now, due_date__lte=week_end).count(),
         'overdue_count': assignments.overdue().count(),
         'outstanding_assignments': outstanding.select_related('course'),
     })

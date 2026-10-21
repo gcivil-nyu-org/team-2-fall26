@@ -35,7 +35,7 @@ class AssignmentQuerySet(models.QuerySet):
         return self.filter(status=Assignment.Status.COMPLETE).order_by('-completed_at', 'title')
 
     def overdue(self):
-        return self.filter(status=Assignment.Status.INCOMPLETE, due_date__lt=timezone.localdate())
+        return self.filter(status=Assignment.Status.INCOMPLETE, due_date__lt=timezone.now())
 
 
 class Assignment(models.Model):
@@ -49,7 +49,9 @@ class Assignment(models.Model):
         related_name='assignments',
     )
     title = models.CharField(max_length=200)
-    due_date = models.DateField(blank=True, null=True)
+    # Nullable to preserve assignments created before deadlines were required.
+    due_date = models.DateTimeField(blank=True, null=True)
+    description = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.INCOMPLETE)
     completed_at = models.DateTimeField(blank=True, null=True)
 
@@ -70,7 +72,7 @@ class Assignment(models.Model):
         return (
             not self.is_complete
             and self.due_date is not None
-            and self.due_date < timezone.localdate()
+            and self.due_date < timezone.now()
         )
 
     def mark_complete(self):

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from django import forms
 from django.utils import timezone
 from .models import Course, Assignment
@@ -45,17 +47,42 @@ class CourseForm(forms.ModelForm):
         self.fields['semester'].error_messages['required'] = 'Semester is required.'
 
 
+class DeadlineField(forms.DateTimeField):
+    def to_python(self, value):
+        # Django also accepts ISO date-only input; require an explicit time.
+        if isinstance(value, str) and value.strip():
+            try:
+                datetime.strptime(value, '%Y-%m-%dT%H:%M')
+            except ValueError:
+                raise forms.ValidationError(self.error_messages['invalid'], code='invalid')
+        return super().to_python(value)
+
+
 class AssignmentForm(forms.ModelForm):
+    due_date = DeadlineField(
+        label='Deadline',
+        input_formats=['%Y-%m-%dT%H:%M'],
+        widget=forms.DateTimeInput(
+            format='%Y-%m-%dT%H:%M',
+            attrs={'class': 'form-control', 'type': 'datetime-local'},
+        ),
+        error_messages={
+            'required': 'A deadline date and time are required.',
+            'invalid': 'Enter a valid deadline date and time.',
+        },
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['due_date'].help_text = f'Time zone: {timezone.get_current_timezone_name()}.'
+
     class Meta:
         model = Assignment
-        fields = ['title', 'due_date']
+        fields = ['title', 'due_date', 'description']
         widgets = {
             'title': forms.TextInput(attrs={
                 'class': 'form-control',
                 'placeholder': 'Homework 1',
             }),
-            'due_date': forms.DateInput(attrs={
-                'class': 'form-control',
-                'type': 'date',
-            }),
+            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
         }
