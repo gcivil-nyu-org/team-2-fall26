@@ -55,6 +55,22 @@ def course_detail_view(request, pk):
 
 
 @login_required(login_url='accounts:login')
+def course_edit_view(request, pk):
+    course = _owned_course(request, pk)
+    if request.method == 'POST':
+        form = CourseForm(request.POST, instance=course)
+        if form.is_valid():
+            form.save()
+            return redirect('coursework:course_detail', pk=course.pk)
+    else:
+        form = CourseForm(instance=course)
+    return render(request, 'coursework/course_form.html', {
+        'form': form,
+        'course': course,
+    })
+
+
+@login_required(login_url='accounts:login')
 def assignment_create_view(request, pk):
     course = _owned_course(request, pk)
     if request.method == 'POST':
