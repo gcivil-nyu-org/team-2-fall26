@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
@@ -423,13 +423,13 @@ class AssignmentDeadlineTests(TestCase):
         assignment = Assignment.objects.get()
         self.assertEqual(assignment.status, Assignment.Status.INCOMPLETE)
         self.assertEqual(assignment.description, 'Submit report')
-        self.assertEqual(assignment.due_date.isoformat(), '2026-11-02T14:30:00+00:00')
+        self.assertEqual(assignment.due_date.isoformat(), '2026-11-02T19:30:00+00:00')
         for _ in range(2):
             detail = self.client.get(reverse('coursework:course_detail', args=[self.course.pk]))
             self.assertContains(detail, 'Project')
             self.assertContains(detail, 'Submit report')
             self.assertContains(detail, 'Incomplete')
-            self.assertContains(detail, '2:30 p.m. UTC')
+            self.assertContains(detail, '2:30 p.m. EST')
 
     def test_required_and_invalid_input_prevents_saving(self):
         for title, deadline, error in [
@@ -452,7 +452,7 @@ class AssignmentDeadlineTests(TestCase):
         self.assertEqual(response.context['overdue_count'], 1)
 
     def test_timezone_is_indicated_on_form(self):
-        self.assertContains(self.client.get(self.url), 'Time zone: UTC.')
+        self.assertContains(self.client.get(self.url), 'Time zone: America/New_York.')
 
     def test_anonymous_creation_is_rejected(self):
         self.client.logout()
@@ -483,3 +483,309 @@ class AssignmentDeadlineTests(TestCase):
             response = self.client.get(reverse('accounts:dashboard'))
             self.assertEqual(response.context['overdue_count'], 1)
             self.assertEqual(response.context['due_this_week_count'], 1)
+
+
+class AssignmentEditTests(TestCase):
+    """#15: editing an assignment's title, description and deadline."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='editor@nyu.edu', email='editor@nyu.edu', password='testpass123')
+        self.course = Course.objects.create(owner=self.user, name='Software Engineering', semester='Fall 2026')
+        self.client.force_login(self.user)
+        self.assignment = Assignment.objects.create(
+            course=self.course, title='Sprint report', description='Draft outline',
+            due_date=timezone.now().replace(second=0, microsecond=0) + timedelta(days=5),
+        )
+        self.url = reverse('coursework:assignment_edit', args=[self.assignment.pk])
+        self.detail_url = reverse('coursework:course_detail', args=[self.course.pk])
+        self.dashboard_url = reverse('accounts:dashboard')
+
+    def edit(self, **overrides):
+        data = {'title': 'Final sprint report', 'due_date': '2026-11-20T17:45', 'description': 'Include retro notes'}
+        data.update(overrides)
+        return self.client.post(self.url, data)
+
+    def deadline_from_now(self, **delta):
+        return (timezone.now() + timedelta(**delta)).strftime('%Y-%m-%dT%H:%M')
+
+    def outstanding_titles(self):
+        response = self.client.get(self.dashboard_url)
+        return [a.title for a in response.context['outstanding_assignments']]
+
+    def test_form_shows_current_information(self):
+        self.assignment.due_date = datetime(2026, 11, 2, 14, 30, tzinfo=dt_timezone.utc)
+        self.assignment.save()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Edit assignment')
+        self.assertContains(response, 'value="Sprint report"')
+        self.assertContains(response, 'value="2026-11-02T09:30"')
+        self.assertContains(response, 'Draft outline</textarea>')
+        self.assertContains(response, 'Time zone: America/New_York.')
+
+    def test_saves_title_description_and_deadline(self):
+        response = self.edit()
+        self.assertRedirects(response, self.detail_url)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Final sprint report')
+        self.assertEqual(self.assignment.description, 'Include retro notes')
+        self.assertEqual(self.assignment.due_date.isoformat(), '2026-11-20T22:45:00+00:00')
+        self.assertEqual(Assignment.objects.count(), 1)
+
+    def test_description_can_be_cleared(self):
+        self.edit(description='')
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.description, '')
+
+    def test_saved_changes_appear_in_details_and_list_after_refresh(self):
+        self.edit()
+        for _ in range(2):
+            detail = self.client.get(self.detail_url)
+            self.assertContains(detail, 'Final sprint report')
+            self.assertContains(detail, 'Include retro notes')
+            self.assertContains(detail, 'Nov 20, 2026, 5:45 p.m. EST')
+            self.assertNotContains(detail, 'Sprint report</div>')
+            dashboard = self.client.get(self.dashboard_url)
+            self.assertContains(dashboard, 'Final sprint report')
+            self.assertContains(dashboard, 'Nov 20, 2026, 5:45 p.m. EST')
+
+    def test_same_validation_rules_as_creation(self):
+        for title, deadline, error in [
+            ('', '2026-11-02T14:30', 'This field is required.'),
+            ('Project', '', 'A deadline date and time are required.'),
+            ('Project', 'invalid', 'Enter a valid deadline date and time.'),
+            ('Project', '2026-02-30T12:00', 'Enter a valid deadline date and time.'),
+            ('Project', '2026-11-02', 'Enter a valid deadline date and time.'),
+        ]:
+            with self.subTest(title=title, deadline=deadline):
+                response = self.edit(title=title, due_date=deadline)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, error)
+                self.assignment.refresh_from_db()
+                self.assertEqual(self.assignment.title, 'Sprint report')
+                self.assertEqual(self.assignment.description, 'Draft outline')
+
+    def test_assignment_without_deadline_must_get_one_when_edited(self):
+        legacy = Assignment.objects.create(course=self.course, title='Old task', due_date=None)
+        url = reverse('coursework:assignment_edit', args=[legacy.pk])
+        response = self.client.post(url, {'title': 'Old task', 'due_date': ''})
+        self.assertContains(response, 'A deadline date and time are required.')
+        legacy.refresh_from_db()
+        self.assertIsNone(legacy.due_date)
+
+    def test_moving_deadline_earlier_reorders_outstanding_view(self):
+        Assignment.objects.create(course=self.course, title='Midterm prep', due_date=timezone.now() + timedelta(days=2))
+        self.assertEqual(self.outstanding_titles(), ['Midterm prep', 'Sprint report'])
+        self.edit(title='Sprint report', due_date=self.deadline_from_now(days=1))
+        self.assertEqual(self.outstanding_titles(), ['Sprint report', 'Midterm prep'])
+
+    def test_moving_deadline_into_past_marks_overdue_and_back_clears_it(self):
+        self.edit(title='Sprint report', due_date=self.deadline_from_now(days=-1))
+        dashboard = self.client.get(self.dashboard_url)
+        self.assertEqual(dashboard.context['overdue_count'], 1)
+        self.assertContains(dashboard, 'class="overdue-badge"')
+        self.assertContains(self.client.get(self.detail_url), 'class="overdue-badge"')
+
+        self.edit(title='Sprint report', due_date=self.deadline_from_now(days=3))
+        dashboard = self.client.get(self.dashboard_url)
+        self.assertEqual(dashboard.context['overdue_count'], 0)
+        self.assertNotContains(dashboard, 'class="overdue-badge"')
+        self.assertNotContains(self.client.get(self.detail_url), 'class="overdue-badge"')
+        self.assertEqual(dashboard.context['due_this_week_count'], 1)
+
+    def test_editing_keeps_completion_status(self):
+        self.assignment.mark_complete()
+        completed_at = self.assignment.completed_at
+        self.edit(status='incomplete')
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Final sprint report')
+        self.assertEqual(self.assignment.status, Assignment.Status.COMPLETE)
+        self.assertEqual(self.assignment.completed_at, completed_at)
+
+    def test_cancel_returns_without_changing_anything(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, f'href="{self.detail_url}" class="btn btn-outline-secondary">Cancel')
+        self.client.get(self.detail_url)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Sprint report')
+        self.assertEqual(self.assignment.description, 'Draft outline')
+
+    def test_edit_from_dashboard_returns_to_dashboard(self):
+        response = self.client.get(f'{self.url}?next={self.dashboard_url}')
+        self.assertContains(response, f'href="{self.dashboard_url}" class="btn btn-outline-secondary">Cancel')
+        self.assertContains(response, f'name="next" value="{self.dashboard_url}"')
+        response = self.client.post(self.url, {
+            'title': 'Final sprint report', 'due_date': '2026-11-20T17:45', 'next': self.dashboard_url,
+        })
+        self.assertRedirects(response, self.dashboard_url)
+
+    def test_external_next_url_is_ignored(self):
+        response = self.client.get(f'{self.url}?next=https://evil.example.com/')
+        self.assertNotContains(response, 'evil.example.com')
+        response = self.edit(next='https://evil.example.com/')
+        self.assertRedirects(response, self.detail_url)
+
+    def test_course_detail_and_dashboard_link_to_edit(self):
+        self.assertContains(self.client.get(self.detail_url), f'href="{self.url}"')
+        self.assertContains(self.client.get(self.dashboard_url), f'href="{self.url}?next=')
+
+    def test_other_student_cannot_view_or_edit(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='testpass123')
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+        self.assertEqual(self.edit().status_code, 404)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Sprint report')
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        self.client.logout()
+        response = self.edit()
+        self.assertRedirects(response, f"{reverse('accounts:login')}?next={self.url}")
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Sprint report')
+
+
+class CourseEditTests(TestCase):
+    def setUp(self):
+        patcher = patch('apps.coursework.forms.timezone.localdate', return_value=date(2026, 10, 18))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.user = User.objects.create_user(
+            username='student@nyu.edu', email='student@nyu.edu', password='testpass123',
+        )
+        self.client.login(username='student@nyu.edu', password='testpass123')
+        self.course = Course.objects.create(
+            owner=self.user, name='Software Engneering', code='CSCI-UA 101', semester='Fall 2026',
+        )
+        self.edit_url = reverse('coursework:course_edit', args=[self.course.pk])
+        self.detail_url = reverse('coursework:course_detail', args=[self.course.pk])
+
+    def assert_course_unchanged(self):
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.name, 'Software Engneering')
+        self.assertEqual(self.course.code, 'CSCI-UA 101')
+        self.assertEqual(self.course.semester, 'Fall 2026')
+
+    def test_edit_form_shows_current_information(self):
+        response = self.client.get(self.edit_url)
+        self.assertEqual(response.status_code, 200)
+        form = response.context['form']
+        self.assertEqual(form['name'].value(), 'Software Engneering')
+        self.assertEqual(form['code'].value(), 'CSCI-UA 101')
+        self.assertEqual(form['semester'].value(), 'Fall 2026')
+        self.assertContains(response, 'value="Software Engneering"')
+
+    def test_can_edit_name_code_and_semester(self):
+        response = self.client.post(self.edit_url, {
+            'name': 'Software Engineering',
+            'code': 'CS-GY 6063',
+            'semester': 'Spring 2027',
+        })
+        self.assertRedirects(response, self.detail_url)
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.name, 'Software Engineering')
+        self.assertEqual(self.course.code, 'CS-GY 6063')
+        self.assertEqual(self.course.semester, 'Spring 2027')
+        self.assertEqual(self.course.owner, self.user)
+        self.assertEqual(Course.objects.count(), 1)
+
+    def test_missing_name_is_rejected_and_nothing_saved(self):
+        response = self.client.post(self.edit_url, {
+            'name': '', 'code': 'CS-GY 6063', 'semester': 'Spring 2027',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Course name is required.')
+        self.assert_course_unchanged()
+
+    def test_missing_semester_is_rejected_and_nothing_saved(self):
+        response = self.client.post(self.edit_url, {
+            'name': 'Software Engineering', 'code': 'CS-GY 6063', 'semester': '',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Semester is required.')
+        self.assert_course_unchanged()
+
+    def test_saved_changes_appear_on_course_page_and_dashboard_after_refresh(self):
+        self.client.post(self.edit_url, {
+            'name': 'Software Engineering', 'code': 'CS-GY 6063', 'semester': 'Fall 2026',
+        })
+        for _ in range(2):
+            detail = self.client.get(self.detail_url)
+            self.assertContains(detail, 'Software Engineering')
+            self.assertContains(detail, 'CS-GY 6063')
+            self.assertNotContains(detail, 'Software Engneering')
+            dashboard = self.client.get(reverse('accounts:dashboard'))
+            self.assertContains(dashboard, 'Software Engineering')
+            self.assertNotContains(dashboard, 'Software Engneering')
+
+    def test_existing_assignments_stay_with_course(self):
+        assignment = Assignment.objects.create(course=self.course, title='Homework 1')
+        self.client.post(self.edit_url, {
+            'name': 'Software Engineering', 'code': 'CS-GY 6063', 'semester': 'Fall 2026',
+        })
+        assignment.refresh_from_db()
+        self.assertEqual(assignment.course, self.course)
+        self.assertEqual(self.course.assignments.count(), 1)
+        self.assertContains(self.client.get(self.detail_url), 'Homework 1')
+
+    def test_cancel_returns_to_course_and_leaves_it_unchanged(self):
+        response = self.client.get(self.edit_url)
+        self.assertContains(response, f'href="{self.detail_url}" class="btn btn-outline-secondary">Cancel</a>', html=False)
+        self.assertEqual(self.client.get(self.detail_url).status_code, 200)
+        self.assert_course_unchanged()
+
+    def test_course_page_links_to_edit(self):
+        response = self.client.get(self.detail_url)
+        self.assertContains(response, 'Edit course')
+        self.assertContains(response, self.edit_url)
+
+    def test_course_with_past_semester_keeps_it_when_editing(self):
+        old = Course.objects.create(owner=self.user, name='Old Course', semester='Fall 2024')
+        url = reverse('coursework:course_edit', args=[old.pk])
+        self.assertEqual(self.client.get(url).context['form']['semester'].value(), 'Fall 2024')
+        response = self.client.post(url, {'name': 'Old Course (renamed)', 'code': '', 'semester': 'Fall 2024'})
+        self.assertRedirects(response, reverse('coursework:course_detail', args=[old.pk]))
+        old.refresh_from_db()
+        self.assertEqual(old.name, 'Old Course (renamed)')
+        self.assertEqual(old.semester, 'Fall 2024')
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        self.client.logout()
+        response = self.client.get(self.edit_url)
+        self.assertRedirects(response, f"{reverse('accounts:login')}?next={self.edit_url}")
+        self.client.post(self.edit_url, {'name': 'Hacked', 'semester': 'Fall 2026'})
+        self.assert_course_unchanged()
+
+
+class CourseEditOwnershipTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            username='owner@nyu.edu', email='owner@nyu.edu', password='testpass123',
+        )
+        User.objects.create_user(
+            username='other@nyu.edu', email='other@nyu.edu', password='testpass123',
+        )
+        self.course = Course.objects.create(
+            owner=self.owner, name='Owner Course', code='CSCI-UA 2', semester='Fall 2026',
+        )
+        self.edit_url = reverse('coursework:course_edit', args=[self.course.pk])
+        self.client.login(username='other@nyu.edu', password='testpass123')
+
+    def test_other_student_cannot_open_edit_form(self):
+        self.assertEqual(self.client.get(self.edit_url).status_code, 404)
+
+    def test_other_student_cannot_save_changes(self):
+        response = self.client.post(self.edit_url, {
+            'name': 'Not mine', 'code': '', 'semester': 'Fall 2026',
+        })
+        self.assertEqual(response.status_code, 404)
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.name, 'Owner Course')
+        self.assertEqual(self.course.owner, self.owner)
+
+
+class CourseFormEditTests(SimpleTestCase):
+    @patch('apps.coursework.forms.timezone.localdate', return_value=date(2026, 10, 18))
+    def test_new_course_form_does_not_offer_out_of_window_semesters(self, mock_today):
+        form = CourseForm(instance=Course(name='Unsaved', semester='Fall 2024'))
+        self.assertNotIn('Fall 2024', dict(form.fields['semester'].choices))

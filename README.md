@@ -33,11 +33,11 @@ python manage.py test
 ## Assignment deadlines
 
 Assignments require a title and deadline date and time; descriptions are optional.
-Deadlines are entered and displayed in UTC, as labeled on the form and assignment
+Deadlines are entered and displayed in Eastern time (America/New_York), as labeled on the form and assignment
 lists. Past deadlines are accepted. New assignments start as Incomplete.
 
 Run `python manage.py migrate` after updating to apply the assignment schema changes.
-Existing dated assignments retain their date at midnight UTC; existing assignments
+Existing dated assignments retain their date at midnight Eastern time; existing assignments
 without a deadline remain readable. New submissions must include a deadline.
 
 ## Database

@@ -1,11 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Add course · SemesterPilot{% endblock %}
+{% block title %}{% if course %}Edit course{% else %}Add course{% endif %} · SemesterPilot{% endblock %}
 {% block content %}
 <div class="form-page">
+  {% if course %}
+  <a href="{% url 'coursework:course_detail' course.pk %}" class="back-link">&larr; Back to course</a>
+  <div class="eyebrow">Your course</div>
+  <h1 class="mb-2">Edit course</h1>
+  <p class="text-muted mb-4">Fix a typo or update the details. Your assignments stay with this course.</p>
+  {% else %}
   <a href="{% url 'accounts:dashboard' %}" class="back-link">&larr; Back to dashboard</a>
   <div class="eyebrow">Build your semester</div>
   <h1 class="mb-2">Add a course</h1>
   <p class="text-muted mb-4">A place for your assignments and everything that comes next.</p>
+  {% endif %}
 
   <form method="post" novalidate class="card">
     {% csrf_token %}
@@ -26,8 +33,8 @@
         {% for error in form.semester.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
       </div>
       <div class="form-actions">
-        <button type="submit" class="btn btn-primary">Save course</button>
-        <a href="{% url 'accounts:dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
+        <button type="submit" class="btn btn-primary">{% if course %}Save changes{% else %}Save course{% endif %}</button>
+        <a href="{% if course %}{% url 'coursework:course_detail' course.pk %}{% else %}{% url 'accounts:dashboard' %}{% endif %}" class="btn btn-outline-secondary">Cancel</a>
       </div>
     </div>
   </form>

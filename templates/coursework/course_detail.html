@@ -9,7 +9,10 @@
     <h1 class="mb-2">{{ course.name }}</h1>
     <p>{% if course.code %}{{ course.code }} <span class="mx-2" aria-hidden="true">&middot;</span>{% endif %}<span class="term-badge">{{ course.semester }}</span></p>
   </div>
-  <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-primary">+ Add assignment</a>
+  <div class="d-flex gap-2">
+    <a href="{% url 'coursework:course_edit' course.pk %}" class="btn btn-outline-secondary">Edit course</a>
+    <a href="{% url 'coursework:assignment_add' course.pk %}" class="btn btn-primary">+ Add assignment</a>
+  </div>
 </div>
 <section class="card" aria-labelledby="assignments-heading">
   <div class="card-header"><h2 class="section-title" id="assignments-heading">Assignments</h2></div>
@@ -28,6 +31,7 @@
             <span class="overdue-badge">Overdue</span>
           {% endif %}
           <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date|localtime|date:'M j, Y, g:i a e' }}{% else %}No due date{% endif %}</span>
+          <a href="{% url 'coursework:assignment_edit' assignment.pk %}" class="btn btn-outline-secondary btn-sm" aria-label="Edit {{ assignment.title }}">Edit</a>
           {% if assignment.is_complete %}
             <form method="post" action="{% url 'coursework:assignment_reopen' assignment.pk %}">
               {% csrf_token %}
