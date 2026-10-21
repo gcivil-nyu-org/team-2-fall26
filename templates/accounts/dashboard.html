@@ -80,11 +80,14 @@
                 {% if assignment.is_overdue %}<span class="overdue-badge">Overdue</span>{% endif %}
                 <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date|localtime|date:'M j, Y, g:i a e' }}{% else %}No due date{% endif %}</span>
               </a>
-              <form method="post" action="{% url 'coursework:assignment_complete' assignment.pk %}" class="row-action">
-                {% csrf_token %}
-                <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                <button type="submit" class="btn btn-outline-primary btn-sm">Mark complete</button>
-              </form>
+              <div class="row-action d-flex gap-2">
+                <a href="{% url 'coursework:assignment_edit' assignment.pk %}?next={{ request.get_full_path|urlencode }}" class="btn btn-outline-secondary btn-sm" aria-label="Edit {{ assignment.title }}">Edit</a>
+                <form method="post" action="{% url 'coursework:assignment_complete' assignment.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit" class="btn btn-outline-primary btn-sm">Mark complete</button>
+                </form>
+              </div>
             </li>
           {% endfor %}
         </ul>
