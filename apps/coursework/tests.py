@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
@@ -483,3 +483,163 @@ class AssignmentDeadlineTests(TestCase):
             response = self.client.get(reverse('accounts:dashboard'))
             self.assertEqual(response.context['overdue_count'], 1)
             self.assertEqual(response.context['due_this_week_count'], 1)
+
+
+class AssignmentEditTests(TestCase):
+    """#15: editing an assignment's title, description and deadline."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='editor@nyu.edu', email='editor@nyu.edu', password='testpass123')
+        self.course = Course.objects.create(owner=self.user, name='Software Engineering', semester='Fall 2026')
+        self.client.force_login(self.user)
+        self.assignment = Assignment.objects.create(
+            course=self.course, title='Sprint report', description='Draft outline',
+            due_date=timezone.now().replace(second=0, microsecond=0) + timedelta(days=5),
+        )
+        self.url = reverse('coursework:assignment_edit', args=[self.assignment.pk])
+        self.detail_url = reverse('coursework:course_detail', args=[self.course.pk])
+        self.dashboard_url = reverse('accounts:dashboard')
+
+    def edit(self, **overrides):
+        data = {'title': 'Final sprint report', 'due_date': '2026-11-20T17:45', 'description': 'Include retro notes'}
+        data.update(overrides)
+        return self.client.post(self.url, data)
+
+    def deadline_from_now(self, **delta):
+        return (timezone.now() + timedelta(**delta)).strftime('%Y-%m-%dT%H:%M')
+
+    def outstanding_titles(self):
+        response = self.client.get(self.dashboard_url)
+        return [a.title for a in response.context['outstanding_assignments']]
+
+    def test_form_shows_current_information(self):
+        self.assignment.due_date = datetime(2026, 11, 2, 14, 30, tzinfo=dt_timezone.utc)
+        self.assignment.save()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Edit assignment')
+        self.assertContains(response, 'value="Sprint report"')
+        self.assertContains(response, 'value="2026-11-02T14:30"')
+        self.assertContains(response, 'Draft outline</textarea>')
+        self.assertContains(response, 'Time zone: UTC.')
+
+    def test_saves_title_description_and_deadline(self):
+        response = self.edit()
+        self.assertRedirects(response, self.detail_url)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Final sprint report')
+        self.assertEqual(self.assignment.description, 'Include retro notes')
+        self.assertEqual(self.assignment.due_date.isoformat(), '2026-11-20T17:45:00+00:00')
+        self.assertEqual(Assignment.objects.count(), 1)
+
+    def test_description_can_be_cleared(self):
+        self.edit(description='')
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.description, '')
+
+    def test_saved_changes_appear_in_details_and_list_after_refresh(self):
+        self.edit()
+        for _ in range(2):
+            detail = self.client.get(self.detail_url)
+            self.assertContains(detail, 'Final sprint report')
+            self.assertContains(detail, 'Include retro notes')
+            self.assertContains(detail, 'Nov 20, 2026, 5:45 p.m. UTC')
+            self.assertNotContains(detail, 'Sprint report</div>')
+            dashboard = self.client.get(self.dashboard_url)
+            self.assertContains(dashboard, 'Final sprint report')
+            self.assertContains(dashboard, 'Nov 20, 2026, 5:45 p.m. UTC')
+
+    def test_same_validation_rules_as_creation(self):
+        for title, deadline, error in [
+            ('', '2026-11-02T14:30', 'This field is required.'),
+            ('Project', '', 'A deadline date and time are required.'),
+            ('Project', 'invalid', 'Enter a valid deadline date and time.'),
+            ('Project', '2026-02-30T12:00', 'Enter a valid deadline date and time.'),
+            ('Project', '2026-11-02', 'Enter a valid deadline date and time.'),
+        ]:
+            with self.subTest(title=title, deadline=deadline):
+                response = self.edit(title=title, due_date=deadline)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, error)
+                self.assignment.refresh_from_db()
+                self.assertEqual(self.assignment.title, 'Sprint report')
+                self.assertEqual(self.assignment.description, 'Draft outline')
+
+    def test_assignment_without_deadline_must_get_one_when_edited(self):
+        legacy = Assignment.objects.create(course=self.course, title='Old task', due_date=None)
+        url = reverse('coursework:assignment_edit', args=[legacy.pk])
+        response = self.client.post(url, {'title': 'Old task', 'due_date': ''})
+        self.assertContains(response, 'A deadline date and time are required.')
+        legacy.refresh_from_db()
+        self.assertIsNone(legacy.due_date)
+
+    def test_moving_deadline_earlier_reorders_outstanding_view(self):
+        Assignment.objects.create(course=self.course, title='Midterm prep', due_date=timezone.now() + timedelta(days=2))
+        self.assertEqual(self.outstanding_titles(), ['Midterm prep', 'Sprint report'])
+        self.edit(title='Sprint report', due_date=self.deadline_from_now(days=1))
+        self.assertEqual(self.outstanding_titles(), ['Sprint report', 'Midterm prep'])
+
+    def test_moving_deadline_into_past_marks_overdue_and_back_clears_it(self):
+        self.edit(title='Sprint report', due_date=self.deadline_from_now(days=-1))
+        dashboard = self.client.get(self.dashboard_url)
+        self.assertEqual(dashboard.context['overdue_count'], 1)
+        self.assertContains(dashboard, 'class="overdue-badge"')
+        self.assertContains(self.client.get(self.detail_url), 'class="overdue-badge"')
+
+        self.edit(title='Sprint report', due_date=self.deadline_from_now(days=3))
+        dashboard = self.client.get(self.dashboard_url)
+        self.assertEqual(dashboard.context['overdue_count'], 0)
+        self.assertNotContains(dashboard, 'class="overdue-badge"')
+        self.assertNotContains(self.client.get(self.detail_url), 'class="overdue-badge"')
+        self.assertEqual(dashboard.context['due_this_week_count'], 1)
+
+    def test_editing_keeps_completion_status(self):
+        self.assignment.mark_complete()
+        completed_at = self.assignment.completed_at
+        self.edit(status='incomplete')
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Final sprint report')
+        self.assertEqual(self.assignment.status, Assignment.Status.COMPLETE)
+        self.assertEqual(self.assignment.completed_at, completed_at)
+
+    def test_cancel_returns_without_changing_anything(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, f'href="{self.detail_url}" class="btn btn-outline-secondary">Cancel')
+        self.client.get(self.detail_url)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Sprint report')
+        self.assertEqual(self.assignment.description, 'Draft outline')
+
+    def test_edit_from_dashboard_returns_to_dashboard(self):
+        response = self.client.get(f'{self.url}?next={self.dashboard_url}')
+        self.assertContains(response, f'href="{self.dashboard_url}" class="btn btn-outline-secondary">Cancel')
+        self.assertContains(response, f'name="next" value="{self.dashboard_url}"')
+        response = self.client.post(self.url, {
+            'title': 'Final sprint report', 'due_date': '2026-11-20T17:45', 'next': self.dashboard_url,
+        })
+        self.assertRedirects(response, self.dashboard_url)
+
+    def test_external_next_url_is_ignored(self):
+        response = self.client.get(f'{self.url}?next=https://evil.example.com/')
+        self.assertNotContains(response, 'evil.example.com')
+        response = self.edit(next='https://evil.example.com/')
+        self.assertRedirects(response, self.detail_url)
+
+    def test_course_detail_and_dashboard_link_to_edit(self):
+        self.assertContains(self.client.get(self.detail_url), f'href="{self.url}"')
+        self.assertContains(self.client.get(self.dashboard_url), f'href="{self.url}?next=')
+
+    def test_other_student_cannot_view_or_edit(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='testpass123')
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+        self.assertEqual(self.edit().status_code, 404)
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Sprint report')
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        self.client.logout()
+        response = self.edit()
+        self.assertRedirects(response, f"{reverse('accounts:login')}?next={self.url}")
+        self.assignment.refresh_from_db()
+        self.assertEqual(self.assignment.title, 'Sprint report')

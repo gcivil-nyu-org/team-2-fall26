@@ -28,6 +28,7 @@
             <span class="overdue-badge">Overdue</span>
           {% endif %}
           <span class="due-label">{% if assignment.due_date %}Due {{ assignment.due_date|localtime|date:'M j, Y, g:i a e' }}{% else %}No due date{% endif %}</span>
+          <a href="{% url 'coursework:assignment_edit' assignment.pk %}" class="btn btn-outline-secondary btn-sm" aria-label="Edit {{ assignment.title }}">Edit</a>
           {% if assignment.is_complete %}
             <form method="post" action="{% url 'coursework:assignment_reopen' assignment.pk %}">
               {% csrf_token %}
