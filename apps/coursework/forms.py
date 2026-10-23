@@ -7,24 +7,12 @@ from .models import Course, Assignment
 
 class CourseForm(forms.ModelForm):
     semester = forms.ChoiceField(
-        widget=forms.Select(attrs={
-            'class': 'form-select',
-        }),
         error_messages={'required': 'Semester is required.'},
     )
 
     class Meta:
         model = Course
         fields = ['name', 'code', 'semester']
-        widgets = {
-            'name': forms.TextInput(attrs={
-                'class': 'form-control',
-                'placeholder': 'Enter course name',
-            }),
-            'code': forms.TextInput(attrs={
-                'class': 'form-control',
-            }),
-        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -66,27 +54,12 @@ class AssignmentForm(forms.ModelForm):
     due_date = DeadlineField(
         label='Deadline',
         input_formats=['%Y-%m-%dT%H:%M'],
-        widget=forms.DateTimeInput(
-            format='%Y-%m-%dT%H:%M',
-            attrs={'class': 'form-control', 'type': 'datetime-local'},
-        ),
         error_messages={
             'required': 'A deadline date and time are required.',
             'invalid': 'Enter a valid deadline date and time.',
         },
     )
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields['due_date'].help_text = f'Time zone: {timezone.get_current_timezone_name()}.'
-
     class Meta:
         model = Assignment
         fields = ['title', 'due_date', 'description']
-        widgets = {
-            'title': forms.TextInput(attrs={
-                'class': 'form-control',
-                'placeholder': 'Homework 1',
-            }),
-            'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-        }
