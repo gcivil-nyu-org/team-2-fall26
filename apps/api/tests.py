@@ -1,7 +1,8 @@
 import json
 from datetime import timedelta
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import timezone
 
@@ -121,7 +122,32 @@ class CourseworkApiTests(ApiTestCase):
         self.client.logout()
         self.assertEqual(self.client.get(reverse('api:dashboard')).status_code, 401)
 
+    def test_description_edit_preserves_utc_deadline_and_completion_state(self):
+        response = self.json_post(reverse('api:course_assignments', args=[self.course.pk]), {
+            'title': 'Deadline regression', 'due_date': '2026-11-20T17:45', 'description': 'Original',
+        })
+        self.assertEqual(response.status_code, 201)
+        assignment_id = response.json()['assignment']['id']
+        url = reverse('api:assignment', args=[assignment_id])
+        self.json_patch(url, {'status': 'complete'})
+        before = self.client.get(url).json()['assignment']
+        response = self.json_put(url, {
+            'title': before['title'], 'description': 'Updated description',
+            'due_date': '2026-11-20T17:45',
+        })
+        self.assertEqual(response.status_code, 200)
+        after = self.client.get(url).json()['assignment']
+        self.assertEqual(after['due_date'], '2026-11-20T17:45:00+00:00')
+        self.assertEqual(after['due_date'], before['due_date'])
+        self.assertEqual(after['description'], 'Updated description')
+        self.assertEqual(after['status'], before['status'])
+        self.assertEqual(after['completed_at'], before['completed_at'])
 
+
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
 class ReactShellTests(TestCase):
     def test_root_redirects_to_dashboard(self):
         response = self.client.get('/')
@@ -137,7 +163,7 @@ class ReactShellTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '<div id="root"></div>', html=True)
-        self.assertContains(response, 'frontend/app.js')
+        self.assertContains(response, static('frontend/app.js'))
 
     def test_removed_template_routes_are_not_exposed(self):
         self.assertEqual(self.client.get('/accounts/login/').status_code, 404)

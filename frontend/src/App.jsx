@@ -30,7 +30,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { api, formatDate, toLocalInput } from './api'
+import { api, formatDate, toUTCInput } from './api'
 
 const AuthContext = createContext(null)
 
@@ -428,21 +428,30 @@ function CourseFormPage({ editing = false }) {
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError('')
     async function load() {
       try {
         const data = editing ? await api(`/courses/${courseId}/`) : await api('/courses/')
+        if (!active) return
         setSemester(data.semester)
         setValues(editing ? {
           name: data.course.name,
           code: data.course.code,
           semester: data.course.semester,
         } : { name: '', code: '', semester: data.semester.default })
-      } finally { setLoading(false) }
+      } catch (error) {
+        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load this course. Check the link or try again.')
+      } finally { if (active) setLoading(false) }
     }
     load()
-  }, [editing, courseId])
+    return () => { active = false }
+  }, [editing, courseId, loadAttempt])
 
   function update(event) {
     setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
@@ -462,6 +471,7 @@ function CourseFormPage({ editing = false }) {
   }
 
   if (loading) return <PageSkeleton />
+  if (loadError) return <ErrorState message={loadError} onRetry={() => setLoadAttempt((value) => value + 1)} />
   return (
     <FormPage
       backTo={editing ? `/courses/${courseId}` : '/dashboard'}
@@ -491,22 +501,32 @@ function AssignmentFormPage({ editing = false }) {
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
 
   useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError('')
     async function load() {
       try {
         if (editing) {
           const data = await api(`/assignments/${assignmentId}/`)
+          if (!active) return
           setCourse(data.assignment.course)
-          setValues({ title: data.assignment.title, due_date: toLocalInput(data.assignment.due_date), description: data.assignment.description })
+          setValues({ title: data.assignment.title, due_date: toUTCInput(data.assignment.due_date), description: data.assignment.description })
         } else {
           const data = await api(`/courses/${courseId}/`)
+          if (!active) return
           setCourse(data.course)
         }
-      } finally { setLoading(false) }
+      } catch (error) {
+        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load this assignment or course. Check the link or try again.')
+      } finally { if (active) setLoading(false) }
     }
     load()
-  }, [editing, assignmentId, courseId])
+    return () => { active = false }
+  }, [editing, assignmentId, courseId, loadAttempt])
 
   function update(event) {
     setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
@@ -526,6 +546,7 @@ function AssignmentFormPage({ editing = false }) {
   }
 
   if (loading) return <PageSkeleton />
+  if (loadError || !course) return <ErrorState message={loadError || 'This course could not be loaded.'} onRetry={() => setLoadAttempt((value) => value + 1)} />
   return (
     <FormPage
       backTo={`/courses/${course.id}`}
@@ -535,7 +556,7 @@ function AssignmentFormPage({ editing = false }) {
     >
       <form onSubmit={submit} className="editor-card">
         <Field label="Assignment title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Sprint retrospective" autoFocus required /></Field>
-        <Field label="Deadline" error={errors.due_date?.[0]}><input name="due_date" type="datetime-local" value={values.due_date} onChange={update} onInput={update} required /></Field>
+        <Field label="Deadline" hint="Time zone: UTC" error={errors.due_date?.[0]}><input name="due_date" type="datetime-local" value={values.due_date} onChange={update} onInput={update} required /></Field>
         <Field label="Description" hint="Optional" error={errors.description?.[0]}><textarea name="description" rows="4" value={values.description} onChange={update} placeholder="Add context, requirements, or a quick note…" /></Field>
         <FormActions submitting={submitting} label={editing ? 'Save changes' : 'Add assignment'} cancel={() => navigate(`/courses/${course.id}`)} />
       </form>
@@ -587,7 +608,7 @@ function EmptyState({ icon: Icon, title, body, action }) {
 }
 
 function ErrorState({ message, onRetry }) {
-  return <div className="empty-state empty-state--page"><span><X size={23} /></span><h3>We hit a snag</h3><p>{message}</p><button className="button button--soft" onClick={onRetry}>Try again</button></div>
+  return <div className="empty-state empty-state--page" role="alert"><span><X size={23} /></span><h3>We hit a snag</h3><p>{message}</p><button className="button button--soft" onClick={onRetry}>Try again</button><a className="text-link" href="/app/login">Go to sign in</a></div>
 }
 
 function PageSkeleton() {

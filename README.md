@@ -33,11 +33,20 @@ For frontend development with hot reloading, run Django on port 8000 and then
 run `npm run dev` inside `frontend/`. Open `http://127.0.0.1:5173/app/`; Vite
 proxies API calls to Django.
 
+Deadline entry and display use UTC (shown on the assignment form and deadline
+labels), matching Django's configured time zone. Editing a deadline does not
+convert it to the browser's local zone.
+
 ## Running tests
 
 ```bash
 python manage.py test
 ```
+
+Run `npm test` inside `frontend/` for the deadline time-zone and Vite base-path
+regression tests. Django shell tests use plain static storage so a fresh checkout
+does not need a collected manifest; deployments still use WhiteNoise's hashed
+assets after `collectstatic`.
 
 ## Assignment deadlines
 

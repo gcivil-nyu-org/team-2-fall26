@@ -31,17 +31,19 @@ export async function api(path, options = {}) {
   return data
 }
 
-export function toLocalInput(iso) {
+export function toUTCInput(iso) {
   if (!iso) return ''
-  const date = new Date(iso)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+  // Django interprets datetime-local values in UTC. Keep the input in that
+  // same zone so opening and saving a form cannot shift the deadline.
+  return new Date(iso).toISOString().slice(0, 16)
 }
 
 export function formatDate(iso, includeYear = false) {
   if (!iso) return 'No deadline'
   const date = new Date(iso)
   return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    timeZoneName: 'short',
     month: 'short',
     day: 'numeric',
     ...(includeYear ? { year: 'numeric' } : {}),

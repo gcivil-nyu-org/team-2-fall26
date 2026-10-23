@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react()],
-  base: '/static/frontend/',
+  base: command === 'serve' ? '/app/' : '/static/frontend/',
   build: {
     outDir: '../static/frontend',
     emptyOutDir: true,
@@ -22,4 +22,4 @@ export default defineConfig({
       '/admin': 'http://127.0.0.1:8000',
     },
   },
-})
+}))
