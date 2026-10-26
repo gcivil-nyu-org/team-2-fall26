@@ -122,6 +122,39 @@ class CourseworkApiTests(ApiTestCase):
         self.client.logout()
         self.assertEqual(self.client.get(reverse('api:dashboard')).status_code, 401)
 
+    def test_delete_removes_assignment_and_its_details_link(self):
+        response = self.client.delete(reverse('api:assignment', args=[self.assignment.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Assignment.objects.filter(pk=self.assignment.pk).exists())
+        self.assertEqual(self.client.get(reverse('api:assignment', args=[self.assignment.pk])).status_code, 404)
+        self.assertEqual(self.client.delete(reverse('api:assignment', args=[self.assignment.pk])).status_code, 404)
+
+    def test_deleted_assignment_disappears_from_all_coursework_views(self):
+        self.assignment.mark_complete()
+        self.client.delete(reverse('api:assignment', args=[self.assignment.pk]))
+        course = self.client.get(reverse('api:course', args=[self.course.pk])).json()['course']
+        self.assertEqual(course['assignments'], [])
+        self.assertEqual(course['assignment_count'], 0)
+        self.assertEqual(self.client.get(reverse('api:dashboard')).json()['assignments'], [])
+        self.assertEqual(self.client.get(reverse('api:assignments')).json()['assignments'], [])
+        completed = self.client.get(reverse('api:assignments'), {'status': 'complete'}).json()
+        self.assertEqual(completed['assignments'], [])
+
+    def test_delete_preserves_course_and_other_assignments(self):
+        sibling = Assignment.objects.create(course=self.course, title='Retro notes')
+        self.client.delete(reverse('api:assignment', args=[self.assignment.pk]))
+        self.assertTrue(Course.objects.filter(pk=self.course.pk).exists())
+        course = self.client.get(reverse('api:course', args=[self.course.pk])).json()['course']
+        self.assertEqual([item['id'] for item in course['assignments']], [sibling.pk])
+
+    def test_delete_is_limited_to_the_owner(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='pass12345')
+        self.client.force_login(other)
+        self.assertEqual(self.client.delete(reverse('api:assignment', args=[self.assignment.pk])).status_code, 404)
+        self.client.logout()
+        self.assertEqual(self.client.delete(reverse('api:assignment', args=[self.assignment.pk])).status_code, 401)
+        self.assertTrue(Assignment.objects.filter(pk=self.assignment.pk).exists())
+
     def test_description_edit_preserves_utc_deadline_and_completion_state(self):
         response = self.json_post(reverse('api:course_assignments', args=[self.course.pk]), {
             'title': 'Deadline regression', 'due_date': '2026-11-20T17:45', 'description': 'Original',
