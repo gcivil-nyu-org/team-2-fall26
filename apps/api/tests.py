@@ -74,6 +74,14 @@ class SessionApiTests(ApiTestCase):
         )
         self.assertFalse(User.objects.filter(email='student@gmail.com').exists())
 
+    def test_signup_accepts_nyu_school_subdomain_email(self):
+        response = self.json_post(reverse('api:signup'), {
+            'email': 'new@stern.nyu.edu', 'password': 'strongpass456', 'password_confirm': 'strongpass456',
+        })
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(User.objects.filter(email='new@stern.nyu.edu').exists())
+
 
 class PasswordResetApiTests(ApiTestCase):
     def _reset_link(self):

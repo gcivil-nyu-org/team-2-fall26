@@ -173,6 +173,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .field__error { color: #b84936; font-size: .69rem; }
 .form-actions { display: flex; justify-content: flex-end; gap: .65rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 .form-alert { padding: .75rem .85rem; margin-bottom: 1rem; border: 1px solid #efd5d0; border-radius: 10px; background: #fff6f4; color: #9c4031; font-size: .75rem; }
+.form-alert a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 .form-alert--success { border-color: #bfe3d2; background: #eaf7f1; color: var(--green); }
 
 .auth-page { display: grid; min-height: 100vh; grid-template-columns: minmax(520px, .95fr) minmax(520px, 1.05fr); background: #fff; }

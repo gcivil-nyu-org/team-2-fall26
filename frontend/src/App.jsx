@@ -327,7 +327,11 @@ function ResetPassword() {
             </>
           ) : (
             <form onSubmit={submit} className="form-stack">
-              {errors.detail && <div className="form-alert">{errors.detail[0]}</div>}
+              {errors.detail && (
+                <div className="form-alert">
+                  {errors.detail[0]} <NavLink to="/forgot-password">Request a new link</NavLink>.
+                </div>
+              )}
               <Field label="New password" error={errors.password?.[0]}>
                 <input name="password" type="password" autoComplete="new-password" placeholder="At least 8 characters" value={values.password} onChange={update} autoFocus required />
               </Field>
