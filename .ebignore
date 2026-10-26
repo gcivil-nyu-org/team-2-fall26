@@ -8,3 +8,4 @@ staticfiles/
 .DS_Store
 .git/
 .github/
+frontend/node_modules/
