@@ -214,7 +214,7 @@ def assignments_view(request):
     return JsonResponse({'assignments': [_assignment_payload(item) for item in assignments]})
 
 
-@require_http_methods(['GET', 'PUT', 'PATCH'])
+@require_http_methods(['GET', 'PUT', 'PATCH', 'DELETE'])
 def assignment_view(request, pk):
     if not request.user.is_authenticated:
         return _unauthorized()
@@ -223,6 +223,9 @@ def assignment_view(request, pk):
     )
     if request.method == 'GET':
         return JsonResponse({'assignment': _assignment_payload(assignment)})
+    if request.method == 'DELETE':
+        assignment.delete()
+        return JsonResponse({'ok': True})
     body = _json_body(request)
     if body is None:
         return JsonResponse({'detail': 'Invalid JSON.'}, status=400)

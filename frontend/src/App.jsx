@@ -27,6 +27,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react'
 
@@ -343,8 +344,10 @@ function CourseRow({ course, index }) {
   )
 }
 
-function AssignmentRow({ assignment, onChange, compact = false, completed = false }) {
+function AssignmentRow({ assignment, onChange, compact = false, completed = false, deletable = false }) {
   const [busy, setBusy] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
   async function toggle() {
     setBusy(true)
@@ -356,6 +359,29 @@ function AssignmentRow({ assignment, onChange, compact = false, completed = fals
       await onChange?.()
     } finally { setBusy(false) }
   }
+
+  async function remove() {
+    setBusy(true)
+    setDeleteError('')
+    try {
+      await api(`/assignments/${assignment.id}/`, { method: 'DELETE' })
+      await onChange?.()
+    } catch {
+      setDeleteError('Couldn’t delete. Try again.')
+    } finally { setBusy(false) }
+  }
+
+  function cancelDelete() {
+    setConfirming(false)
+    setDeleteError('')
+  }
+
+  const actions = (
+    <>
+      {!completed && <NavLink className="icon-button" to={`/assignments/${assignment.id}/edit`} aria-label={`Edit ${assignment.title}`}><Pencil size={15} /></NavLink>}
+      {completed && <button className="button button--ghost button--small" onClick={toggle} disabled={busy}>Reopen</button>}
+    </>
+  )
 
   return (
     <div className={`assignment-row ${assignment.is_overdue ? 'assignment-row--overdue' : ''}`}>
@@ -370,8 +396,23 @@ function AssignmentRow({ assignment, onChange, compact = false, completed = fals
         {assignment.is_overdue && <span className="status-pill status-pill--danger">Overdue</span>}
         <span>{formatDate(assignment.due_date)}</span>
       </div>
-      {!completed && <NavLink className="icon-button" to={`/assignments/${assignment.id}/edit`} aria-label={`Edit ${assignment.title}`}><Pencil size={15} /></NavLink>}
-      {completed && <button className="button button--ghost button--small" onClick={toggle} disabled={busy}>Reopen</button>}
+      {!deletable && actions}
+      {deletable && (
+        <div className={`assignment-row__actions ${confirming ? 'assignment-row__actions--confirm' : ''}`}>
+          {confirming ? (
+            <>
+              <span role="alert" className={deleteError ? 'assignment-row__error' : ''}>{deleteError || `Delete “${assignment.title}”?`}</span>
+              <button className="button button--danger button--small" onClick={remove} disabled={busy}>Delete</button>
+              <button className="button button--secondary button--small" onClick={cancelDelete} disabled={busy} autoFocus>Cancel</button>
+            </>
+          ) : (
+            <>
+              {actions}
+              <button className="icon-button" onClick={() => setConfirming(true)} aria-label={`Delete ${assignment.title}`}><Trash2 size={15} /></button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -408,9 +449,9 @@ function CourseDetail() {
         <div className="panel__header"><div><p className="kicker">Assignments</p><h2>Course work</h2></div><span className="count-pill">{open.length} open</span></div>
         {course.assignments.length ? (
           <div className="assignment-list">
-            {open.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} onChange={load} />)}
+            {open.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} onChange={load} deletable />)}
             {complete.length > 0 && <div className="completed-divider"><span>Completed</span></div>}
-            {complete.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} onChange={load} completed />)}
+            {complete.map((assignment) => <AssignmentRow key={assignment.id} assignment={assignment} onChange={load} completed deletable />)}
           </div>
         ) : (
           <EmptyState icon={CalendarDays} title="Nothing assigned yet" body="Add the first assignment for this course when you’re ready." action={<NavLink className="button button--soft" to={`/courses/${course.id}/assignments/new`}><Plus size={16} /> Add assignment</NavLink>} />

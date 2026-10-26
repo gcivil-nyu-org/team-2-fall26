@@ -50,6 +50,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .button--soft:hover { background: #e9dcf4; }
 .button--ghost { background: transparent; color: var(--violet); }
 .button--small { min-height: 34px; padding: .4rem .7rem; font-size: .76rem; }
+.button--danger { background: #af4e25; color: white; }
+.button--danger:hover { background: #963f1b; }
 .button--wide { width: 100%; min-height: 49px; margin-top: .35rem; }
 .icon-button { display: inline-grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 10px; background: transparent; color: #6b6472; cursor: pointer; text-decoration: none; }
 .icon-button:hover { background: #f2eef5; color: var(--violet); }
@@ -132,6 +134,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .assignment-row__copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: .22rem; }
 .assignment-row__copy strong { overflow: hidden; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
 .assignment-row__date { display: flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .68rem; white-space: nowrap; }
+.assignment-row__actions { display: flex; align-items: center; gap: .35rem; }
+.assignment-row__actions > span { color: var(--muted); font-size: .76rem; }
+.assignment-row__actions > .assignment-row__error { color: #af4e25; }
 .completed-divider { display: flex; align-items: center; gap: 1rem; padding: .9rem 1.25rem .35rem; color: #9d95a2; font-size: .63rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
 .completed-divider::after { height: 1px; flex: 1; background: var(--line); content: ''; }
 
@@ -248,7 +253,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .assignment-row { position: relative; align-items: flex-start; flex-wrap: wrap; padding: 1rem; }
   .assignment-row__copy { width: calc(100% - 48px); flex: 1 1 calc(100% - 48px); }
   .assignment-row__date { width: 100%; padding-left: 44px; }
-  .assignment-row > .icon-button { position: absolute; right: .65rem; top: .65rem; }
+  .assignment-row > .icon-button, .assignment-row__actions { position: absolute; right: .65rem; top: .65rem; }
+  .assignment-row__actions--confirm { position: static; width: 100%; flex-wrap: wrap; padding-left: 44px; }
   .course-hero { display: grid; grid-template-columns: repeat(3, 1fr); padding: 1rem; }
   .course-hero > div:not(.progress-ring) { min-width: 0; padding: 0 .65rem; margin: 0; text-align: center; }
   .course-hero > div:not(.progress-ring):first-child { padding-left: 0; }
