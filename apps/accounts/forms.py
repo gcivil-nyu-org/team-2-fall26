@@ -13,6 +13,8 @@ class SignUpForm(UserCreationForm):
 
     def clean_email(self):
         email = self.cleaned_data['email'].lower()
+        if not email.endswith('@nyu.edu'):
+            raise forms.ValidationError('Please sign up with your NYU email address (@nyu.edu).')
         if User.objects.filter(email=email).exists():
             raise forms.ValidationError('An account with this email already exists.')
         return email

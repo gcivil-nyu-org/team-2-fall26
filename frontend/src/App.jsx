@@ -147,6 +147,27 @@ function AppShell({ children }) {
   )
 }
 
+function AuthVisual() {
+  return (
+    <section className="auth-visual">
+      <Logo light />
+      <div className="auth-visual__content">
+        <div className="auth-orbit auth-orbit--one" />
+        <div className="auth-orbit auth-orbit--two" />
+        <div className="auth-badge"><Sparkles size={16} /> Built for focused semesters</div>
+        <h1>Stay ahead.<br />Stay balanced.</h1>
+        <p>Courses, deadlines, and the work that matters—all in one calm, clear place.</p>
+        <div className="auth-preview" aria-hidden="true">
+          <div className="auth-preview__top"><span>Today</span><span className="auth-preview__pill">3 on track</span></div>
+          <div className="auth-preview__item"><span className="preview-dot preview-dot--violet" /><span><strong>Design critique</strong><small>Human-centered design</small></span><span>10:30</span></div>
+          <div className="auth-preview__item"><span className="preview-dot preview-dot--orange" /><span><strong>Problem set 4</strong><small>Algorithms</small></span><span>17:00</span></div>
+        </div>
+      </div>
+      <p className="auth-quote">“A clearer view of the week changes everything.”</p>
+    </section>
+  )
+}
+
 function AuthLayout({ mode }) {
   const isLogin = mode === 'login'
   const navigate = useNavigate()
@@ -178,22 +199,7 @@ function AuthLayout({ mode }) {
 
   return (
     <div className="auth-page">
-      <section className="auth-visual">
-        <Logo light />
-        <div className="auth-visual__content">
-          <div className="auth-orbit auth-orbit--one" />
-          <div className="auth-orbit auth-orbit--two" />
-          <div className="auth-badge"><Sparkles size={16} /> Built for focused semesters</div>
-          <h1>Stay ahead.<br />Stay balanced.</h1>
-          <p>Courses, deadlines, and the work that matters—all in one calm, clear place.</p>
-          <div className="auth-preview" aria-hidden="true">
-            <div className="auth-preview__top"><span>Today</span><span className="auth-preview__pill">3 on track</span></div>
-            <div className="auth-preview__item"><span className="preview-dot preview-dot--violet" /><span><strong>Design critique</strong><small>Human-centered design</small></span><span>10:30</span></div>
-            <div className="auth-preview__item"><span className="preview-dot preview-dot--orange" /><span><strong>Problem set 4</strong><small>Algorithms</small></span><span>17:00</span></div>
-          </div>
-        </div>
-        <p className="auth-quote">“A clearer view of the week changes everything.”</p>
-      </section>
+      <AuthVisual />
       <section className="auth-panel">
         <div className="auth-panel__mobile-logo"><Logo /></div>
         <div className="auth-card">
@@ -213,6 +219,9 @@ function AuthLayout({ mode }) {
                 <input name="password_confirm" type="password" autoComplete="new-password" placeholder="Enter it once more" value={values.password_confirm} onChange={update} required />
               </Field>
             )}
+            {isLogin && (
+              <p className="auth-forgot"><NavLink to="/forgot-password">Forgot your password?</NavLink></p>
+            )}
             <button className="button button--primary button--wide" disabled={submitting}>
               {submitting ? <span className="spinner spinner--light" /> : <>{isLogin ? 'Sign in' : 'Create account'} <ArrowRight size={17} /></>}
             </button>
@@ -221,6 +230,115 @@ function AuthLayout({ mode }) {
             {isLogin ? 'New to SemesterPilot?' : 'Already have an account?'}{' '}
             <NavLink to={isLogin ? '/signup' : '/login'}>{isLogin ? 'Create an account' : 'Sign in'}</NavLink>
           </p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function ForgotPassword() {
+  const [email, setEmail] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [sent, setSent] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(event) {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      await api('/auth/password-reset/', { method: 'POST', body: { email } })
+      setSent(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="auth-page">
+      <AuthVisual />
+      <section className="auth-panel">
+        <div className="auth-panel__mobile-logo"><Logo /></div>
+        <div className="auth-card">
+          <p className="kicker">Reset your password</p>
+          <h2>Forgot your password?</h2>
+          <p className="auth-card__intro">Enter your NYU email and we’ll send you a link to reset it.</p>
+          {sent ? (
+            <div className="form-alert form-alert--success">If an account exists for that email, a reset link is on its way.</div>
+          ) : (
+            <form onSubmit={submit} className="form-stack">
+              {error && <div className="form-alert">{error}</div>}
+              <Field label="Email address">
+                <input type="email" autoComplete="email" placeholder="you@nyu.edu" value={email} onChange={(event) => setEmail(event.target.value)} autoFocus required />
+              </Field>
+              <button className="button button--primary button--wide" disabled={submitting}>
+                {submitting ? <span className="spinner spinner--light" /> : <>Send reset link <ArrowRight size={17} /></>}
+              </button>
+            </form>
+          )}
+          <p className="auth-switch">Remembered it? <NavLink to="/login">Sign in</NavLink></p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function ResetPassword() {
+  const { uid, token } = useParams()
+  const navigate = useNavigate()
+  const [values, setValues] = useState({ password: '', password_confirm: '' })
+  const [errors, setErrors] = useState({})
+  const [submitting, setSubmitting] = useState(false)
+  const [done, setDone] = useState(false)
+
+  function update(event) {
+    setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
+    setErrors((current) => ({ ...current, [event.target.name]: undefined, detail: undefined }))
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    setSubmitting(true)
+    setErrors({})
+    try {
+      await api('/auth/password-reset/confirm/', { method: 'POST', body: { uid, token, ...values } })
+      setDone(true)
+    } catch (error) {
+      setErrors(error.errors && (error.errors.password || error.errors.password_confirm) ? error.errors : { detail: [error.message] })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="auth-page">
+      <AuthVisual />
+      <section className="auth-panel">
+        <div className="auth-panel__mobile-logo"><Logo /></div>
+        <div className="auth-card">
+          <p className="kicker">Almost there</p>
+          <h2>Choose a new password</h2>
+          {done ? (
+            <>
+              <div className="form-alert form-alert--success">Your password has been reset.</div>
+              <button className="button button--primary button--wide" onClick={() => navigate('/login')}>Sign in <ArrowRight size={17} /></button>
+            </>
+          ) : (
+            <form onSubmit={submit} className="form-stack">
+              {errors.detail && <div className="form-alert">{errors.detail[0]}</div>}
+              <Field label="New password" error={errors.password?.[0]}>
+                <input name="password" type="password" autoComplete="new-password" placeholder="At least 8 characters" value={values.password} onChange={update} autoFocus required />
+              </Field>
+              <Field label="Confirm new password" error={errors.password_confirm?.[0]}>
+                <input name="password_confirm" type="password" autoComplete="new-password" placeholder="Enter it once more" value={values.password_confirm} onChange={update} required />
+              </Field>
+              <button className="button button--primary button--wide" disabled={submitting}>
+                {submitting ? <span className="spinner spinner--light" /> : <>Reset password <ArrowRight size={17} /></>}
+              </button>
+            </form>
+          )}
         </div>
       </section>
     </div>
@@ -700,6 +818,8 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<GuestRoute><AuthLayout mode="login" /></GuestRoute>} />
       <Route path="/signup" element={<GuestRoute><AuthLayout mode="signup" /></GuestRoute>} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
       <Route path="*" element={<ProtectedRoute><AppShell><Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />

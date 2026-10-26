@@ -44,6 +44,15 @@ class SignUpFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn('email', form.errors)
 
+    def test_rejects_non_nyu_email(self):
+        form = SignUpForm(self.form_data(email='student@gmail.com'))
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors['email'],
+            ['Please sign up with your NYU email address (@nyu.edu).'],
+        )
+
     def test_rejects_mismatched_passwords(self):
         form = SignUpForm(self.form_data(password2='a-different-password-2026'))
 

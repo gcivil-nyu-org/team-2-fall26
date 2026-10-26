@@ -173,6 +173,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .field__error { color: #b84936; font-size: .69rem; }
 .form-actions { display: flex; justify-content: flex-end; gap: .65rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 .form-alert { padding: .75rem .85rem; margin-bottom: 1rem; border: 1px solid #efd5d0; border-radius: 10px; background: #fff6f4; color: #9c4031; font-size: .75rem; }
+.form-alert--success { border-color: #bfe3d2; background: #eaf7f1; color: var(--green); }
 
 .auth-page { display: grid; min-height: 100vh; grid-template-columns: minmax(520px, .95fr) minmax(520px, 1.05fr); background: #fff; }
 .auth-visual { position: relative; display: flex; overflow: hidden; flex-direction: column; padding: 2.3rem clamp(2.5rem, 6vw, 6rem); background: radial-gradient(circle at 85% 20%, #782c9e 0, transparent 30%), linear-gradient(145deg, #2b0b3d 0%, #57068c 68%, #6e1b98 100%); color: white; }
@@ -206,6 +207,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .auth-switch { margin: 1.65rem 0 0; color: var(--muted); font-size: .75rem; text-align: center; }
 .auth-switch a { color: var(--violet); font-weight: 700; text-decoration: none; }
 .auth-switch a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.auth-forgot { margin: .85rem 0 0; text-align: right; font-size: .78rem; }
+.auth-forgot a { color: var(--violet); font-weight: 600; text-decoration: none; }
+.auth-forgot a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .skeleton-page { padding-top: 1rem; }
 .skeleton { border-radius: 10px; background: linear-gradient(90deg, #eeebf0 25%, #f7f5f8 50%, #eeebf0 75%); background-size: 200% 100%; animation: shimmer 1.25s infinite; }
