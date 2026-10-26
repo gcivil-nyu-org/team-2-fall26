@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import timedelta
 
 from django.contrib.auth import authenticate, login, logout
@@ -19,6 +20,9 @@ from apps.accounts.forms import SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm
 from apps.coursework.models import Assignment, Course
+
+
+logger = logging.getLogger(__name__)
 
 
 def _json_body(request):
@@ -140,16 +144,21 @@ def password_reset_request_view(request):
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
         reset_url = request.build_absolute_uri(f'/app/reset-password/{uid}/{token}')
-        send_mail(
-            subject='Reset your SemesterPilot password',
-            message=(
-                f'Use this link to reset your password: {reset_url}\n\n'
-                'If you did not request this, you can ignore this email.'
-            ),
-            from_email=None,
-            recipient_list=[user.email],
-            fail_silently=True,
-        )
+        try:
+            send_mail(
+                subject='Reset your SemesterPilot password',
+                message=(
+                    f'Use this link to reset your password: {reset_url}\n\n'
+                    'If you did not request this, you can ignore this email.'
+                ),
+                from_email=None,
+                recipient_list=[user.email],
+            )
+        except Exception:
+            # Don't let a broken mail server surface to the requester (that would
+            # also leak whether the account exists) — but do log it, so a
+            # misconfigured EMAIL_* setup in staging/prod shows up somewhere.
+            logger.exception('Failed to send password reset email to %s', user.email)
     # Same response whether or not the account exists, so this endpoint never
     # reveals which emails have accounts.
     return JsonResponse({'ok': True})

@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from unittest import mock
 
 from django.core import mail
 from django.test import TestCase, override_settings
@@ -127,6 +128,38 @@ class PasswordResetApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 400)
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password('testpass123'))
+
+    @override_settings(PASSWORD_RESET_TIMEOUT=-1)
+    def test_confirm_rejects_an_expired_token(self):
+        uid, token = self._reset_link()
+
+        response = self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': 'brand-new-pass-456', 'password_confirm': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('testpass123'))
+
+    def test_can_log_in_with_the_new_password_after_reset(self):
+        uid, token = self._reset_link()
+        self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': 'brand-new-pass-456', 'password_confirm': 'brand-new-pass-456',
+        })
+
+        response = self.json_post(reverse('api:login'), {
+            'email': self.user.email, 'password': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user']['email'], self.user.email)
+
+    def test_a_broken_mail_server_does_not_fail_the_request(self):
+        with mock.patch('apps.api.views.send_mail', side_effect=OSError('smtp unreachable')):
+            response = self.json_post(reverse('api:password_reset_request'), {'email': self.user.email})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'ok': True})
 
     def test_confirm_rejects_an_unknown_account(self):
         response = self.json_post(reverse('api:password_reset_confirm'), {
