@@ -165,11 +165,14 @@ def courses_view(request):
     return JsonResponse({'course': _course_payload(course)}, status=201)
 
 
-@require_http_methods(['GET', 'PUT'])
+@require_http_methods(['GET', 'PUT', 'DELETE'])
 def course_view(request, pk):
     if not request.user.is_authenticated:
         return _unauthorized()
     course = get_object_or_404(Course.objects.filter(owner=request.user), pk=pk)
+    if request.method == 'DELETE':
+        course.delete()
+        return JsonResponse({'ok': True})
     if request.method == 'GET':
         course = Course.objects.prefetch_related('assignments').get(pk=course.pk)
         return JsonResponse({

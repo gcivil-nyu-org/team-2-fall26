@@ -419,10 +419,29 @@ function AssignmentRow({ assignment, onChange, compact = false, completed = fals
 
 function CourseDetail() {
   const { courseId } = useParams()
+  const navigate = useNavigate()
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   async function load() {
     try { setData(await api(`/courses/${courseId}/`)) } catch (err) { setError(err.message) }
+  }
+  async function remove() {
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await api(`/courses/${courseId}/`, { method: 'DELETE' })
+      navigate('/dashboard')
+    } catch {
+      setDeleteError('Couldn’t delete this course. Try again.')
+      setDeleting(false)
+    }
+  }
+  function cancelDelete() {
+    setConfirming(false)
+    setDeleteError('')
   }
   useEffect(() => { load() }, [courseId])
   if (!data && !error) return <PageSkeleton />
@@ -437,8 +456,21 @@ function CourseDetail() {
         eyebrow={course.code || 'Course'}
         title={course.name}
         subtitle={course.semester}
-        actions={<><NavLink className="button button--secondary" to={`/courses/${course.id}/edit`}><Pencil size={16} /> Edit course</NavLink><NavLink className="button button--primary" to={`/courses/${course.id}/assignments/new`}><Plus size={17} /> Add assignment</NavLink></>}
+        actions={<><button className="button button--secondary" onClick={() => setConfirming(true)} disabled={confirming}><Trash2 size={16} /> Delete course</button><NavLink className="button button--secondary" to={`/courses/${course.id}/edit`}><Pencil size={16} /> Edit course</NavLink><NavLink className="button button--primary" to={`/courses/${course.id}/assignments/new`}><Plus size={17} /> Add assignment</NavLink></>}
       />
+      {confirming && (
+        <div className="delete-confirm" role="alert">
+          <p className={deleteError ? 'delete-confirm__error' : ''}>
+            {deleteError || (course.assignments.length
+              ? `Delete “${course.name}” and its ${course.assignments.length} assignment${course.assignments.length === 1 ? '' : 's'}? This can’t be undone.`
+              : `Delete “${course.name}”? This can’t be undone.`)}
+          </p>
+          <div>
+            <button className="button button--danger button--small" onClick={remove} disabled={deleting}>Delete course</button>
+            <button className="button button--secondary button--small" onClick={cancelDelete} disabled={deleting} autoFocus>Cancel</button>
+          </div>
+        </div>
+      )}
       <div className="course-hero">
         <div><span>Open work</span><strong>{open.length}</strong></div>
         <div><span>Completed</span><strong>{complete.length}</strong></div>
