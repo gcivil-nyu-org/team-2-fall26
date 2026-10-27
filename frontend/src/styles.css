@@ -75,9 +75,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .nav-item--active { background: var(--violet-soft); color: var(--violet); }
 .sidebar__spacer { flex: 1; }
 .sidebar__profile { display: flex; align-items: center; gap: .7rem; padding: .85rem .65rem .25rem; border-top: 1px solid var(--line); }
+.sidebar__profile-link { display: flex; min-width: 0; flex: 1; align-items: center; gap: .7rem; padding: .3rem; margin: -.3rem; border-radius: 10px; color: inherit; text-decoration: none; transition: background .15s; }
+.sidebar__profile-link:hover, .sidebar__profile-link:focus-visible { background: #f2eef5; }
+.sidebar__profile-link:hover strong, .sidebar__profile-link:focus-visible strong { color: var(--violet); }
 .avatar { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #2e2138; color: white; font-size: .77rem; font-weight: 700; }
 .sidebar__identity { display: flex; min-width: 0; flex: 1; flex-direction: column; }
-.sidebar__identity strong { font-size: .78rem; }
+.sidebar__identity strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; transition: color .15s; }
 .sidebar__identity span { overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 .app-main { width: calc(100% - 250px); margin-left: 250px; }
 .mobile-header { display: none; }
@@ -161,6 +164,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .form-page { width: min(660px, 100%); margin: 0 auto; }
 .form-page .page-header { margin-bottom: 1.5rem; }
 .editor-card { display: grid; gap: 1.35rem; padding: 1.75rem; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow); }
+.profile-security { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; }
+.profile-security h3 { margin: 0 0 .3rem; font-size: .95rem; }
+.profile-security p { max-width: 420px; margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.55; }
+.profile-security .button { flex: none; white-space: nowrap; }
 .field { display: flex; flex-direction: column; gap: .52rem; }
 .field__label { display: flex; align-items: center; justify-content: space-between; font-size: .76rem; font-weight: 700; }
 .field__label small { color: #9b929f; font-size: .67rem; font-weight: 500; }
@@ -168,6 +175,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .field input, .field select { min-height: 47px; padding: .7rem .85rem; }
 .field textarea { resize: vertical; padding: .8rem .85rem; line-height: 1.55; }
 .field input::placeholder, .field textarea::placeholder { color: #aaa1ae; }
+.field input:disabled { background: #f6f3f8; color: var(--muted); cursor: not-allowed; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: #9c73b8; box-shadow: 0 0 0 3px rgba(87, 6, 140, .08); }
 .field--error input, .field--error select, .field--error textarea { border-color: #c55742; background: #fffaf9; }
 .field__error { color: #b84936; font-size: .69rem; }
@@ -270,6 +278,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .course-hero > div:not(.progress-ring):nth-child(3) { padding-right: 0; border-right: 0; }
   .progress-ring { display: none; }
   .editor-card { padding: 1.2rem; }
+  .profile-security { flex-direction: column; align-items: flex-start; }
+  .profile-security .button { width: 100%; }
   .form-actions { flex-direction: row-reverse; }
   .form-actions .button { flex: 1; }
   .auth-panel__mobile-logo { margin-bottom: 4rem; }

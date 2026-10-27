@@ -126,11 +126,13 @@ function AppShell({ children }) {
         </nav>
         <div className="sidebar__spacer" />
         <div className="sidebar__profile">
-          <div className="avatar">{session.user?.email?.[0]?.toUpperCase()}</div>
-          <div className="sidebar__identity">
-            <strong>Student</strong>
-            <span>{session.user?.email}</span>
-          </div>
+          <NavLink to="/profile" onClick={() => setMobileOpen(false)} className="sidebar__profile-link" aria-label="Edit your profile">
+            <div className="avatar">{(session.user?.first_name?.[0] || session.user?.email?.[0] || '?').toUpperCase()}</div>
+            <div className="sidebar__identity">
+              <strong>{[session.user?.first_name, session.user?.last_name].filter(Boolean).join(' ') || 'Student'}</strong>
+              <span>{session.user?.email}</span>
+            </div>
+          </NavLink>
           <button className="icon-button" onClick={logout} aria-label="Log out"><LogOut size={17} /></button>
         </div>
       </aside>
@@ -237,7 +239,8 @@ function AuthLayout({ mode }) {
 }
 
 function ForgotPassword() {
-  const [email, setEmail] = useState('')
+  const { session } = useAuth()
+  const [email, setEmail] = useState(session.user?.email || '')
   const [submitting, setSubmitting] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
@@ -688,6 +691,132 @@ function CourseFormPage({ editing = false }) {
   )
 }
 
+function ProfilePage() {
+  const navigate = useNavigate()
+  const { refresh } = useAuth()
+  const [values, setValues] = useState({ first_name: '', last_name: '' })
+  const [email, setEmail] = useState('')
+  const [errors, setErrors] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [passwordValues, setPasswordValues] = useState({ current_password: '', new_password: '', new_password_confirm: '' })
+  const [passwordErrors, setPasswordErrors] = useState({})
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false)
+  const [passwordSaved, setPasswordSaved] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError('')
+    async function load() {
+      try {
+        const data = await api('/profile/')
+        if (!active) return
+        setValues({ first_name: data.user.first_name, last_name: data.user.last_name })
+        setEmail(data.user.email)
+      } catch (error) {
+        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load your profile. Try again.')
+      } finally { if (active) setLoading(false) }
+    }
+    load()
+    return () => { active = false }
+  }, [loadAttempt])
+
+  function update(event) {
+    setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
+    setErrors((current) => ({ ...current, [event.target.name]: undefined }))
+    setSaved(false)
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    setSubmitting(true)
+    setErrors({})
+    try {
+      await api('/profile/', { method: 'PUT', body: values })
+      await refresh()
+      setSaved(true)
+    } catch (error) { setErrors(error.errors || {}) } finally { setSubmitting(false) }
+  }
+
+  function updatePassword(event) {
+    setPasswordValues((current) => ({ ...current, [event.target.name]: event.target.value }))
+    setPasswordErrors((current) => ({ ...current, [event.target.name]: undefined, detail: undefined }))
+  }
+
+  function cancelPasswordEdit() {
+    setPasswordOpen(false)
+    setPasswordValues({ current_password: '', new_password: '', new_password_confirm: '' })
+    setPasswordErrors({})
+  }
+
+  async function submitPassword(event) {
+    event.preventDefault()
+    setPasswordSubmitting(true)
+    setPasswordErrors({})
+    try {
+      await api('/auth/change-password/', { method: 'POST', body: passwordValues })
+      setPasswordValues({ current_password: '', new_password: '', new_password_confirm: '' })
+      setPasswordOpen(false)
+      setPasswordSaved(true)
+    } catch (error) {
+      setPasswordErrors(error.errors || { detail: [error.message] })
+    } finally {
+      setPasswordSubmitting(false)
+    }
+  }
+
+  if (loading) return <PageSkeleton />
+  if (loadError) return <ErrorState message={loadError} onRetry={() => setLoadAttempt((value) => value + 1)} />
+  return (
+    <FormPage backTo="/dashboard" eyebrow="Account" title="Edit profile" subtitle="Keep your name accurate so your work stays personal to you.">
+      <form onSubmit={submit} className="editor-card">
+        {saved && <div className="form-alert form-alert--success">Your profile has been updated.</div>}
+        <Field label="First name" error={errors.first_name?.[0]}>
+          <input name="first_name" value={values.first_name} onChange={update} autoFocus required />
+        </Field>
+        <Field label="Last name" error={errors.last_name?.[0]}>
+          <input name="last_name" value={values.last_name} onChange={update} required />
+        </Field>
+        <Field label="Email" hint="Can't be changed">
+          <input value={email} disabled />
+        </Field>
+        <FormActions submitting={submitting} label="Save changes" cancel={() => navigate('/dashboard')} />
+      </form>
+      <div className="editor-card">
+        {passwordOpen ? (
+          <form onSubmit={submitPassword} className="form-stack">
+            <h3>Change password</h3>
+            {passwordErrors.detail && <div className="form-alert">{passwordErrors.detail[0]}</div>}
+            <Field label="Current password" error={passwordErrors.current_password?.[0]}>
+              <input name="current_password" type="password" autoComplete="current-password" value={passwordValues.current_password} onChange={updatePassword} autoFocus required />
+            </Field>
+            <Field label="New password" error={passwordErrors.new_password?.[0]}>
+              <input name="new_password" type="password" autoComplete="new-password" placeholder="At least 8 characters" value={passwordValues.new_password} onChange={updatePassword} required />
+            </Field>
+            <Field label="Confirm new password" error={passwordErrors.new_password_confirm?.[0]}>
+              <input name="new_password_confirm" type="password" autoComplete="new-password" value={passwordValues.new_password_confirm} onChange={updatePassword} required />
+            </Field>
+            <FormActions submitting={passwordSubmitting} label="Update password" cancel={cancelPasswordEdit} />
+          </form>
+        ) : (
+          <div className="profile-security">
+            <div>
+              <h3>Password</h3>
+              <p>{passwordSaved ? 'Your password has been updated.' : "Update your password without leaving this page \u2014 you'll stay signed in."}</p>
+            </div>
+            <button type="button" className="button button--secondary" onClick={() => setPasswordOpen(true)}>Change password</button>
+          </div>
+        )}
+      </div>
+    </FormPage>
+  )
+}
+
 function AssignmentFormPage({ editing = false }) {
   const { courseId, assignmentId } = useParams()
   const navigate = useNavigate()
@@ -827,6 +956,7 @@ function AppRoutes() {
       <Route path="*" element={<ProtectedRoute><AppShell><Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />

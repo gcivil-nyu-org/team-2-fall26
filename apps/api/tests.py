@@ -201,6 +201,128 @@ class PasswordResetApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class ProfileApiTests(ApiTestCase):
+    def test_requires_authentication(self):
+        self.assertEqual(self.client.get(reverse('api:profile')).status_code, 401)
+        self.assertEqual(self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe'}).status_code, 401)
+
+    def test_get_returns_the_current_users_name_and_email(self):
+        self.user.first_name = 'Jane'
+        self.user.last_name = 'Doe'
+        self.user.save()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('api:profile'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user'], {
+            'id': self.user.pk, 'email': 'student@nyu.edu', 'first_name': 'Jane', 'last_name': 'Doe',
+        })
+
+    def test_put_updates_the_name(self):
+        self.client.force_login(self.user)
+
+        response = self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user']['first_name'], 'Jane')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, 'Jane')
+        self.assertEqual(self.user.last_name, 'Doe')
+
+    def test_put_rejects_a_blank_name(self):
+        self.client.force_login(self.user)
+
+        response = self.json_put(reverse('api:profile'), {'first_name': '', 'last_name': 'Doe'})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('first_name', response.json()['errors'])
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.first_name, '')
+
+    def test_put_does_not_change_the_email(self):
+        self.client.force_login(self.user)
+
+        self.json_put(reverse('api:profile'), {
+            'first_name': 'Jane', 'last_name': 'Doe', 'email': 'someoneelse@nyu.edu',
+        })
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, 'student@nyu.edu')
+
+    def test_another_users_name_is_unaffected(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='testpass123')
+        self.client.force_login(self.user)
+
+        self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe'})
+
+        other.refresh_from_db()
+        self.assertEqual(other.first_name, '')
+
+
+class ChangePasswordApiTests(ApiTestCase):
+    def test_requires_authentication(self):
+        response = self.json_post(reverse('api:change_password'), {
+            'current_password': 'testpass123', 'new_password': 'brand-new-pass-456', 'new_password_confirm': 'brand-new-pass-456',
+        })
+        self.assertEqual(response.status_code, 401)
+
+    def test_changes_the_password_when_current_password_is_correct(self):
+        self.client.force_login(self.user)
+
+        response = self.json_post(reverse('api:change_password'), {
+            'current_password': 'testpass123', 'new_password': 'brand-new-pass-456', 'new_password_confirm': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('brand-new-pass-456'))
+
+    def test_keeps_the_current_session_logged_in_after_changing_password(self):
+        self.client.force_login(self.user)
+
+        self.json_post(reverse('api:change_password'), {
+            'current_password': 'testpass123', 'new_password': 'brand-new-pass-456', 'new_password_confirm': 'brand-new-pass-456',
+        })
+
+        response = self.client.get(reverse('api:session'))
+        self.assertTrue(response.json()['authenticated'])
+
+    def test_rejects_an_incorrect_current_password(self):
+        self.client.force_login(self.user)
+
+        response = self.json_post(reverse('api:change_password'), {
+            'current_password': 'not-the-right-password', 'new_password': 'brand-new-pass-456', 'new_password_confirm': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('current_password', response.json()['errors'])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('testpass123'))
+
+    def test_rejects_mismatched_new_passwords(self):
+        self.client.force_login(self.user)
+
+        response = self.json_post(reverse('api:change_password'), {
+            'current_password': 'testpass123', 'new_password': 'brand-new-pass-456', 'new_password_confirm': 'does-not-match',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('new_password_confirm', response.json()['errors'])
+
+    def test_rejects_a_weak_new_password(self):
+        self.client.force_login(self.user)
+
+        response = self.json_post(reverse('api:change_password'), {
+            'current_password': 'testpass123', 'new_password': '12345', 'new_password_confirm': '12345',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('new_password', response.json()['errors'])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('testpass123'))
+
+
 class CourseworkApiTests(ApiTestCase):
     def setUp(self):
         super().setUp()

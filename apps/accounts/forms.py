@@ -26,3 +26,16 @@ class SignUpForm(UserCreationForm):
         if commit:
             user.save()
         return user
+
+
+class ProfileForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['first_name'].required = True
+        self.fields['last_name'].required = True
+        self.fields['first_name'].error_messages['required'] = 'First name is required.'
+        self.fields['last_name'].error_messages['required'] = 'Last name is required.'

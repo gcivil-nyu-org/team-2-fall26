@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import timedelta
 
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -16,7 +16,7 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import SignUpForm
+from apps.accounts.forms import ProfileForm, SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm
 from apps.coursework.models import Assignment, Course
@@ -44,7 +44,12 @@ def _unauthorized():
 
 
 def _user_payload(user):
-    return {'id': user.pk, 'email': user.email}
+    return {
+        'id': user.pk,
+        'email': user.email,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+    }
 
 
 def _course_payload(course, include_assignments=False):
@@ -184,6 +189,49 @@ def password_reset_confirm_view(request):
         return JsonResponse({'errors': {'password': list(exc.messages)}}, status=400)
     user.set_password(password)
     user.save()
+    return JsonResponse({'ok': True})
+
+
+@require_http_methods(['GET', 'PUT'])
+def profile_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    if request.method == 'GET':
+        return JsonResponse({'user': _user_payload(request.user)})
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    form = ProfileForm(body, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    user = form.save()
+    return JsonResponse({'user': _user_payload(user)})
+
+
+@require_POST
+def change_password_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    current_password = body.get('current_password', '')
+    new_password = body.get('new_password', '')
+    new_password_confirm = body.get('new_password_confirm', '')
+    if not request.user.check_password(current_password):
+        return JsonResponse({'errors': {'current_password': ['Current password is incorrect.']}}, status=400)
+    if new_password != new_password_confirm:
+        return JsonResponse({'errors': {'new_password_confirm': ['Passwords do not match.']}}, status=400)
+    try:
+        validate_password(new_password, user=request.user)
+    except DjangoValidationError as exc:
+        return JsonResponse({'errors': {'new_password': list(exc.messages)}}, status=400)
+    request.user.set_password(new_password)
+    request.user.save()
+    # Keep the current session valid across the password change, instead of
+    # forcing an immediate re-login (Django invalidates the session hash on
+    # password change by default).
+    update_session_auth_hash(request, request.user)
     return JsonResponse({'ok': True})
 
 
