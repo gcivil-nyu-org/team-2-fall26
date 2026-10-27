@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Navigate,
   NavLink,
@@ -13,6 +13,7 @@ import {
   ArrowRight,
   BookOpen,
   CalendarDays,
+  Camera,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -127,7 +128,11 @@ function AppShell({ children }) {
         <div className="sidebar__spacer" />
         <div className="sidebar__profile">
           <NavLink to="/profile" onClick={() => setMobileOpen(false)} className="sidebar__profile-link" aria-label="Edit your profile">
-            <div className="avatar">{(session.user?.first_name?.[0] || session.user?.email?.[0] || '?').toUpperCase()}</div>
+            <div className="avatar">
+              {session.user?.profile_picture
+                ? <img src={session.user.profile_picture} alt="" />
+                : (session.user?.first_name?.[0] || session.user?.email?.[0] || '?').toUpperCase()}
+            </div>
             <div className="sidebar__identity">
               <strong>{[session.user?.first_name, session.user?.last_name].filter(Boolean).join(' ') || 'Student'}</strong>
               <span>{session.user?.email}</span>
@@ -707,6 +712,10 @@ function ProfilePage() {
   const [passwordErrors, setPasswordErrors] = useState({})
   const [passwordSubmitting, setPasswordSubmitting] = useState(false)
   const [passwordSaved, setPasswordSaved] = useState(false)
+  const [picture, setPicture] = useState(null)
+  const [pictureError, setPictureError] = useState('')
+  const [pictureBusy, setPictureBusy] = useState(false)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     let active = true
@@ -718,6 +727,7 @@ function ProfilePage() {
         if (!active) return
         setValues({ first_name: data.user.first_name, last_name: data.user.last_name })
         setEmail(data.user.email)
+        setPicture(data.user.profile_picture)
       } catch (error) {
         if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load your profile. Try again.')
       } finally { if (active) setLoading(false) }
@@ -754,6 +764,39 @@ function ProfilePage() {
     setPasswordErrors({})
   }
 
+  async function uploadPicture(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setPictureBusy(true)
+    setPictureError('')
+    try {
+      const body = new FormData()
+      body.append('profile_picture', file)
+      const data = await api('/profile/picture/', { method: 'POST', body })
+      setPicture(data.user.profile_picture)
+      await refresh()
+    } catch (error) {
+      setPictureError(error.errors?.profile_picture?.[0] || error.message)
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
+  async function removePicture() {
+    setPictureBusy(true)
+    setPictureError('')
+    try {
+      const data = await api('/profile/picture/', { method: 'DELETE' })
+      setPicture(data.user.profile_picture)
+      await refresh()
+    } catch (error) {
+      setPictureError(error.message)
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
   async function submitPassword(event) {
     event.preventDefault()
     setPasswordSubmitting(true)
@@ -774,6 +817,30 @@ function ProfilePage() {
   if (loadError) return <ErrorState message={loadError} onRetry={() => setLoadAttempt((value) => value + 1)} />
   return (
     <FormPage backTo="/dashboard" eyebrow="Account" title="Edit profile" subtitle="Keep your name accurate so your work stays personal to you.">
+      <div className="editor-card profile-picture-card">
+        <button
+          type="button"
+          className="avatar avatar--large avatar--editable"
+          disabled={pictureBusy}
+          onClick={() => fileInputRef.current?.click()}
+          aria-label={picture ? 'Change profile photo' : 'Upload a profile photo'}
+        >
+          {picture
+            ? <img src={picture} alt="" />
+            : (values.first_name?.[0] || email?.[0] || '?').toUpperCase()}
+          <span className="avatar__badge"><Camera size={13} /></span>
+        </button>
+        <div className="profile-picture-card__info">
+          <h3>Profile photo</h3>
+          <p>{pictureError ? <span className="profile-picture-card__error">{pictureError}</span> : 'Click your photo to change it. JPG, PNG, or GIF, max 2MB.'}</p>
+          {picture && (
+            <button type="button" className="text-link profile-picture-card__remove" disabled={pictureBusy} onClick={removePicture}>
+              <Trash2 size={14} /> Remove photo
+            </button>
+          )}
+        </div>
+        <input ref={fileInputRef} type="file" accept="image/*" onChange={uploadPicture} hidden />
+      </div>
       <form onSubmit={submit} className="editor-card">
         {saved && <div className="form-alert form-alert--success">Your profile has been updated.</div>}
         <Field label="First name" error={errors.first_name?.[0]}>

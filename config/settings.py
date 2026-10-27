@@ -198,6 +198,11 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+# Max size for an uploaded profile picture; enforced in ProfilePictureForm.
+MAX_PROFILE_PICTURE_SIZE = 2 * 1024 * 1024  # 2 MB
+
 # WhiteNoise serves collected static files from gunicorn, so no S3/nginx setup is needed.
 STORAGES = {
     'default': {

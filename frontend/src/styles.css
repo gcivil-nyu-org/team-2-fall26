@@ -79,6 +79,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .sidebar__profile-link:hover, .sidebar__profile-link:focus-visible { background: #f2eef5; }
 .sidebar__profile-link:hover strong, .sidebar__profile-link:focus-visible strong { color: var(--violet); }
 .avatar { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #2e2138; color: white; font-size: .77rem; font-weight: 700; }
+.avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
 .sidebar__identity { display: flex; min-width: 0; flex: 1; flex-direction: column; }
 .sidebar__identity strong { overflow: hidden; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; transition: color .15s; }
 .sidebar__identity span { overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -168,6 +169,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .profile-security h3 { margin: 0 0 .3rem; font-size: .95rem; }
 .profile-security p { max-width: 420px; margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.55; }
 .profile-security .button { flex: none; white-space: nowrap; }
+.profile-picture-card { display: flex; align-items: center; gap: 1.25rem; }
+.avatar--large { width: 72px; height: 72px; font-size: 1.4rem; flex: none; }
+.avatar--editable { position: relative; cursor: pointer; border: 2px solid transparent; padding: 0; transition: border-color .15s; }
+.avatar--editable:hover, .avatar--editable:focus-visible { border-color: var(--violet-soft); }
+.avatar--editable:disabled { cursor: wait; opacity: .7; }
+.avatar__badge { position: absolute; right: -2px; bottom: -2px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--panel); background: var(--violet); color: #fff; box-shadow: 0 4px 10px #57068c40; }
+.profile-picture-card__info h3 { margin: 0 0 .25rem; font-size: .95rem; }
+.profile-picture-card__info p { margin: 0 0 .5rem; color: var(--muted); font-size: .8rem; }
+.profile-picture-card__error { color: #b84936; }
+.profile-picture-card__remove { font-size: .78rem; }
 .field { display: flex; flex-direction: column; gap: .52rem; }
 .field__label { display: flex; align-items: center; justify-content: space-between; font-size: .76rem; font-weight: 700; }
 .field__label small { color: #9b929f; font-size: .67rem; font-weight: 500; }
@@ -281,6 +292,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .editor-card { padding: 1.2rem; }
   .profile-security { flex-direction: column; align-items: flex-start; }
   .profile-security .button { width: 100%; }
+  .profile-picture-card { flex-direction: column; align-items: flex-start; }
   .form-actions { flex-direction: row-reverse; }
   .form-actions .button { flex: 1; }
   .auth-panel__mobile-logo { margin-bottom: 4rem; }

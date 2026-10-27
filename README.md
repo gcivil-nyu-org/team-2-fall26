@@ -90,6 +90,23 @@ EMAIL_USE_TLS=True
 DEFAULT_FROM_EMAIL=noreply@semesterpilot.app
 ```
 
+## Profile pictures
+
+Students can upload a profile picture from `/profile` (JPG, PNG, or GIF, max 2MB,
+enforced by `MAX_PROFILE_PICTURE_SIZE` in `config/settings.py`). Files are stored
+under `MEDIA_ROOT` (`media/`, gitignored) and served from `MEDIA_URL` (`/media/`)
+by Django's dev server when `DEBUG=True`.
+
+**This storage is local-disk only and does not work in production as configured.**
+Elastic Beanstalk's app servers have ephemeral, non-shared local disks, so an
+uploaded picture would vanish on the next deploy or not show up on a different
+instance behind the load balancer. Before this ships to staging/prod, `MEDIA`
+storage needs to move to something persistent and shared — e.g. an S3 bucket via
+`django-storages` — which needs its own bucket, IAM credentials, and EB environment
+variables. Flagging this the same way the SMTP setup was flagged for password
+reset: it's an infrastructure task for whoever manages the EB environments, not
+something this app's code alone can finish.
+
 ## Project structure
 
 Each feature lives in its own app under `apps/`, registered in `config/settings.py`:

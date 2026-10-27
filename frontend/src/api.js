@@ -9,8 +9,11 @@ function cookie(name) {
 
 export async function api(path, options = {}) {
   const method = options.method || 'GET'
+  // A FormData body (file uploads) must keep its own multipart content type
+  // (with boundary) set by the browser — never JSON-encode it.
+  const isFormData = options.body instanceof FormData
   const headers = { Accept: 'application/json', ...options.headers }
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (options.body !== undefined && !isFormData) headers['Content-Type'] = 'application/json'
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
     headers['X-CSRFToken'] = decodeURIComponent(cookie('csrftoken') || '')
   }
@@ -19,7 +22,7 @@ export async function api(path, options = {}) {
     ...options,
     method,
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body: options.body === undefined ? undefined : (isFormData ? options.body : JSON.stringify(options.body)),
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
