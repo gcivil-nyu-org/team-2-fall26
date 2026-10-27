@@ -7,22 +7,33 @@ function cookie(name) {
     .join('=')
 }
 
-export async function api(path, options = {}) {
+// Pure request-shaping logic, split out from api() so it can be unit tested
+// without needing a real `document`/`fetch` (see api.test.js). A FormData
+// body (file uploads) must keep its own multipart content type (with
+// boundary) set by the browser — never JSON-encode it or give it a
+// Content-Type header ourselves.
+export function buildRequestInit(options = {}) {
   const method = options.method || 'GET'
-  // A FormData body (file uploads) must keep its own multipart content type
-  // (with boundary) set by the browser — never JSON-encode it.
   const isFormData = options.body instanceof FormData
   const headers = { Accept: 'application/json', ...options.headers }
   if (options.body !== undefined && !isFormData) headers['Content-Type'] = 'application/json'
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-    headers['X-CSRFToken'] = decodeURIComponent(cookie('csrftoken') || '')
+  return {
+    method,
+    headers,
+    needsCsrf: !['GET', 'HEAD', 'OPTIONS'].includes(method),
+    body: options.body === undefined ? undefined : (isFormData ? options.body : JSON.stringify(options.body)),
   }
+}
+
+export async function api(path, options = {}) {
+  const built = buildRequestInit(options)
+  if (built.needsCsrf) built.headers['X-CSRFToken'] = decodeURIComponent(cookie('csrftoken') || '')
   const response = await fetch(`/api${path}`, {
     credentials: 'same-origin',
     ...options,
-    method,
-    headers,
-    body: options.body === undefined ? undefined : (isFormData ? options.body : JSON.stringify(options.body)),
+    method: built.method,
+    headers: built.headers,
+    body: built.body,
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {

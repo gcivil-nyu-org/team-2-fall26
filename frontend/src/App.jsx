@@ -34,7 +34,7 @@ import {
 
 import { api, formatDate, toUTCInput } from './api'
 
-const AuthContext = createContext(null)
+export const AuthContext = createContext(null)
 
 function useAuth() {
   return useContext(AuthContext)
@@ -98,7 +98,7 @@ const navItems = [
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
 ]
 
-function AppShell({ children }) {
+export function AppShell({ children }) {
   const { session, setSession } = useAuth()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -696,7 +696,7 @@ function CourseFormPage({ editing = false }) {
   )
 }
 
-function ProfilePage() {
+export function ProfilePage() {
   const navigate = useNavigate()
   const { refresh } = useAuth()
   const [values, setValues] = useState({ first_name: '', last_name: '' })
@@ -816,31 +816,35 @@ function ProfilePage() {
   if (loading) return <PageSkeleton />
   if (loadError) return <ErrorState message={loadError} onRetry={() => setLoadAttempt((value) => value + 1)} />
   return (
-    <FormPage backTo="/dashboard" eyebrow="Account" title="Edit profile" subtitle="Keep your name accurate so your work stays personal to you.">
-      <div className="editor-card profile-picture-card">
-        <button
-          type="button"
-          className="avatar avatar--large avatar--editable"
-          disabled={pictureBusy}
-          onClick={() => fileInputRef.current?.click()}
-          aria-label={picture ? 'Change profile photo' : 'Upload a profile photo'}
-        >
-          {picture
-            ? <img src={picture} alt="" />
-            : (values.first_name?.[0] || email?.[0] || '?').toUpperCase()}
-          <span className="avatar__badge"><Camera size={13} /></span>
-        </button>
-        <div className="profile-picture-card__info">
-          <h3>Profile photo</h3>
-          <p>{pictureError ? <span className="profile-picture-card__error">{pictureError}</span> : 'Click your photo to change it. JPG, PNG, or GIF, max 2MB.'}</p>
+    <FormPage
+      backTo="/dashboard"
+      eyebrow="Account"
+      title="Edit profile"
+      subtitle="Keep your name accurate so your work stays personal to you."
+      actions={
+        <div className="profile-picture-header">
+          <button
+            type="button"
+            className="avatar avatar--large avatar--editable"
+            disabled={pictureBusy}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label={picture ? 'Change profile photo' : 'Upload a profile photo'}
+          >
+            {picture
+              ? <img src={picture} alt="" />
+              : (values.first_name?.[0] || email?.[0] || '?').toUpperCase()}
+            <span className="avatar__badge"><Camera size={13} /></span>
+          </button>
           {picture && (
-            <button type="button" className="text-link profile-picture-card__remove" disabled={pictureBusy} onClick={removePicture}>
-              <Trash2 size={14} /> Remove photo
+            <button type="button" className="text-link profile-picture-header__remove" disabled={pictureBusy} onClick={removePicture}>
+              <Trash2 size={13} /> Remove
             </button>
           )}
+          {pictureError && <span className="profile-picture-header__error">{pictureError}</span>}
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={uploadPicture} hidden data-testid="profile-picture-input" />
         </div>
-        <input ref={fileInputRef} type="file" accept="image/*" onChange={uploadPicture} hidden />
-      </div>
+      }
+    >
       <form onSubmit={submit} className="editor-card">
         {saved && <div className="form-alert form-alert--success">Your profile has been updated.</div>}
         <Field label="First name" error={errors.first_name?.[0]}>
@@ -849,7 +853,7 @@ function ProfilePage() {
         <Field label="Last name" error={errors.last_name?.[0]}>
           <input name="last_name" value={values.last_name} onChange={update} required />
         </Field>
-        <Field label="Email" hint="Can't be changed">
+        <Field label="Email">
           <input value={email} disabled />
         </Field>
         <FormActions submitting={submitting} label="Save changes" cancel={() => navigate('/dashboard')} />
@@ -875,7 +879,7 @@ function ProfilePage() {
           <div className="profile-security">
             <div>
               <h3>Password</h3>
-              <p>{passwordSaved ? 'Your password has been updated.' : "Update your password without leaving this page \u2014 you'll stay signed in."}</p>
+              <p>{passwordSaved ? 'Your password has been updated.' : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}</p>
             </div>
             <button type="button" className="button button--secondary" onClick={() => setPasswordOpen(true)}>Change password</button>
           </div>
@@ -956,11 +960,11 @@ function AssignmentFormPage({ editing = false }) {
   )
 }
 
-function FormPage({ backTo, eyebrow, title, subtitle, children }) {
+function FormPage({ backTo, eyebrow, title, subtitle, actions, children }) {
   return (
     <div className="form-page">
       <NavLink className="back-link" to={backTo}><ArrowLeft size={16} /> Back</NavLink>
-      <PageHeader eyebrow={eyebrow} title={title} subtitle={subtitle} />
+      <PageHeader eyebrow={eyebrow} title={title} subtitle={subtitle} actions={actions} />
       {children}
     </div>
   )
