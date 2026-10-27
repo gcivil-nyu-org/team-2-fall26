@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.coursework',
     'apps.api',
+    'apps.study',
 ]
 
 MIDDLEWARE = [
