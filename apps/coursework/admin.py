@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Assignment, Course
+from .models import Assignment, Course, Exam
 
 
 @admin.register(Course)
@@ -13,3 +13,8 @@ class CourseAdmin(admin.ModelAdmin):
 class AssignmentAdmin(admin.ModelAdmin):
     list_display = ('title', 'course', 'due_date', 'status')
     list_filter = ('status',)
+
+
+@admin.register(Exam)
+class ExamAdmin(admin.ModelAdmin):
+    list_display = ('title', 'course', 'starts_at', 'location')

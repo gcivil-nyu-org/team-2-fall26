@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import User
-from apps.coursework.models import Assignment, Course
+from apps.coursework.models import Assignment, Course, Exam
 
 
 class ApiTestCase(TestCase):
@@ -188,6 +188,70 @@ class CourseworkApiTests(ApiTestCase):
         self.assertEqual(self.client.delete(reverse('api:course', args=[self.course.pk])).status_code, 401)
         self.assertTrue(Course.objects.filter(pk=self.course.pk).exists())
         self.assertTrue(Assignment.objects.filter(pk=self.assignment.pk).exists())
+
+    def test_add_exam_to_owned_course(self):
+        response = self.json_post(reverse('api:course_exams', args=[self.course.pk]), {
+            'title': 'Midterm', 'starts_at': '2026-11-05T14:00', 'location': 'Jacobs 474',
+        })
+        self.assertEqual(response.status_code, 201)
+        exam = response.json()['exam']
+        self.assertEqual(exam['kind'], 'exam')
+        self.assertEqual(exam['location'], 'Jacobs 474')
+        self.assertEqual(exam['course']['id'], self.course.pk)
+        self.assertEqual(Exam.objects.get(pk=exam['id']).course, self.course)
+        self.assertEqual(Assignment.objects.count(), 1)
+
+        course = self.client.get(reverse('api:course', args=[self.course.pk])).json()['course']
+        self.assertEqual([item['title'] for item in course['exams']], ['Midterm'])
+        self.assertEqual([item['title'] for item in course['assignments']], ['Sprint review'])
+
+    def test_add_exam_rejects_missing_or_invalid_fields(self):
+        url = reverse('api:course_exams', args=[self.course.pk])
+        response = self.json_post(url, {'title': '', 'starts_at': '', 'location': ''})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['errors']['title'], ['Exam title is required.'])
+        self.assertEqual(response.json()['errors']['starts_at'], ['An exam date and time are required.'])
+        response = self.json_post(url, {'title': 'Final', 'starts_at': '2026-12-10'})
+        self.assertEqual(response.json()['errors']['starts_at'], ['Enter a valid exam date and time.'])
+        self.assertFalse(Exam.objects.exists())
+
+    def test_exams_join_outstanding_work_in_deadline_order(self):
+        now = timezone.now()
+        Assignment.objects.create(course=self.course, title='Late essay', due_date=now - timedelta(days=1))
+        Assignment.objects.create(course=self.course, title='Someday reading')
+        Exam.objects.create(course=self.course, title='Midterm', starts_at=now + timedelta(days=1))
+        Exam.objects.create(course=self.course, title='Final', starts_at=now + timedelta(days=20))
+        Exam.objects.create(course=self.course, title='Past quiz', starts_at=now - timedelta(hours=2))
+
+        payload = self.client.get(reverse('api:dashboard')).json()
+        self.assertEqual(
+            [(item['kind'], item['title']) for item in payload['upcoming']],
+            [
+                ('assignment', 'Late essay'),
+                ('exam', 'Midterm'),
+                ('assignment', 'Sprint review'),
+                ('exam', 'Final'),
+                ('assignment', 'Someday reading'),
+            ],
+        )
+        self.assertEqual(payload['metrics']['due_this_week'], 2)
+        self.assertEqual(payload['metrics']['overdue'], 1)
+
+    def test_exam_ownership_and_auth_are_enforced(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='pass12345')
+        Exam.objects.create(course=self.course, title='Midterm', starts_at=timezone.now() + timedelta(days=3))
+        self.client.force_login(other)
+        response = self.json_post(reverse('api:course_exams', args=[self.course.pk]), {
+            'title': 'Sneaky', 'starts_at': '2026-11-05T14:00',
+        })
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.client.get(reverse('api:dashboard')).json()['upcoming'], [])
+        self.client.logout()
+        response = self.json_post(reverse('api:course_exams', args=[self.course.pk]), {
+            'title': 'Sneaky', 'starts_at': '2026-11-05T14:00',
+        })
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(list(Exam.objects.values_list('title', flat=True)), ['Midterm'])
 
     def test_description_edit_preserves_utc_deadline_and_completion_state(self):
         response = self.json_post(reverse('api:course_assignments', args=[self.course.pk]), {

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from django import forms
 from django.utils import timezone
-from .models import Course, Assignment
+from .models import Course, Assignment, Exam
 
 
 class CourseForm(forms.ModelForm):
@@ -63,3 +63,21 @@ class AssignmentForm(forms.ModelForm):
     class Meta:
         model = Assignment
         fields = ['title', 'due_date', 'description']
+
+
+class ExamForm(forms.ModelForm):
+    starts_at = DeadlineField(
+        label='Date and time',
+        input_formats=['%Y-%m-%dT%H:%M'],
+        error_messages={
+            'required': 'An exam date and time are required.',
+            'invalid': 'Enter a valid exam date and time.',
+        },
+    )
+
+    class Meta:
+        model = Exam
+        fields = ['title', 'starts_at', 'location']
+        error_messages = {
+            'title': {'required': 'Exam title is required.'},
+        }
