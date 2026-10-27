@@ -795,6 +795,7 @@ function ProfilePage() {
             <Field label="Current password" error={passwordErrors.current_password?.[0]}>
               <input name="current_password" type="password" autoComplete="current-password" value={passwordValues.current_password} onChange={updatePassword} autoFocus required />
             </Field>
+            <p className="auth-forgot"><NavLink to="/forgot-password">Forgot your current password?</NavLink></p>
             <Field label="New password" error={passwordErrors.new_password?.[0]}>
               <input name="new_password" type="password" autoComplete="new-password" placeholder="At least 8 characters" value={passwordValues.new_password} onChange={updatePassword} required />
             </Field>
