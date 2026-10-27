@@ -71,6 +71,25 @@ DATABASE_HOST=...
 DATABASE_PORT=5432
 ```
 
+## Password reset
+
+Signup is restricted to `@nyu.edu` email addresses. Students can reset a forgotten
+password from the login page ("Forgot your password?"); the reset link expires
+after 3 days and can only be used once.
+
+By default, reset emails print to the `runserver` console instead of actually
+sending (no setup needed for local dev). To send real emails, set these in `.env`:
+
+```
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.example.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=...
+EMAIL_HOST_PASSWORD=...
+EMAIL_USE_TLS=True
+DEFAULT_FROM_EMAIL=noreply@semesterpilot.app
+```
+
 ## Project structure
 
 Each feature lives in its own app under `apps/`, registered in `config/settings.py`:

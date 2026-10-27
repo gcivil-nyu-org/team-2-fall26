@@ -1,6 +1,8 @@
 import json
 from datetime import timedelta
+from unittest import mock
 
+from django.core import mail
 from django.test import TestCase, override_settings
 from django.templatetags.static import static
 from django.urls import reverse
@@ -60,6 +62,143 @@ class SessionApiTests(ApiTestCase):
         self.assertIn('email', response.json()['errors'])
         self.assertIn('password2', response.json()['errors'])
         self.assertEqual(User.objects.count(), 1)
+
+    def test_signup_rejects_non_nyu_email(self):
+        response = self.json_post(reverse('api:signup'), {
+            'email': 'student@gmail.com', 'password': 'strongpass456', 'password_confirm': 'strongpass456',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()['errors']['email'],
+            ['Please sign up with your NYU email address (@nyu.edu).'],
+        )
+        self.assertFalse(User.objects.filter(email='student@gmail.com').exists())
+
+    def test_signup_accepts_nyu_school_subdomain_email(self):
+        response = self.json_post(reverse('api:signup'), {
+            'email': 'new@stern.nyu.edu', 'password': 'strongpass456', 'password_confirm': 'strongpass456',
+        })
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(User.objects.filter(email='new@stern.nyu.edu').exists())
+
+
+class PasswordResetApiTests(ApiTestCase):
+    def _reset_link(self):
+        self.json_post(reverse('api:password_reset_request'), {'email': self.user.email})
+        body = mail.outbox[-1].body
+        path = body.split('/app/reset-password/')[1].split('\n')[0].strip()
+        uid, token = path.split('/')
+        return uid, token
+
+    def test_request_sends_email_with_a_working_link_for_an_existing_account(self):
+        response = self.json_post(reverse('api:password_reset_request'), {'email': 'STUDENT@nyu.edu'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.user.email, mail.outbox[0].to)
+        self.assertIn('/app/reset-password/', mail.outbox[0].body)
+
+    def test_request_does_not_reveal_whether_an_account_exists(self):
+        response = self.json_post(reverse('api:password_reset_request'), {'email': 'nobody@nyu.edu'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'ok': True})
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_confirm_changes_the_password(self):
+        uid, token = self._reset_link()
+
+        response = self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': 'brand-new-pass-456', 'password_confirm': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('brand-new-pass-456'))
+
+    def test_confirm_rejects_a_bad_token(self):
+        uid, _ = self._reset_link()
+
+        response = self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': 'not-a-real-token', 'password': 'brand-new-pass-456', 'password_confirm': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('testpass123'))
+
+    @override_settings(PASSWORD_RESET_TIMEOUT=-1)
+    def test_confirm_rejects_an_expired_token(self):
+        uid, token = self._reset_link()
+
+        response = self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': 'brand-new-pass-456', 'password_confirm': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('testpass123'))
+
+    def test_can_log_in_with_the_new_password_after_reset(self):
+        uid, token = self._reset_link()
+        self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': 'brand-new-pass-456', 'password_confirm': 'brand-new-pass-456',
+        })
+
+        response = self.json_post(reverse('api:login'), {
+            'email': self.user.email, 'password': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user']['email'], self.user.email)
+
+    def test_a_broken_mail_server_does_not_fail_the_request(self):
+        with mock.patch('apps.api.views.send_mail', side_effect=OSError('smtp unreachable')):
+            response = self.json_post(reverse('api:password_reset_request'), {'email': self.user.email})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'ok': True})
+
+    def test_confirm_rejects_an_unknown_account(self):
+        response = self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': 'not-a-real-uid', 'token': 'not-a-real-token', 'password': 'brand-new-pass-456', 'password_confirm': 'brand-new-pass-456',
+        })
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_confirm_rejects_mismatched_passwords(self):
+        uid, token = self._reset_link()
+
+        response = self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': 'brand-new-pass-456', 'password_confirm': 'does-not-match',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('password_confirm', response.json()['errors'])
+
+    def test_confirm_enforces_password_validators(self):
+        uid, token = self._reset_link()
+
+        response = self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': '12345678', 'password_confirm': '12345678',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('password', response.json()['errors'])
+
+    def test_a_used_token_cannot_be_reused(self):
+        uid, token = self._reset_link()
+        self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': 'brand-new-pass-456', 'password_confirm': 'brand-new-pass-456',
+        })
+
+        response = self.json_post(reverse('api:password_reset_confirm'), {
+            'uid': uid, 'token': token, 'password': 'another-pass-789', 'password_confirm': 'another-pass-789',
+        })
+
+        self.assertEqual(response.status_code, 400)
 
 
 class CourseworkApiTests(ApiTestCase):

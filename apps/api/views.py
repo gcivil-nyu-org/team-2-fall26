@@ -1,17 +1,28 @@
 import json
+import logging
 from datetime import timedelta
 
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from apps.accounts.forms import SignUpForm
+from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm
 from apps.coursework.models import Assignment, Course
+
+
+logger = logging.getLogger(__name__)
 
 
 def _json_body(request):
@@ -119,6 +130,60 @@ def signup_view(request):
 @require_POST
 def logout_view(request):
     logout(request)
+    return JsonResponse({'ok': True})
+
+
+@require_POST
+def password_reset_request_view(request):
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    email = str(body.get('email', '')).strip().lower()
+    user = User.objects.filter(email=email).first()
+    if user is not None:
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        reset_url = request.build_absolute_uri(f'/app/reset-password/{uid}/{token}')
+        try:
+            send_mail(
+                subject='Reset your SemesterPilot password',
+                message=(
+                    f'Use this link to reset your password: {reset_url}\n\n'
+                    'If you did not request this, you can ignore this email.'
+                ),
+                from_email=None,
+                recipient_list=[user.email],
+            )
+        except Exception:
+            # Don't let a broken mail server surface to the requester (that would
+            # also leak whether the account exists) — but do log it, so a
+            # misconfigured EMAIL_* setup in staging/prod shows up somewhere.
+            logger.exception('Failed to send password reset email to %s', user.email)
+    # Same response whether or not the account exists, so this endpoint never
+    # reveals which emails have accounts.
+    return JsonResponse({'ok': True})
+
+
+@require_POST
+def password_reset_confirm_view(request):
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    try:
+        user = User.objects.get(pk=urlsafe_base64_decode(body.get('uid', '')).decode())
+    except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+        user = None
+    if user is None or not default_token_generator.check_token(user, body.get('token', '')):
+        return JsonResponse({'detail': 'This reset link is invalid or has expired.'}, status=400)
+    password = body.get('password', '')
+    if password != body.get('password_confirm', ''):
+        return JsonResponse({'errors': {'password_confirm': ['Passwords do not match.']}}, status=400)
+    try:
+        validate_password(password, user=user)
+    except DjangoValidationError as exc:
+        return JsonResponse({'errors': {'password': list(exc.messages)}}, status=400)
+    user.set_password(password)
+    user.save()
     return JsonResponse({'ok': True})
 
 
