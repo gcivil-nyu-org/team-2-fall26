@@ -44,6 +44,30 @@ class SignUpFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn('email', form.errors)
 
+    def test_rejects_non_nyu_email(self):
+        form = SignUpForm(self.form_data(email='student@gmail.com'))
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors['email'],
+            ['Please sign up with your NYU email address (@nyu.edu).'],
+        )
+
+    def test_accepts_nyu_school_subdomain_email(self):
+        form = SignUpForm(self.form_data(email='STUDENT@STERN.NYU.EDU'))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['email'], 'student@stern.nyu.edu')
+
+    def test_rejects_a_lookalike_domain(self):
+        form = SignUpForm(self.form_data(email='student@notnyu.edu'))
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors['email'],
+            ['Please sign up with your NYU email address (@nyu.edu).'],
+        )
+
     def test_rejects_mismatched_passwords(self):
         form = SignUpForm(self.form_data(password2='a-different-password-2026'))
 
