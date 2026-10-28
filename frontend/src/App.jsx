@@ -26,12 +26,14 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings,
   Sparkles,
   Trash2,
   X,
 } from 'lucide-react'
 
 import { api, formatDate, toUTCInput } from './api'
+import AccountSettings from './AccountSettings'
 
 const AuthContext = createContext(null)
 
@@ -95,6 +97,7 @@ function GuestRoute({ children }) {
 const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
+  { to: '/settings/account', label: 'Account settings', icon: Settings },
 ]
 
 function AppShell({ children }) {
@@ -172,7 +175,8 @@ function AuthLayout({ mode }) {
   const isLogin = mode === 'login'
   const navigate = useNavigate()
   const location = useLocation()
-  const { refresh } = useAuth()
+  const { refresh, session } = useAuth()
+  const accountAction = location.state?.accountAction || session.accountAction
   const [values, setValues] = useState({ email: '', password: '', password_confirm: '' })
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
@@ -206,6 +210,7 @@ function AuthLayout({ mode }) {
           <p className="kicker">{isLogin ? 'Welcome back' : 'Start fresh'}</p>
           <h2>{isLogin ? 'Sign in to your workspace' : 'Create your account'}</h2>
           <p className="auth-card__intro">{isLogin ? 'Pick up where you left off.' : 'Your semester gets easier from here.'}</p>
+          {isLogin && ['delete', 'deactivate'].includes(accountAction) && <div className="form-alert form-alert--success" role="status">{accountAction === 'delete' ? 'Your account and its coursework have been permanently deleted.' : 'Your account has been deactivated and your data is saved. An administrator can reactivate it.'}</div>}
           {errors.non_field_errors && <div className="form-alert">{errors.non_field_errors[0]}</div>}
           <form onSubmit={submit} className="form-stack">
             <Field label="Email address" error={errors.email?.[0]}>
@@ -909,6 +914,11 @@ function NotFound() {
 function capitalize(value) { return value ? value[0].toUpperCase() + value.slice(1) : 'there' }
 function timeGreeting() { const hour = new Date().getHours(); return hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening' }
 
+function AccountSettingsPage() {
+  const { setSession } = useAuth()
+  return <AccountSettings onAccountClosed={(accountAction) => setSession({ loading: false, authenticated: false, user: null, accountAction })} />
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -919,6 +929,7 @@ function AppRoutes() {
       <Route path="*" element={<ProtectedRoute><AppShell><Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/settings/account" element={<AccountSettingsPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />

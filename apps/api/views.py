@@ -7,6 +7,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -16,7 +17,7 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import SignUpForm
+from apps.accounts.forms import AccountActionForm, SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
@@ -155,6 +156,46 @@ def signup_view(request):
 def logout_view(request):
     logout(request)
     return JsonResponse({'ok': True})
+
+
+def _account_action(request, action):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Send a JSON object with your current password and confirmation.'}, status=400)
+    for field in ('current_password', 'confirmation'):
+        if field in body and not isinstance(body[field], str):
+            return JsonResponse({'errors': {field: ['Enter a text value.']}}, status=400)
+    with transaction.atomic():
+        # Only the signed-in account can be changed, regardless of any ID in
+        # the request. Recheck credentials against the locked, current row.
+        user = User.objects.select_for_update().filter(pk=request.user.pk, is_active=True).first()
+        if user is None:
+            return _unauthorized()
+        form = AccountActionForm(body, user=user, action=action)
+        if not form.is_valid():
+            return JsonResponse({'errors': _errors(form)}, status=400)
+        if action == 'delete':
+            user.delete()
+        else:
+            user.is_active = False
+            # Rehash the same password to retire existing session hashes and
+            # reset tokens, even if an administrator later reactivates access.
+            user.set_password(form.cleaned_data['current_password'])
+            user.save(update_fields=['is_active', 'password'])
+    logout(request)
+    return JsonResponse({'ok': True, 'action': action})
+
+
+@require_POST
+def account_deactivate_view(request):
+    return _account_action(request, 'deactivate')
+
+
+@require_http_methods(['DELETE'])
+def account_delete_view(request):
+    return _account_action(request, 'delete')
 
 
 @require_POST
