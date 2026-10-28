@@ -1,104 +1,115 @@
 from django.test import TestCase
-from django.urls import reverse
+
+from .forms import ProfileForm, SignUpForm
 from .models import User
 
 
-class SignupTests(TestCase):
-    def test_invalid_email_format_rejected(self):
-        self.client.post(reverse('accounts:signup'), {
-            'email': 'not-an-email', 'password1': 'testpass123', 'password2': 'testpass123',
-        })
-        self.assertEqual(User.objects.count(), 0)
+class SignUpFormTests(TestCase):
+    def form_data(self, **overrides):
+        data = {
+            'email': 'student@nyu.edu',
+            'password1': 'a-strong-test-password-2026',
+            'password2': 'a-strong-test-password-2026',
+        }
+        data.update(overrides)
+        return data
 
-    def test_valid_signup_creates_account(self):
-        self.client.post(reverse('accounts:signup'), {
-            'email': 'student@nyu.edu', 'password1': 'testpass123', 'password2': 'testpass123',
-        })
-        self.assertEqual(User.objects.count(), 1)
+    def test_valid_signup_normalizes_email_and_populates_username(self):
+        form = SignUpForm(self.form_data(email='STUDENT@NYU.EDU'))
 
-    def test_duplicate_email_rejected(self):
-        User.objects.create_user(username='student@nyu.edu', email='student@nyu.edu', password='testpass123')
-        self.client.post(reverse('accounts:signup'), {
-            'email': 'student@nyu.edu', 'password1': 'testpass123', 'password2': 'testpass123',
-        })
-        self.assertEqual(User.objects.count(), 1)
+        self.assertTrue(form.is_valid(), form.errors)
+        user = form.save()
+        self.assertEqual(user.email, 'student@nyu.edu')
+        self.assertEqual(user.username, 'student@nyu.edu')
+        self.assertTrue(user.check_password('a-strong-test-password-2026'))
 
-    def test_signup_logs_in_and_redirects_to_dashboard(self):
-        response = self.client.post(reverse('accounts:signup'), {
-            'email': 'student@nyu.edu', 'password1': 'testpass123', 'password2': 'testpass123',
-        })
-        self.assertRedirects(response, reverse('accounts:dashboard'))
+    def test_duplicate_email_is_case_insensitive(self):
+        User.objects.create_user(
+            username='student@nyu.edu',
+            email='student@nyu.edu',
+            password='a-strong-test-password-2026',
+        )
 
-    def test_password_mismatch_rejected(self):
-        self.client.post(reverse('accounts:signup'), {
-            'email': 'student@nyu.edu', 'password1': 'testpass123', 'password2': 'different456',
-        })
-        self.assertEqual(User.objects.count(), 0)
+        form = SignUpForm(self.form_data(email='STUDENT@NYU.EDU'))
 
-    def test_weak_password_rejected(self):
-        self.client.post(reverse('accounts:signup'), {
-            'email': 'student@nyu.edu', 'password1': '12345678', 'password2': '12345678',
-        })
-        self.assertEqual(User.objects.count(), 0)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors['email'],
+            ['An account with this email already exists.'],
+        )
 
-    def test_duplicate_email_rejected_case_insensitive(self):
-        User.objects.create_user(username='student@nyu.edu', email='student@nyu.edu', password='testpass123')
-        self.client.post(reverse('accounts:signup'), {
-            'email': 'STUDENT@NYU.edu', 'password1': 'testpass123', 'password2': 'testpass123',
-        })
-        self.assertEqual(User.objects.count(), 1)
+    def test_rejects_invalid_email(self):
+        form = SignUpForm(self.form_data(email='not-an-email'))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('email', form.errors)
+
+    def test_rejects_non_nyu_email(self):
+        form = SignUpForm(self.form_data(email='student@gmail.com'))
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors['email'],
+            ['Please sign up with your NYU email address (@nyu.edu).'],
+        )
+
+    def test_accepts_nyu_school_subdomain_email(self):
+        form = SignUpForm(self.form_data(email='STUDENT@STERN.NYU.EDU'))
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['email'], 'student@stern.nyu.edu')
+
+    def test_rejects_a_lookalike_domain(self):
+        form = SignUpForm(self.form_data(email='student@notnyu.edu'))
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors['email'],
+            ['Please sign up with your NYU email address (@nyu.edu).'],
+        )
+
+    def test_rejects_mismatched_passwords(self):
+        form = SignUpForm(self.form_data(password2='a-different-password-2026'))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('password2', form.errors)
+
+    def test_rejects_weak_password(self):
+        form = SignUpForm(self.form_data(password1='12345678', password2='12345678'))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('password2', form.errors)
 
 
-class LoginLogoutTests(TestCase):
+class ProfileFormTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
             username='student@nyu.edu', email='student@nyu.edu', password='testpass123',
         )
 
-    def test_valid_login(self):
-        response = self.client.post(reverse('accounts:login'), {
-            'username': 'student@nyu.edu', 'password': 'testpass123',
-        })
-        self.assertTrue(response.wsgi_request.user.is_authenticated)
+    def test_updates_first_and_last_name(self):
+        form = ProfileForm({'first_name': 'Jane', 'last_name': 'Doe'}, instance=self.user)
 
-    def test_login_is_case_insensitive_on_email(self):
-        response = self.client.post(reverse('accounts:login'), {
-            'username': 'STUDENT@nyu.edu', 'password': 'testpass123',
-        })
-        self.assertTrue(response.wsgi_request.user.is_authenticated)
+        self.assertTrue(form.is_valid(), form.errors)
+        user = form.save()
+        self.assertEqual(user.first_name, 'Jane')
+        self.assertEqual(user.last_name, 'Doe')
 
-    def test_wrong_password_shows_one_generic_error(self):
-        response = self.client.post(reverse('accounts:login'), {
-            'username': 'student@nyu.edu', 'password': 'wrongpass',
-        })
-        self.assertFalse(response.wsgi_request.user.is_authenticated)
-        self.assertEqual(len(response.context['form'].non_field_errors()), 1)
+    def test_requires_first_name(self):
+        form = ProfileForm({'first_name': '', 'last_name': 'Doe'}, instance=self.user)
 
-    def test_session_persists_between_requests(self):
-        self.client.login(username='student@nyu.edu', password='testpass123')
-        response = self.client.get(reverse('accounts:dashboard'))
-        self.assertEqual(response.status_code, 200)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors['first_name'], ['First name is required.'])
 
-    def test_logout_requires_post(self):
-        self.client.login(username='student@nyu.edu', password='testpass123')
-        response = self.client.get(reverse('accounts:logout'))
-        self.assertEqual(response.status_code, 405)  # GET is rejected
+    def test_requires_last_name(self):
+        form = ProfileForm({'first_name': 'Jane', 'last_name': ''}, instance=self.user)
 
-    def test_logout_ends_session(self):
-        self.client.login(username='student@nyu.edu', password='testpass123')
-        self.client.post(reverse('accounts:logout'))
-        response = self.client.get(reverse('accounts:dashboard'))
-        self.assertEqual(response.status_code, 302)  # bounced to login, session is gone
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors['last_name'], ['Last name is required.'])
 
-    def test_nonexistent_email_rejected(self):
-        response = self.client.post(reverse('accounts:login'), {
-            'username': 'nobody@nyu.edu', 'password': 'testpass123',
-        })
-        self.assertFalse(response.wsgi_request.user.is_authenticated)
-        self.assertEqual(len(response.context['form'].non_field_errors()), 1)
+    def test_does_not_change_email(self):
+        form = ProfileForm({'first_name': 'Jane', 'last_name': 'Doe'}, instance=self.user)
+        form.is_valid()
+        user = form.save()
 
-    def test_dashboard_redirects_anonymous_user_to_login(self):
-        response = self.client.get(reverse('accounts:dashboard'))
-        self.assertRedirects(
-            response, f"{reverse('accounts:login')}?next={reverse('accounts:dashboard')}"
-        )
+        self.assertEqual(user.email, 'student@nyu.edu')

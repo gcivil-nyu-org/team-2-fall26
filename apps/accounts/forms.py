@@ -1,25 +1,21 @@
 from django import forms
-from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from django.contrib.auth.forms import UserCreationForm
+
 from .models import User
 
 
 class SignUpForm(UserCreationForm):
-    email = forms.EmailField(
-        required=True,
-        widget=forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'you@example.com'}),
-    )
+    email = forms.EmailField(required=True)
 
     class Meta:
         model = User
         fields = ['email', 'password1', 'password2']
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.fields['password1'].widget.attrs.update({'class': 'form-control'})
-        self.fields['password2'].widget.attrs.update({'class': 'form-control'})
-
     def clean_email(self):
         email = self.cleaned_data['email'].lower()
+        domain = email.rsplit('@', 1)[-1]
+        if domain != 'nyu.edu' and not domain.endswith('.nyu.edu'):
+            raise forms.ValidationError('Please sign up with your NYU email address (@nyu.edu).')
         if User.objects.filter(email=email).exists():
             raise forms.ValidationError('An account with this email already exists.')
         return email
@@ -32,16 +28,14 @@ class SignUpForm(UserCreationForm):
         return user
 
 
-class EmailAuthenticationForm(AuthenticationForm):
-    username = forms.EmailField(
-        label='Email',
-        widget=forms.EmailInput(attrs={'class': 'form-control', 'placeholder': 'you@example.com', 'autofocus': True}),
-    )
-    password = forms.CharField(
-        label='Password',
-        widget=forms.PasswordInput(attrs={'class': 'form-control'}),
-    )
+class ProfileForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name']
 
-    def clean_username(self):
-        # match on lowercase so login isn't case-sensitive on email, same as signup
-        return self.cleaned_data['username'].lower()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['first_name'].required = True
+        self.fields['last_name'].required = True
+        self.fields['first_name'].error_messages['required'] = 'First name is required.'
+        self.fields['last_name'].error_messages['required'] = 'Last name is required.'
