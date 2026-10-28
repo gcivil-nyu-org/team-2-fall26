@@ -84,3 +84,30 @@ class Assignment(models.Model):
         self.status = self.Status.INCOMPLETE
         self.completed_at = None
         self.save(update_fields=['status', 'completed_at'])
+
+
+class ExamQuerySet(models.QuerySet):
+    def owned_by(self, user):
+        return self.filter(course__owner=user)
+
+    def upcoming(self):
+        return self.filter(starts_at__gte=timezone.now()).order_by('starts_at', 'title')
+
+
+class Exam(models.Model):
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='exams',
+    )
+    title = models.CharField(max_length=200)
+    starts_at = models.DateTimeField()
+    location = models.CharField(max_length=200, blank=True)
+
+    objects = ExamQuerySet.as_manager()
+
+    class Meta:
+        ordering = ['starts_at', 'title']
+
+    def __str__(self):
+        return self.title

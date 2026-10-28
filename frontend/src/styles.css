@@ -116,6 +116,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .count-pill { padding: .35rem .6rem; background: #f4eff7; color: var(--violet); }
 .status-pill { padding: .25rem .47rem; }
 .status-pill--danger { background: #fff0e8; color: #af4e25; }
+.status-pill--exam { background: #f4eff7; color: var(--violet); }
+.exam-mark { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #f4eff7; color: var(--violet); }
+.panel--stacked { margin-top: 1.25rem; }
 
 .course-list, .assignment-list { display: flex; flex-direction: column; }
 .course-row { display: flex; min-height: 83px; align-items: center; gap: .85rem; padding: 1rem 1.35rem; color: var(--ink); text-decoration: none; transition: background .15s; }
