@@ -58,6 +58,25 @@ Run `python manage.py migrate` after updating to apply the assignment schema cha
 Existing dated assignments retain their date at midnight UTC; existing assignments
 without a deadline remain readable. New submissions must include a deadline.
 
+## Account deactivation and deletion (#36)
+
+Open **Account settings** from the sidebar (`/app/settings/account`). Both
+actions require the current password and a typed confirmation. Cancel clears
+the confirmation form without sending a request.
+
+- **Deactivate:** type `DEACTIVATE`. The account is disabled and signed out;
+  courses, assignments, and exams are retained. An administrator must enable
+  the user's **Active** flag in Django admin before they can sign in again.
+  The password stays the same, but old sessions and reset links are invalidated.
+- **Delete:** type `DELETE`. The account and its courses, assignments, and exams
+  are permanently removed. Other students' accounts and coursework are unaffected.
+
+Session-authenticated API endpoints are `POST /api/account/deactivate/` and
+`DELETE /api/account/`. Both require CSRF protection and a JSON body with
+`current_password` and `confirmation`. They always operate on the signed-in
+account; request data cannot select another user. No database migration is
+needed: deactivation uses Django's existing `is_active` flag.
+
 ## Database
 
 Defaults to SQLite, no setup required. To use Postgres instead (e.g. for AWS RDS), set these in `.env`:

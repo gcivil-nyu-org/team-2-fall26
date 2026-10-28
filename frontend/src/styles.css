@@ -281,6 +281,31 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .skeleton--card { height: 105px; }
 }
 
+.account-settings { max-width: 800px; margin: 0 auto; }
+.account-option { display: flex; align-items: flex-start; gap: 1.1rem; padding: 1.5rem; margin-bottom: 1.25rem; }
+.account-option__icon { display: grid; flex-shrink: 0; place-items: center; width: 46px; height: 46px; border-radius: 13px; color: var(--violet); background: var(--violet-soft); }
+.account-option h2 { margin-bottom: .65rem; }
+.account-option p { max-width: 590px; color: var(--muted); font-size: .84rem; line-height: 1.7; margin-bottom: .75rem; }
+.account-option .button { margin-top: .3rem; }
+.account-option--danger { border-color: #eed5d0; }
+.account-option--danger .account-option__icon { color: #a53e2e; background: #fff0ec; }
+.button--danger-outline { color: #a53e2e; border-color: #dcb3aa; background: #fff; }
+.button--danger-outline:hover { background: #fff4f1; }
+.button--danger { color: white; background: #a53e2e; }
+.button--danger:hover { background: #852f22; }
+.account-confirmation { padding: 1.5rem; border-color: #dcb3aa; }
+.account-confirmation__heading { display: flex; align-items: flex-start; gap: .8rem; color: #a53e2e; margin-bottom: 1.1rem; }
+.account-confirmation__heading svg { flex-shrink: 0; }
+.account-confirmation__heading p { color: var(--muted); font-size: .82rem; line-height: 1.65; margin: .6rem 0 0; }
+.account-confirmation__fields { display: grid; gap: 1rem; min-width: 0; border: 0; padding: 0; margin: 0; }
+.account-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 620px) {
+  .account-option { padding: 1.1rem; gap: .8rem; }
+  .account-option__icon { width: 36px; height: 36px; }
+  .account-confirmation { padding: 1.1rem; }
+  .account-confirmation .form-actions { flex-direction: column-reverse; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

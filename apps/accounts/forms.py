@@ -4,6 +4,29 @@ from django.contrib.auth.forms import UserCreationForm
 from .models import User
 
 
+class AccountActionForm(forms.Form):
+    current_password = forms.CharField(strip=False, error_messages={'required': 'Enter your current password.'})
+    confirmation = forms.CharField(error_messages={'required': 'Type the confirmation word to continue.'})
+
+    def __init__(self, *args, user, action, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.action = action
+
+    def clean_current_password(self):
+        password = self.cleaned_data['current_password']
+        if not self.user.check_password(password):
+            raise forms.ValidationError('Your current password is incorrect.')
+        return password
+
+    def clean_confirmation(self):
+        value = self.cleaned_data['confirmation']
+        expected = 'DELETE' if self.action == 'delete' else 'DEACTIVATE'
+        if value != expected:
+            raise forms.ValidationError(f'Type {expected} to confirm.')
+        return value
+
+
 class SignUpForm(UserCreationForm):
     email = forms.EmailField(required=True)
 
