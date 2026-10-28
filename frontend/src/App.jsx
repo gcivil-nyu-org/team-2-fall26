@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 
 import { api, formatDate, toUTCInput } from './api'
+import { AvailabilityPage, CalendarPage } from './StudyPages'
 
 const AuthContext = createContext(null)
 
@@ -94,6 +95,8 @@ function GuestRoute({ children }) {
 
 const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+  { to: '/calendar', label: 'Study calendar', icon: CalendarDays },
+  { to: '/availability', label: 'Availability', icon: Clock3 },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
 ]
 
@@ -919,6 +922,8 @@ function AppRoutes() {
       <Route path="*" element={<ProtectedRoute><AppShell><Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/availability" element={<AvailabilityPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />
