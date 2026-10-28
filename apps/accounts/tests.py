@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from .forms import SignUpForm
+from .forms import ProfileForm, SignUpForm
 from .models import User
 
 
@@ -79,3 +79,37 @@ class SignUpFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn('password2', form.errors)
+
+
+class ProfileFormTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='student@nyu.edu', email='student@nyu.edu', password='testpass123',
+        )
+
+    def test_updates_first_and_last_name(self):
+        form = ProfileForm({'first_name': 'Jane', 'last_name': 'Doe'}, instance=self.user)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        user = form.save()
+        self.assertEqual(user.first_name, 'Jane')
+        self.assertEqual(user.last_name, 'Doe')
+
+    def test_requires_first_name(self):
+        form = ProfileForm({'first_name': '', 'last_name': 'Doe'}, instance=self.user)
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors['first_name'], ['First name is required.'])
+
+    def test_requires_last_name(self):
+        form = ProfileForm({'first_name': 'Jane', 'last_name': ''}, instance=self.user)
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors['last_name'], ['Last name is required.'])
+
+    def test_does_not_change_email(self):
+        form = ProfileForm({'first_name': 'Jane', 'last_name': 'Doe'}, instance=self.user)
+        form.is_valid()
+        user = form.save()
+
+        self.assertEqual(user.email, 'student@nyu.edu')
