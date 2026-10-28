@@ -11,10 +11,11 @@ class CourseAdmin(admin.ModelAdmin):
 
 @admin.register(Assignment)
 class AssignmentAdmin(admin.ModelAdmin):
-    list_display = ('title', 'course', 'due_date', 'status')
-    list_filter = ('status',)
+    list_display = ('title', 'course', 'due_date', 'priority', 'estimated_workload', 'status')
+    list_filter = ('status', 'priority')
 
 
 @admin.register(Exam)
 class ExamAdmin(admin.ModelAdmin):
-    list_display = ('title', 'course', 'starts_at', 'location')
+    list_display = ('title', 'course', 'starts_at', 'priority', 'estimated_workload', 'location')
+    list_filter = ('priority',)
