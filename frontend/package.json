@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test src/api.test.js && vitest run",
+    "test": "node --test src/*.test.js && vitest run",
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"

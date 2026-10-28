@@ -44,9 +44,37 @@ python manage.py test
 ```
 
 Run `npm test` inside `frontend/` for the deadline time-zone and Vite base-path
-regression tests. Django shell tests use plain static storage so a fresh checkout
+regression tests, plus study-calendar helpers. Django shell tests use plain static storage so a fresh checkout
 does not need a collected manifest; deployments still use WhiteNoise's hashed
 assets after `collectstatic`.
+
+## Study availability and calendar (#38, #39)
+
+The React sidebar links to **Availability** (`/app/availability`) and **Study
+calendar** (`/app/calendar`). Availability repeats Monday–Sunday and supports
+multiple non-overlapping blocks per day. Both availability and the calendar use
+UTC, explicitly labeled in the UI. Saving an empty week clears availability;
+the UI explains that availability is required before schedule generation.
+Changing availability leaves already scheduled sessions unchanged.
+
+Study sessions belong to an assignment, which supplies their course, task, and
+account ownership. The calendar shows sessions overlapping the selected week,
+including sessions crossing midnight, with previous/next/this-week navigation.
+`?week=YYYY-MM-DD` selects the Monday–Sunday week containing that date.
+
+API endpoints (session authentication and CSRF protection apply):
+
+- `GET /api/study/availability/`: saved blocks and configuration state.
+- `PUT /api/study/availability/`: atomically replace the user's weekly blocks;
+  body: `{"blocks": [{"weekday": 0, "start_time": "09:00", "end_time": "11:00"}]}`.
+  Weekdays run from Monday (0) to Sunday (6). Invalid or overlapping blocks
+  return field errors without replacing saved availability.
+- `GET /api/study/calendar/?week=2026-10-19`: the user's sessions for that week.
+
+Run `python manage.py migrate` to create the study tables. Sessions can be
+entered through Django admin while the separate automatic-generation story
+(#41) is pending. No generated or example sessions are added by migrations.
+Locking, rescheduling, completion, and deletion remain separate stories.
 
 ## Assignment deadlines
 
