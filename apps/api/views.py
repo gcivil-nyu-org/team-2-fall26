@@ -18,9 +18,8 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from apps.accounts.forms import SignUpForm
 from apps.accounts.models import User
-from apps.coursework.forms import AssignmentForm, CourseForm
-from apps.coursework.models import Assignment, Course
-
+from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
+from apps.coursework.models import Assignment, Course, Exam
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +56,7 @@ def _course_payload(course, include_assignments=False):
     }
     if include_assignments:
         data['assignments'] = [_assignment_payload(item) for item in course.assignments.all()]
+        data['exams'] = [_exam_payload(item) for item in course.exams.all()]
     return data
 
 
@@ -77,6 +77,30 @@ def _assignment_payload(assignment):
             'code': assignment.course.code,
         },
     }
+
+
+def _exam_payload(exam):
+    return {
+        'id': exam.pk,
+        'kind': 'exam',
+        'title': exam.title,
+        'starts_at': timezone.localtime(exam.starts_at).isoformat(),
+        'location': exam.location,
+        'course': {
+            'id': exam.course_id,
+            'name': exam.course.name,
+            'code': exam.course.code,
+        },
+    }
+
+
+def _upcoming_payload(assignments, exams):
+    # One outstanding-work list: soonest first, so overdue assignments lead and
+    # undated assignments trail, with exams slotted in by their start time.
+    items = [(item.due_date, item.title, {**_assignment_payload(item), 'kind': 'assignment'}) for item in assignments]
+    items += [(item.starts_at, item.title, _exam_payload(item)) for item in exams]
+    items.sort(key=lambda item: (item[0] is None, item[0] or timezone.now(), item[1]))
+    return [payload for _, _, payload in items]
 
 
 def _semester_payload(instance=None):
@@ -195,16 +219,21 @@ def dashboard_view(request):
     week_end = now + timedelta(days=7)
     assignments = Assignment.objects.owned_by(request.user)
     outstanding = assignments.outstanding().select_related('course')
+    exams = Exam.objects.owned_by(request.user).upcoming().select_related('course')
     courses = request.user.courses.annotate(assignment_count=Count('assignments'))
     return JsonResponse({
         'user': _user_payload(request.user),
         'metrics': {
             'courses': courses.count(),
-            'due_this_week': outstanding.filter(due_date__gte=now, due_date__lte=week_end).count(),
+            'due_this_week': (
+                outstanding.filter(due_date__gte=now, due_date__lte=week_end).count()
+                + exams.filter(starts_at__lte=week_end).count()
+            ),
             'overdue': assignments.overdue().count(),
         },
         'courses': [_course_payload(course) for course in courses],
         'assignments': [_assignment_payload(item) for item in outstanding],
+        'upcoming': _upcoming_payload(outstanding, exams),
     })
 
 
@@ -239,7 +268,7 @@ def course_view(request, pk):
         course.delete()
         return JsonResponse({'ok': True})
     if request.method == 'GET':
-        course = Course.objects.prefetch_related('assignments').get(pk=course.pk)
+        course = Course.objects.prefetch_related('assignments', 'exams').get(pk=course.pk)
         return JsonResponse({
             'course': _course_payload(course, include_assignments=True),
             'semester': _semester_payload(course),
@@ -268,6 +297,23 @@ def course_assignments_view(request, pk):
     assignment.course = course
     assignment.save()
     return JsonResponse({'assignment': _assignment_payload(assignment)}, status=201)
+
+
+@require_POST
+def course_exams_view(request, pk):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    course = get_object_or_404(Course.objects.filter(owner=request.user), pk=pk)
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    form = ExamForm(body)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    exam = form.save(commit=False)
+    exam.course = course
+    exam.save()
+    return JsonResponse({'exam': _exam_payload(exam)}, status=201)
 
 
 @require_GET
