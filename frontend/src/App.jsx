@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 
 import { api, formatDate, toUTCInput } from './api'
+import { AvailabilityPage, CalendarPage } from './StudyPages'
 
 const AuthContext = createContext(null)
 
@@ -94,6 +95,8 @@ function GuestRoute({ children }) {
 
 const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+  { to: '/calendar', label: 'Study calendar', icon: CalendarDays },
+  { to: '/availability', label: 'Availability', icon: Clock3 },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
 ]
 
@@ -439,14 +442,16 @@ function Dashboard() {
             <div><p className="kicker">Focus queue</p><h2>Up next</h2></div>
             <NavLink className="text-link" to="/completed">Completed <ArrowRight size={14} /></NavLink>
           </div>
-          {data.assignments.length ? (
+          {data.upcoming.length ? (
             <div className="assignment-list">
-              {data.assignments.slice(0, 6).map((assignment) => (
-                <AssignmentRow key={assignment.id} assignment={assignment} onChange={load} compact />
+              {data.upcoming.slice(0, 6).map((item) => (
+                item.kind === 'exam'
+                  ? <ExamRow key={`exam-${item.id}`} exam={item} />
+                  : <AssignmentRow key={`assignment-${item.id}`} assignment={item} onChange={load} compact />
               ))}
             </div>
           ) : (
-            <EmptyState icon={CheckCircle2} title="Everything is clear" body="No outstanding assignments. Enjoy the breathing room." />
+            <EmptyState icon={CheckCircle2} title="Everything is clear" body="No outstanding assignments or upcoming exams. Enjoy the breathing room." />
           )}
         </section>
       </div>
@@ -542,6 +547,22 @@ function AssignmentRow({ assignment, onChange, compact = false, completed = fals
   )
 }
 
+function ExamRow({ exam }) {
+  return (
+    <div className="assignment-row">
+      <span className="exam-mark" aria-hidden="true"><GraduationCap size={16} /></span>
+      <div className="assignment-row__copy">
+        <strong>{exam.title}</strong>
+        <small>{exam.course.name}{exam.location ? ` · ${exam.location}` : ''}</small>
+      </div>
+      <div className="assignment-row__date">
+        <span className="status-pill status-pill--exam">Exam</span>
+        <span>{formatDate(exam.starts_at)}</span>
+      </div>
+    </div>
+  )
+}
+
 function CourseDetail() {
   const { courseId } = useParams()
   const navigate = useNavigate()
@@ -612,6 +633,19 @@ function CourseDetail() {
           </div>
         ) : (
           <EmptyState icon={CalendarDays} title="Nothing assigned yet" body="Add the first assignment for this course when you’re ready." action={<NavLink className="button button--soft" to={`/courses/${course.id}/assignments/new`}><Plus size={16} /> Add assignment</NavLink>} />
+        )}
+      </section>
+      <section className="panel panel--full panel--stacked">
+        <div className="panel__header">
+          <div><p className="kicker">Exams</p><h2>Exam schedule</h2></div>
+          <NavLink className="button button--soft button--small" to={`/courses/${course.id}/exams/new`}><Plus size={15} /> Add exam</NavLink>
+        </div>
+        {course.exams.length ? (
+          <div className="assignment-list">
+            {course.exams.map((exam) => <ExamRow key={exam.id} exam={exam} />)}
+          </div>
+        ) : (
+          <EmptyState icon={GraduationCap} title="No exams yet" body="Add midterms and finals here so you can plan your prep." />
         )}
       </section>
     </>
@@ -889,6 +923,67 @@ function AssignmentFormPage({ editing = false }) {
   )
 }
 
+function ExamFormPage() {
+  const { courseId } = useParams()
+  const navigate = useNavigate()
+  const [course, setCourse] = useState(null)
+  const [values, setValues] = useState({ title: '', starts_at: '', location: '' })
+  const [errors, setErrors] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError('')
+    async function load() {
+      try {
+        const data = await api(`/courses/${courseId}/`)
+        if (active) setCourse(data.course)
+      } catch (error) {
+        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load this course. Check the link or try again.')
+      } finally { if (active) setLoading(false) }
+    }
+    load()
+    return () => { active = false }
+  }, [courseId, loadAttempt])
+
+  function update(event) {
+    setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
+    setErrors((current) => ({ ...current, [event.target.name]: undefined }))
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    setSubmitting(true)
+    setErrors({})
+    try {
+      await api(`/courses/${courseId}/exams/`, { method: 'POST', body: values })
+      navigate(`/courses/${course.id}`)
+    } catch (error) { setErrors(error.errors || {}) } finally { setSubmitting(false) }
+  }
+
+  if (loading) return <PageSkeleton />
+  if (loadError || !course) return <ErrorState message={loadError || 'This course could not be loaded.'} onRetry={() => setLoadAttempt((value) => value + 1)} />
+  return (
+    <FormPage
+      backTo={`/courses/${course.id}`}
+      eyebrow={course.code || 'New exam'}
+      title="Add an exam"
+      subtitle={`${course.name} · Know when and where it is.`}
+    >
+      <form onSubmit={submit} className="editor-card">
+        <Field label="Exam title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Midterm" autoFocus required /></Field>
+        <Field label="Date and time" hint="Time zone: UTC" error={errors.starts_at?.[0]}><input name="starts_at" type="datetime-local" value={values.starts_at} onChange={update} onInput={update} required /></Field>
+        <Field label="Location" hint="Optional" error={errors.location?.[0]}><input name="location" value={values.location} onChange={update} placeholder="e.g. 370 Jay St, Room 202" /></Field>
+        <FormActions submitting={submitting} label="Add exam" cancel={() => navigate(`/courses/${course.id}`)} />
+      </form>
+    </FormPage>
+  )
+}
+
 function FormPage({ backTo, eyebrow, title, subtitle, children }) {
   return (
     <div className="form-page">
@@ -958,10 +1053,13 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/availability" element={<AvailabilityPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />
         <Route path="/courses/:courseId/assignments/new" element={<AssignmentFormPage />} />
+        <Route path="/courses/:courseId/exams/new" element={<ExamFormPage />} />
         <Route path="/assignments/:assignmentId/edit" element={<AssignmentFormPage editing />} />
         <Route path="/completed" element={<Completed />} />
         <Route path="*" element={<NotFound />} />

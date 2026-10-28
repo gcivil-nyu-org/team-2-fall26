@@ -6,8 +6,8 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 
-from .forms import AssignmentForm, CourseForm
-from .models import Assignment, Course
+from .forms import AssignmentForm, CourseForm, ExamForm
+from .models import Assignment, Course, Exam
 
 
 class CourseFormTests(SimpleTestCase):
@@ -207,3 +207,42 @@ class AssignmentModelTests(TestCase):
         )
 
         self.assertEqual(list(Assignment.objects.completed()), [later, earlier])
+
+
+class ExamFormTests(SimpleTestCase):
+    def test_requires_title_and_explicit_date_and_time(self):
+        form = ExamForm({'title': '', 'starts_at': '', 'location': ''})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors['title'], ['Exam title is required.'])
+        self.assertEqual(form.errors['starts_at'], ['An exam date and time are required.'])
+
+        for value in ('2026-12-10', 'not-a-date', '2026-13-40T09:00'):
+            form = ExamForm({'title': 'Final', 'starts_at': value})
+            self.assertFalse(form.is_valid(), value)
+            self.assertEqual(form.errors['starts_at'], ['Enter a valid exam date and time.'])
+
+    def test_location_is_optional(self):
+        self.assertTrue(ExamForm({'title': 'Midterm', 'starts_at': '2026-11-05T14:00'}).is_valid())
+        self.assertTrue(ExamForm({'title': 'Midterm', 'starts_at': '2026-11-05T14:00', 'location': 'Jacobs 474'}).is_valid())
+
+
+class ExamModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='student@nyu.edu', email='student@nyu.edu', password='testpass123')
+        self.course = Course.objects.create(owner=self.user, name='Algorithms', semester='Fall 2026')
+
+    def test_upcoming_hides_past_exams_and_orders_soonest_first(self):
+        now = timezone.now()
+        Exam.objects.create(course=self.course, title='Quiz 1', starts_at=now - timedelta(days=1))
+        later = Exam.objects.create(course=self.course, title='Final', starts_at=now + timedelta(days=30))
+        sooner = Exam.objects.create(course=self.course, title='Midterm', starts_at=now + timedelta(days=5))
+
+        self.assertEqual(list(Exam.objects.upcoming()), [sooner, later])
+
+    def test_owned_by_never_returns_another_users_exams(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='testpass123')
+        other_course = Course.objects.create(owner=other, name='Other', semester='Fall 2026')
+        mine = Exam.objects.create(course=self.course, title='Midterm', starts_at=timezone.now())
+        Exam.objects.create(course=other_course, title='Theirs', starts_at=timezone.now())
+
+        self.assertEqual(list(Exam.objects.owned_by(self.user)), [mine])
