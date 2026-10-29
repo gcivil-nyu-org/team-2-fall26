@@ -74,6 +74,13 @@ def _assignment_payload(assignment):
         'title': assignment.title,
         'description': assignment.description,
         'due_date': due_date,
+        'priority': assignment.priority,
+        'priority_label': assignment.get_priority_display() if assignment.priority else '',
+        'estimated_workload': (
+            float(assignment.estimated_workload)
+            if assignment.estimated_workload is not None
+            else None
+        ),
         'status': assignment.status,
         'completed_at': completed_at,
         'is_overdue': assignment.is_overdue,
@@ -92,6 +99,13 @@ def _exam_payload(exam):
         'title': exam.title,
         'starts_at': timezone.localtime(exam.starts_at).isoformat(),
         'location': exam.location,
+        'priority': exam.priority,
+        'priority_label': exam.get_priority_display() if exam.priority else '',
+        'estimated_workload': (
+            float(exam.estimated_workload)
+            if exam.estimated_workload is not None
+            else None
+        ),
         'course': {
             'id': exam.course_id,
             'name': exam.course.name,
@@ -385,6 +399,24 @@ def course_exams_view(request, pk):
     exam.course = course
     exam.save()
     return JsonResponse({'exam': _exam_payload(exam)}, status=201)
+
+
+@require_http_methods(['GET', 'PUT'])
+def exam_view(request, pk):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    exam = get_object_or_404(
+        Exam.objects.owned_by(request.user).select_related('course'), pk=pk,
+    )
+    if request.method == 'GET':
+        return JsonResponse({'exam': _exam_payload(exam)})
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    form = ExamForm(body, instance=exam)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    return JsonResponse({'exam': _exam_payload(form.save())})
 
 
 @require_GET

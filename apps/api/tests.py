@@ -453,17 +453,49 @@ class CourseworkApiTests(ApiTestCase):
     def test_assignment_create_edit_complete_and_reopen(self):
         response = self.json_post(reverse('api:course_assignments', args=[self.course.pk]), {
             'title': 'Demo', 'due_date': '2026-11-20T17:45', 'description': 'Prepare slides.',
+            'priority': 'high', 'estimated_workload': '4.5',
         })
         self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['assignment']['priority'], 'high')
+        self.assertEqual(response.json()['assignment']['priority_label'], 'High')
+        self.assertEqual(response.json()['assignment']['estimated_workload'], 4.5)
         assignment_id = response.json()['assignment']['id']
         response = self.json_put(reverse('api:assignment', args=[assignment_id]), {
             'title': 'Final demo', 'due_date': '2026-11-21T17:45', 'description': 'Prepare slides.',
+            'priority': 'medium', 'estimated_workload': '2.0',
         })
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['assignment']['priority'], 'medium')
+        self.assertEqual(response.json()['assignment']['estimated_workload'], 2.0)
+        assignment = Assignment.objects.get(pk=assignment_id)
+        self.assertEqual(assignment.title, 'Final demo')
+        self.assertEqual(assignment.priority, 'medium')
+        self.assertEqual(float(assignment.estimated_workload), 2.0)
         response = self.json_patch(reverse('api:assignment', args=[assignment_id]), {'status': 'complete'})
         self.assertEqual(response.json()['assignment']['status'], 'complete')
         response = self.json_patch(reverse('api:assignment', args=[assignment_id]), {'status': 'incomplete'})
         self.assertEqual(response.json()['assignment']['status'], 'incomplete')
+
+    def test_assignment_planning_fields_can_be_omitted_and_cleared(self):
+        response = self.json_post(reverse('api:course_assignments', args=[self.course.pk]), {
+            'title': 'Reading', 'due_date': '2026-11-20T17:45', 'description': '',
+        })
+        self.assertEqual(response.status_code, 201)
+        assignment = response.json()['assignment']
+        self.assertEqual(assignment['priority'], '')
+        self.assertIsNone(assignment['estimated_workload'])
+
+        response = self.json_put(reverse('api:assignment', args=[assignment['id']]), {
+            'title': 'Reading', 'due_date': '2026-11-20T17:45', 'description': '',
+            'priority': 'low', 'estimated_workload': '1.5',
+        })
+        self.assertEqual(response.status_code, 200)
+        response = self.json_put(reverse('api:assignment', args=[assignment['id']]), {
+            'title': 'Reading', 'due_date': '2026-11-20T17:45', 'description': '',
+            'priority': '', 'estimated_workload': '',
+        })
+        self.assertEqual(response.json()['assignment']['priority'], '')
+        self.assertIsNone(response.json()['assignment']['estimated_workload'])
 
     def test_ownership_and_auth_are_enforced(self):
         other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='pass12345')
@@ -543,11 +575,15 @@ class CourseworkApiTests(ApiTestCase):
     def test_add_exam_to_owned_course(self):
         response = self.json_post(reverse('api:course_exams', args=[self.course.pk]), {
             'title': 'Midterm', 'starts_at': '2026-11-05T14:00', 'location': 'Jacobs 474',
+            'priority': 'high', 'estimated_workload': '8.5',
         })
         self.assertEqual(response.status_code, 201)
         exam = response.json()['exam']
         self.assertEqual(exam['kind'], 'exam')
         self.assertEqual(exam['location'], 'Jacobs 474')
+        self.assertEqual(exam['priority'], 'high')
+        self.assertEqual(exam['priority_label'], 'High')
+        self.assertEqual(exam['estimated_workload'], 8.5)
         self.assertEqual(exam['course']['id'], self.course.pk)
         self.assertEqual(Exam.objects.get(pk=exam['id']).course, self.course)
         self.assertEqual(Assignment.objects.count(), 1)
@@ -555,6 +591,46 @@ class CourseworkApiTests(ApiTestCase):
         course = self.client.get(reverse('api:course', args=[self.course.pk])).json()['course']
         self.assertEqual([item['title'] for item in course['exams']], ['Midterm'])
         self.assertEqual([item['title'] for item in course['assignments']], ['Sprint review'])
+
+    def test_exam_planning_fields_can_be_edited_and_persist(self):
+        exam = Exam.objects.create(
+            course=self.course,
+            title='Midterm',
+            starts_at=timezone.now() + timedelta(days=3),
+        )
+        url = reverse('api:exam', args=[exam.pk])
+
+        response = self.json_put(url, {
+            'title': 'Midterm',
+            'starts_at': '2026-11-05T14:00',
+            'location': 'Jacobs 474',
+            'priority': 'medium',
+            'estimated_workload': '6.0',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['exam']['priority'], 'medium')
+        self.assertEqual(response.json()['exam']['estimated_workload'], 6.0)
+        refreshed = self.client.get(url).json()['exam']
+        self.assertEqual(refreshed['location'], 'Jacobs 474')
+        self.assertEqual(refreshed['priority_label'], 'Medium')
+        self.assertEqual(refreshed['estimated_workload'], 6.0)
+
+    def test_exam_edit_is_limited_to_the_owner(self):
+        exam = Exam.objects.create(
+            course=self.course,
+            title='Midterm',
+            starts_at=timezone.now() + timedelta(days=3),
+        )
+        url = reverse('api:exam', args=[exam.pk])
+        other = User.objects.create_user(
+            username='other@nyu.edu', email='other@nyu.edu', password='pass12345',
+        )
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.json_put(url, {}).status_code, 404)
+        self.client.logout()
+        self.assertEqual(self.client.get(url).status_code, 401)
 
     def test_add_exam_rejects_missing_or_invalid_fields(self):
         url = reverse('api:course_exams', args=[self.course.pk])
@@ -566,11 +642,22 @@ class CourseworkApiTests(ApiTestCase):
         self.assertEqual(response.json()['errors']['starts_at'], ['Enter a valid exam date and time.'])
         self.assertFalse(Exam.objects.exists())
 
-    def test_exams_join_outstanding_work_in_deadline_order(self):
+    def test_exams_and_priorities_join_outstanding_work_without_changing_deadline_order(self):
         now = timezone.now()
-        Assignment.objects.create(course=self.course, title='Late essay', due_date=now - timedelta(days=1))
+        Assignment.objects.create(
+            course=self.course,
+            title='Late essay',
+            due_date=now - timedelta(days=1),
+            priority='low',
+        )
         Assignment.objects.create(course=self.course, title='Someday reading')
-        Exam.objects.create(course=self.course, title='Midterm', starts_at=now + timedelta(days=1))
+        Exam.objects.create(
+            course=self.course,
+            title='Midterm',
+            starts_at=now + timedelta(days=1),
+            priority='high',
+            estimated_workload='8.0',
+        )
         Exam.objects.create(course=self.course, title='Final', starts_at=now + timedelta(days=20))
         Exam.objects.create(course=self.course, title='Past quiz', starts_at=now - timedelta(hours=2))
 
@@ -585,6 +672,9 @@ class CourseworkApiTests(ApiTestCase):
                 ('assignment', 'Someday reading'),
             ],
         )
+        midterm = next(item for item in payload['upcoming'] if item['title'] == 'Midterm')
+        self.assertEqual(midterm['priority_label'], 'High')
+        self.assertEqual(midterm['estimated_workload'], 8.0)
         self.assertEqual(payload['metrics']['due_this_week'], 2)
         self.assertEqual(payload['metrics']['overdue'], 1)
 
@@ -616,12 +706,15 @@ class CourseworkApiTests(ApiTestCase):
         response = self.json_put(url, {
             'title': before['title'], 'description': 'Updated description',
             'due_date': '2026-11-20T17:45',
+            'priority': 'high', 'estimated_workload': '3.0',
         })
         self.assertEqual(response.status_code, 200)
         after = self.client.get(url).json()['assignment']
         self.assertEqual(after['due_date'], '2026-11-20T17:45:00+00:00')
         self.assertEqual(after['due_date'], before['due_date'])
         self.assertEqual(after['description'], 'Updated description')
+        self.assertEqual(after['priority'], 'high')
+        self.assertEqual(after['estimated_workload'], 3.0)
         self.assertEqual(after['status'], before['status'])
         self.assertEqual(after['completed_at'], before['completed_at'])
 

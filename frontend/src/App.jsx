@@ -479,6 +479,24 @@ function CourseRow({ course, index }) {
   )
 }
 
+function PlanningMeta({ item }) {
+  if (!item.priority && item.estimated_workload == null) return null
+  return (
+    <>
+      {item.priority && (
+        <span className={`status-pill status-pill--priority-${item.priority}`}>
+          {item.priority_label || item.priority}
+        </span>
+      )}
+      {item.estimated_workload != null && (
+        <span className="workload-pill" title="Estimated workload">
+          <Clock3 size={12} /> {item.estimated_workload}h
+        </span>
+      )}
+    </>
+  )
+}
+
 function AssignmentRow({ assignment, onChange, compact = false, completed = false, deletable = false }) {
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -528,6 +546,7 @@ function AssignmentRow({ assignment, onChange, compact = false, completed = fals
         <small>{assignment.course.name}{assignment.description && !compact ? ` · ${assignment.description}` : ''}</small>
       </div>
       <div className="assignment-row__date">
+        <PlanningMeta item={assignment} />
         {assignment.is_overdue && <span className="status-pill status-pill--danger">Overdue</span>}
         <span>{formatDate(assignment.due_date)}</span>
       </div>
@@ -561,9 +580,11 @@ function ExamRow({ exam }) {
         <small>{exam.course.name}{exam.location ? ` · ${exam.location}` : ''}</small>
       </div>
       <div className="assignment-row__date">
+        <PlanningMeta item={exam} />
         <span className="status-pill status-pill--exam">Exam</span>
         <span>{formatDate(exam.starts_at)}</span>
       </div>
+      <NavLink className="icon-button" to={`/exams/${exam.id}/edit`} aria-label={`Edit ${exam.title}`}><Pencil size={15} /></NavLink>
     </div>
   )
 }
@@ -927,7 +948,9 @@ function AssignmentFormPage({ editing = false }) {
   const { courseId, assignmentId } = useParams()
   const navigate = useNavigate()
   const [course, setCourse] = useState(null)
-  const [values, setValues] = useState({ title: '', due_date: '', description: '' })
+  const [values, setValues] = useState({
+    title: '', due_date: '', description: '', priority: '', estimated_workload: '',
+  })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -944,7 +967,13 @@ function AssignmentFormPage({ editing = false }) {
           const data = await api(`/assignments/${assignmentId}/`)
           if (!active) return
           setCourse(data.assignment.course)
-          setValues({ title: data.assignment.title, due_date: toUTCInput(data.assignment.due_date), description: data.assignment.description })
+          setValues({
+            title: data.assignment.title,
+            due_date: toUTCInput(data.assignment.due_date),
+            description: data.assignment.description,
+            priority: data.assignment.priority || '',
+            estimated_workload: data.assignment.estimated_workload ?? '',
+          })
         } else {
           const data = await api(`/courses/${courseId}/`)
           if (!active) return
@@ -987,6 +1016,19 @@ function AssignmentFormPage({ editing = false }) {
       <form onSubmit={submit} className="editor-card">
         <Field label="Assignment title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Sprint retrospective" autoFocus required /></Field>
         <Field label="Deadline" hint="Time zone: UTC" error={errors.due_date?.[0]}><input name="due_date" type="datetime-local" value={values.due_date} onChange={update} onInput={update} required /></Field>
+        <div className="field-pair">
+          <Field label="Priority" hint="Optional" error={errors.priority?.[0]}>
+            <select name="priority" value={values.priority} onChange={update}>
+              <option value="">No priority</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </Field>
+          <Field label="Estimated workload" hint="Optional · hours" error={errors.estimated_workload?.[0]}>
+            <input name="estimated_workload" type="number" min="0.5" step="0.5" inputMode="decimal" value={values.estimated_workload} onChange={update} placeholder="e.g. 3.5" />
+          </Field>
+        </div>
         <Field label="Description" hint="Optional" error={errors.description?.[0]}><textarea name="description" rows="4" value={values.description} onChange={update} placeholder="Add context, requirements, or a quick note…" /></Field>
         <FormActions submitting={submitting} label={editing ? 'Save changes' : 'Add assignment'} cancel={() => navigate(`/courses/${course.id}`)} />
       </form>
@@ -994,11 +1036,13 @@ function AssignmentFormPage({ editing = false }) {
   )
 }
 
-function ExamFormPage() {
-  const { courseId } = useParams()
+function ExamFormPage({ editing = false }) {
+  const { courseId, examId } = useParams()
   const navigate = useNavigate()
   const [course, setCourse] = useState(null)
-  const [values, setValues] = useState({ title: '', starts_at: '', location: '' })
+  const [values, setValues] = useState({
+    title: '', starts_at: '', location: '', priority: '', estimated_workload: '',
+  })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -1011,15 +1055,28 @@ function ExamFormPage() {
     setLoadError('')
     async function load() {
       try {
-        const data = await api(`/courses/${courseId}/`)
-        if (active) setCourse(data.course)
+        if (editing) {
+          const data = await api(`/exams/${examId}/`)
+          if (!active) return
+          setCourse(data.exam.course)
+          setValues({
+            title: data.exam.title,
+            starts_at: toUTCInput(data.exam.starts_at),
+            location: data.exam.location,
+            priority: data.exam.priority || '',
+            estimated_workload: data.exam.estimated_workload ?? '',
+          })
+        } else {
+          const data = await api(`/courses/${courseId}/`)
+          if (active) setCourse(data.course)
+        }
       } catch (error) {
-        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load this course. Check the link or try again.')
+        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load this exam or course. Check the link or try again.')
       } finally { if (active) setLoading(false) }
     }
     load()
     return () => { active = false }
-  }, [courseId, loadAttempt])
+  }, [editing, examId, courseId, loadAttempt])
 
   function update(event) {
     setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
@@ -1031,7 +1088,9 @@ function ExamFormPage() {
     setSubmitting(true)
     setErrors({})
     try {
-      await api(`/courses/${courseId}/exams/`, { method: 'POST', body: values })
+      await api(editing ? `/exams/${examId}/` : `/courses/${courseId}/exams/`, {
+        method: editing ? 'PUT' : 'POST', body: values,
+      })
       navigate(`/courses/${course.id}`)
     } catch (error) { setErrors(error.errors || {}) } finally { setSubmitting(false) }
   }
@@ -1041,15 +1100,28 @@ function ExamFormPage() {
   return (
     <FormPage
       backTo={`/courses/${course.id}`}
-      eyebrow={course.code || 'New exam'}
-      title="Add an exam"
+      eyebrow={editing ? 'Exam details' : course.code || 'New exam'}
+      title={editing ? 'Edit exam' : 'Add an exam'}
       subtitle={`${course.name} · Know when and where it is.`}
     >
       <form onSubmit={submit} className="editor-card">
         <Field label="Exam title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Midterm" autoFocus required /></Field>
         <Field label="Date and time" hint="Time zone: UTC" error={errors.starts_at?.[0]}><input name="starts_at" type="datetime-local" value={values.starts_at} onChange={update} onInput={update} required /></Field>
+        <div className="field-pair">
+          <Field label="Priority" hint="Optional" error={errors.priority?.[0]}>
+            <select name="priority" value={values.priority} onChange={update}>
+              <option value="">No priority</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </Field>
+          <Field label="Estimated workload" hint="Optional · hours" error={errors.estimated_workload?.[0]}>
+            <input name="estimated_workload" type="number" min="0.5" step="0.5" inputMode="decimal" value={values.estimated_workload} onChange={update} placeholder="e.g. 2.5" />
+          </Field>
+        </div>
         <Field label="Location" hint="Optional" error={errors.location?.[0]}><input name="location" value={values.location} onChange={update} placeholder="e.g. 370 Jay St, Room 202" /></Field>
-        <FormActions submitting={submitting} label="Add exam" cancel={() => navigate(`/courses/${course.id}`)} />
+        <FormActions submitting={submitting} label={editing ? 'Save changes' : 'Add exam'} cancel={() => navigate(`/courses/${course.id}`)} />
       </form>
     </FormPage>
   )
@@ -1132,6 +1204,7 @@ function AppRoutes() {
         <Route path="/courses/:courseId/assignments/new" element={<AssignmentFormPage />} />
         <Route path="/courses/:courseId/exams/new" element={<ExamFormPage />} />
         <Route path="/assignments/:assignmentId/edit" element={<AssignmentFormPage editing />} />
+        <Route path="/exams/:examId/edit" element={<ExamFormPage editing />} />
         <Route path="/completed" element={<Completed />} />
         <Route path="*" element={<NotFound />} />
       </Routes></AppShell></ProtectedRoute>} />

@@ -121,6 +121,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .status-pill { padding: .25rem .47rem; }
 .status-pill--danger { background: #fff0e8; color: #af4e25; }
 .status-pill--exam { background: #f4eff7; color: var(--violet); }
+.status-pill--priority-low { background: #eaf3fb; color: #356b94; }
+.status-pill--priority-medium { background: #fff3dd; color: #91631c; }
+.status-pill--priority-high { background: #fdecea; color: #a84336; }
+.workload-pill { display: inline-flex; align-items: center; gap: .25rem; color: #726778; font-weight: 700; white-space: nowrap; }
 .exam-mark { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: #f4eff7; color: var(--violet); }
 .panel--stacked { margin-top: 1.25rem; }
 
@@ -181,6 +185,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .profile-picture-header__remove { font-size: .78rem; display: inline-flex; align-items: center; gap: .25rem; }
 .profile-picture-header__error { color: #b84936; font-size: .78rem; text-align: right; max-width: 220px; }
 .field { display: flex; flex-direction: column; gap: .52rem; }
+.field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .field__label { display: flex; align-items: center; justify-content: space-between; font-size: .76rem; font-weight: 700; }
 .field__label small { color: #9b929f; font-size: .67rem; font-weight: 500; }
 .field input, .field select, .field textarea { width: 100%; border: 1px solid #ddd6e3; border-radius: 11px; outline: 0; background: #fff; color: var(--ink); font-size: .84rem; transition: border .15s, box-shadow .15s, background .15s; }
@@ -291,6 +296,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .course-hero > div:not(.progress-ring):nth-child(3) { padding-right: 0; border-right: 0; }
   .progress-ring { display: none; }
   .editor-card { padding: 1.2rem; }
+  .field-pair { grid-template-columns: 1fr; }
   .profile-security { flex-direction: column; align-items: flex-start; }
   .profile-security .button { width: 100%; }
   .profile-picture-header { align-items: flex-start; }
