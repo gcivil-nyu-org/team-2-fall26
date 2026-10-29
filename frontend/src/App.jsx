@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Navigate,
   NavLink,
@@ -13,6 +13,7 @@ import {
   ArrowRight,
   BookOpen,
   CalendarDays,
+  Camera,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -34,7 +35,7 @@ import {
 import { api, formatDate, toUTCInput } from './api'
 import { AvailabilityPage, CalendarPage } from './StudyPages'
 
-const AuthContext = createContext(null)
+export const AuthContext = createContext(null)
 
 function useAuth() {
   return useContext(AuthContext)
@@ -100,7 +101,7 @@ const navItems = [
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
 ]
 
-function AppShell({ children }) {
+export function AppShell({ children }) {
   const { session, setSession } = useAuth()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -130,7 +131,11 @@ function AppShell({ children }) {
         <div className="sidebar__spacer" />
         <div className="sidebar__profile">
           <NavLink to="/profile" onClick={() => setMobileOpen(false)} className="sidebar__profile-link" aria-label="Edit your profile">
-            <div className="avatar">{(session.user?.first_name?.[0] || session.user?.email?.[0] || '?').toUpperCase()}</div>
+            <div className="avatar">
+              {session.user?.profile_picture
+                ? <img src={session.user.profile_picture} alt="" />
+                : (session.user?.first_name?.[0] || session.user?.email?.[0] || '?').toUpperCase()}
+            </div>
             <div className="sidebar__identity">
               <strong>{[session.user?.first_name, session.user?.last_name].filter(Boolean).join(' ') || 'Student'}</strong>
               <span>{session.user?.email}</span>
@@ -746,7 +751,7 @@ function CourseFormPage({ editing = false }) {
   )
 }
 
-function ProfilePage() {
+export function ProfilePage() {
   const navigate = useNavigate()
   const { refresh } = useAuth()
   const [values, setValues] = useState({ first_name: '', last_name: '' })
@@ -762,6 +767,10 @@ function ProfilePage() {
   const [passwordErrors, setPasswordErrors] = useState({})
   const [passwordSubmitting, setPasswordSubmitting] = useState(false)
   const [passwordSaved, setPasswordSaved] = useState(false)
+  const [picture, setPicture] = useState(null)
+  const [pictureError, setPictureError] = useState('')
+  const [pictureBusy, setPictureBusy] = useState(false)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     let active = true
@@ -773,6 +782,7 @@ function ProfilePage() {
         if (!active) return
         setValues({ first_name: data.user.first_name, last_name: data.user.last_name })
         setEmail(data.user.email)
+        setPicture(data.user.profile_picture)
       } catch (error) {
         if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load your profile. Try again.')
       } finally { if (active) setLoading(false) }
@@ -809,6 +819,39 @@ function ProfilePage() {
     setPasswordErrors({})
   }
 
+  async function uploadPicture(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setPictureBusy(true)
+    setPictureError('')
+    try {
+      const body = new FormData()
+      body.append('profile_picture', file)
+      const data = await api('/profile/picture/', { method: 'POST', body })
+      setPicture(data.user.profile_picture)
+      await refresh()
+    } catch (error) {
+      setPictureError(error.errors?.profile_picture?.[0] || error.message)
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
+  async function removePicture() {
+    setPictureBusy(true)
+    setPictureError('')
+    try {
+      const data = await api('/profile/picture/', { method: 'DELETE' })
+      setPicture(data.user.profile_picture)
+      await refresh()
+    } catch (error) {
+      setPictureError(error.message)
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
   async function submitPassword(event) {
     event.preventDefault()
     setPasswordSubmitting(true)
@@ -828,7 +871,35 @@ function ProfilePage() {
   if (loading) return <PageSkeleton />
   if (loadError) return <ErrorState message={loadError} onRetry={() => setLoadAttempt((value) => value + 1)} />
   return (
-    <FormPage backTo="/dashboard" eyebrow="Account" title="Edit profile" subtitle="Keep your name accurate so your work stays personal to you.">
+    <FormPage
+      backTo="/dashboard"
+      eyebrow="Account"
+      title="Edit profile"
+      subtitle="Keep your name accurate so your work stays personal to you."
+      actions={
+        <div className="profile-picture-header">
+          <button
+            type="button"
+            className="avatar avatar--large avatar--editable"
+            disabled={pictureBusy}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label={picture ? 'Change profile photo' : 'Upload a profile photo'}
+          >
+            {picture
+              ? <img src={picture} alt="" />
+              : (values.first_name?.[0] || email?.[0] || '?').toUpperCase()}
+            <span className="avatar__badge"><Camera size={13} /></span>
+          </button>
+          {picture && (
+            <button type="button" className="text-link profile-picture-header__remove" disabled={pictureBusy} onClick={removePicture}>
+              <Trash2 size={13} /> Remove
+            </button>
+          )}
+          {pictureError && <span className="profile-picture-header__error">{pictureError}</span>}
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={uploadPicture} hidden data-testid="profile-picture-input" />
+        </div>
+      }
+    >
       <form onSubmit={submit} className="editor-card">
         {saved && <div className="form-alert form-alert--success">Your profile has been updated.</div>}
         <Field label="First name" error={errors.first_name?.[0]}>
@@ -837,7 +908,7 @@ function ProfilePage() {
         <Field label="Last name" error={errors.last_name?.[0]}>
           <input name="last_name" value={values.last_name} onChange={update} required />
         </Field>
-        <Field label="Email" hint="Can't be changed">
+        <Field label="Email">
           <input value={email} disabled />
         </Field>
         <FormActions submitting={submitting} label="Save changes" cancel={() => navigate('/dashboard')} />
@@ -863,7 +934,7 @@ function ProfilePage() {
           <div className="profile-security">
             <div>
               <h3>Password</h3>
-              <p>{passwordSaved ? 'Your password has been updated.' : "Update your password without leaving this page \u2014 you'll stay signed in."}</p>
+              <p>{passwordSaved ? 'Your password has been updated.' : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}</p>
             </div>
             <button type="button" className="button button--secondary" onClick={() => setPasswordOpen(true)}>Change password</button>
           </div>
@@ -1056,11 +1127,11 @@ function ExamFormPage({ editing = false }) {
   )
 }
 
-function FormPage({ backTo, eyebrow, title, subtitle, children }) {
+function FormPage({ backTo, eyebrow, title, subtitle, actions, children }) {
   return (
     <div className="form-page">
       <NavLink className="back-link" to={backTo}><ArrowLeft size={16} /> Back</NavLink>
-      <PageHeader eyebrow={eyebrow} title={title} subtitle={subtitle} />
+      <PageHeader eyebrow={eyebrow} title={title} subtitle={subtitle} actions={actions} />
       {children}
     </div>
   )

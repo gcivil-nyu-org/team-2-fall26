@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { formatDate, toUTCInput } from './api.js'
+import { buildRequestInit, formatDate, toUTCInput } from './api.js'
 import config from '../vite.config.js'
 
 test('deadline prefill and display stay in UTC in different browser zones', () => {
@@ -32,4 +32,33 @@ test('deadline prefill converts explicit offsets without changing the instant', 
 test('Vite serves the router base in development and the static asset base in production', () => {
   assert.equal(config({ command: 'serve' }).base, '/app/')
   assert.equal(config({ command: 'build' }).base, '/static/frontend/')
+})
+
+test('a JSON body is stringified and gets a JSON content type', () => {
+  const built = buildRequestInit({ method: 'POST', body: { title: 'Midterm' } })
+  assert.equal(built.headers['Content-Type'], 'application/json')
+  assert.equal(built.body, JSON.stringify({ title: 'Midterm' }))
+  assert.equal(built.needsCsrf, true)
+})
+
+test('a FormData body (file upload) is passed through untouched with no forced content type', () => {
+  const body = new FormData()
+  body.append('profile_picture', new Blob(['x'], { type: 'image/png' }), 'avatar.png')
+  const built = buildRequestInit({ method: 'POST', body })
+  assert.equal(built.headers['Content-Type'], undefined)
+  assert.equal(built.body, body)
+  assert.equal(built.needsCsrf, true)
+})
+
+test('a request with no body sets no content type and no body', () => {
+  const built = buildRequestInit({ method: 'DELETE' })
+  assert.equal(built.headers['Content-Type'], undefined)
+  assert.equal(built.body, undefined)
+  assert.equal(built.needsCsrf, true)
+})
+
+test('GET/HEAD/OPTIONS requests never need a CSRF token', () => {
+  for (const method of ['GET', 'HEAD', 'OPTIONS']) {
+    assert.equal(buildRequestInit({ method }).needsCsrf, false)
+  }
 })

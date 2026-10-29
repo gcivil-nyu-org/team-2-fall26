@@ -16,7 +16,7 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import ProfileForm, SignUpForm
+from apps.accounts.forms import ProfileForm, ProfilePictureForm, SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
@@ -48,6 +48,7 @@ def _user_payload(user):
         'email': user.email,
         'first_name': user.first_name,
         'last_name': user.last_name,
+        'profile_picture': user.profile_picture.url if user.profile_picture else None,
     }
 
 
@@ -244,6 +245,28 @@ def profile_view(request):
         return JsonResponse({'errors': _errors(form)}, status=400)
     user = form.save()
     return JsonResponse({'user': _user_payload(user)})
+
+
+@require_http_methods(['POST', 'DELETE'])
+def profile_picture_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    old_picture = request.user.profile_picture
+    if request.method == 'DELETE':
+        if old_picture:
+            old_picture.delete(save=False)
+        request.user.profile_picture = None
+        request.user.save()
+        return JsonResponse({'user': _user_payload(request.user)})
+    form = ProfilePictureForm(request.POST, request.FILES, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    form.save()
+    if old_picture:
+        # Clean up the previous file now that the new one is safely saved
+        # under its own (storage-assigned) name.
+        old_picture.delete(save=False)
+    return JsonResponse({'user': _user_payload(request.user)})
 
 
 @require_POST
