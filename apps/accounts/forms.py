@@ -47,6 +47,15 @@ class ProfilePictureForm(forms.ModelForm):
         model = User
         fields = ['profile_picture']
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The model field is blank=True (a user may have no picture at all),
+        # but this form is only ever used to submit a new upload. Without
+        # this, an empty submission with no existing picture would reach
+        # clean_profile_picture() with None and crash on `picture.size`
+        # instead of failing validation cleanly.
+        self.fields['profile_picture'].required = True
+
     def clean_profile_picture(self):
         picture = self.cleaned_data['profile_picture']
         max_size = settings.MAX_PROFILE_PICTURE_SIZE

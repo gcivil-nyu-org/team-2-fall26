@@ -251,21 +251,27 @@ def profile_view(request):
 def profile_picture_view(request):
     if not request.user.is_authenticated:
         return _unauthorized()
-    old_picture = request.user.profile_picture
+    # Capture the old file's storage name up front. We delete it through
+    # storage directly (below) rather than via its FieldFile.delete(), because
+    # FieldFile.delete() also resets request.user.profile_picture on this
+    # instance as a side effect — which, if called after saving the new
+    # picture, would wipe out the picture we just saved (in memory and
+    # therefore in the JSON response), even though the DB row stays correct.
+    old_name = request.user.profile_picture.name if request.user.profile_picture else None
     if request.method == 'DELETE':
-        if old_picture:
-            old_picture.delete(save=False)
         request.user.profile_picture = None
         request.user.save()
+        if old_name:
+            request.user.profile_picture.storage.delete(old_name)
         return JsonResponse({'user': _user_payload(request.user)})
     form = ProfilePictureForm(request.POST, request.FILES, instance=request.user)
     if not form.is_valid():
         return JsonResponse({'errors': _errors(form)}, status=400)
     form.save()
-    if old_picture:
+    if old_name:
         # Clean up the previous file now that the new one is safely saved
         # under its own (storage-assigned) name.
-        old_picture.delete(save=False)
+        request.user.profile_picture.storage.delete(old_name)
     return JsonResponse({'user': _user_payload(request.user)})
 
 

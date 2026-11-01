@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import tempfile
 from datetime import timedelta
@@ -350,6 +351,14 @@ class ProfilePictureApiTests(ApiTestCase):
         self.assertEqual(self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif()}).status_code, 401)
         self.assertEqual(self.client.delete(reverse('api:profile_picture')).status_code, 401)
 
+    def test_rejects_a_request_with_no_file(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('api:profile_picture'), {})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('profile_picture', response.json()['errors'])
+
     def test_uploads_a_valid_image(self):
         self.client.force_login(self.user)
 
@@ -380,17 +389,40 @@ class ProfilePictureApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('profile_picture', response.json()['errors'])
 
+    def test_a_rejected_replacement_leaves_the_existing_picture_in_place(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif('first.gif')})
+        self.user.refresh_from_db()
+        existing_name = self.user.profile_picture.name
+        not_an_image = SimpleUploadedFile('notes.txt', b'just some text', content_type='text/plain')
+
+        response = self.client.post(reverse('api:profile_picture'), {'profile_picture': not_an_image})
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.profile_picture.name, existing_name)
+        self.assertTrue(os.path.exists(self.user.profile_picture.path))
+
     def test_uploading_again_replaces_the_previous_picture(self):
         self.client.force_login(self.user)
         self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif('first.gif')})
         self.user.refresh_from_db()
         first_name = self.user.profile_picture.name
+        first_path = self.user.profile_picture.path
 
         response = self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif('second.gif')})
 
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
         self.assertNotEqual(self.user.profile_picture.name, first_name)
+        # The response itself must reflect the new picture, not just the DB
+        # row: a prior bug cleared the in-memory (and therefore returned)
+        # value while the DB stayed correct, because deleting the old file
+        # via FieldFile.delete() also reset the field on the same instance.
+        self.assertEqual(response.json()['user']['profile_picture'], self.user.profile_picture.url)
+        # And the old file should actually be gone from storage, not just
+        # unlinked from the user record.
+        self.assertFalse(os.path.exists(first_path))
 
     def test_delete_removes_the_picture(self):
         self.client.force_login(self.user)
@@ -402,6 +434,14 @@ class ProfilePictureApiTests(ApiTestCase):
         self.assertIsNone(response.json()['user']['profile_picture'])
         self.user.refresh_from_db()
         self.assertFalse(self.user.profile_picture)
+
+    def test_delete_with_no_existing_picture_is_a_safe_no_op(self):
+        self.client.force_login(self.user)
+
+        response = self.client.delete(reverse('api:profile_picture'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['user']['profile_picture'])
 
     def test_another_users_picture_is_unaffected(self):
         other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='testpass123')

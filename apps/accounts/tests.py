@@ -151,6 +151,12 @@ class ProfilePictureFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn('profile_picture', form.errors)
 
+    def test_rejects_an_empty_submission_with_no_existing_picture(self):
+        form = ProfilePictureForm({}, {}, instance=self.user)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('profile_picture', form.errors)
+
     @override_settings(MAX_PROFILE_PICTURE_SIZE=10)
     def test_rejects_an_oversized_image(self):
         picture = SimpleUploadedFile('avatar.gif', SMALL_GIF, content_type='image/gif')
