@@ -100,11 +100,28 @@ API endpoints (session authentication and CSRF protection apply):
   other way.
 - `PATCH /api/social/friends/requests/<id>/`: the recipient accepts or
   declines; body: `{"status": "accepted"}` or `{"status": "declined"}`.
-- `DELETE /api/social/friends/requests/<id>/`: the sender cancels a request
-  that's still pending.
+- `DELETE /api/social/friends/requests/<id>/`: cancel or remove, depending on
+  the request's status. Pending: only the original sender can cancel it.
+  Accepted: either person in the friendship can remove it — see "Removing a
+  friend" below. Already-declined requests can't be deleted this way (400).
 
-Run `python manage.py migrate` to create the friend request table. Blocking,
-unfriending, and messaging remain separate stories.
+Run `python manage.py migrate` to create the friend request table. Blocking
+and messaging remain separate stories.
+
+## Removing a friend (#19)
+
+Each entry in "Your friends" has a **Remove** button; it asks you to confirm
+before anything happens. Either person in the friendship can remove it, not
+just whoever originally sent the request. Removing a friend doesn't delete
+either account — there's no message history or other data tied to the
+friendship to lose.
+
+Under the hood this reuses the same `FriendRequest` row and the same
+`DELETE /api/social/friends/requests/<id>/` endpoint as cancelling a pending
+request (see "Friends (#16)" above): deleting an **accepted** request is
+what "removing a friend" means, since the accepted row is the friendship
+record itself. After removal, both people are free to send a new friend
+request to each other.
 
 ## Assignment deadlines
 

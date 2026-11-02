@@ -25,6 +25,49 @@ function PersonRow({ user, children }) {
   </div>
 }
 
+function FriendRow({ friend, onRemoved }) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function remove() {
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/social/friends/requests/${friend.friendship_id}/`, { method: 'DELETE' })
+      onRemoved()
+    } catch (err) {
+      setError(err.message || 'Couldn’t remove. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function cancel() {
+    setConfirming(false)
+    setError('')
+  }
+
+  return <div className="friend-row">
+    <div className="avatar">{initial(friend)}</div>
+    <div className="friend-row__copy">
+      <strong>{displayName(friend)}</strong>
+      <small>{friend.email}</small>
+    </div>
+    <div className={`friend-row__actions ${confirming ? 'friend-row__actions--confirm' : ''}`}>
+      {confirming ? (
+        <>
+          <span role="alert" className={error ? 'friend-row__error' : ''}>{error || `Remove ${displayName(friend)} as a friend?`}</span>
+          <button className="button button--danger button--small" onClick={remove} disabled={busy}>Remove</button>
+          <button className="button button--secondary button--small" onClick={cancel} disabled={busy} autoFocus>Cancel</button>
+        </>
+      ) : (
+        <button className="button button--secondary button--small" onClick={() => setConfirming(true)} aria-label={`Remove ${displayName(friend)} as a friend`}><UserX size={15} /> Remove</button>
+      )}
+    </div>
+  </div>
+}
+
 export function FriendsPage() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -137,7 +180,7 @@ export function FriendsPage() {
       <section className="panel panel--stacked" aria-label="Your friends">
         <div className="panel__header"><div><p className="kicker">Connected</p><h2>Your friends</h2></div><span className="count-pill">{data.friends.length}</span></div>
         {data.friends.length ? <div className="friend-list">
-          {data.friends.map((friend) => <PersonRow user={friend} key={friend.id} />)}
+          {data.friends.map((friend) => <FriendRow friend={friend} key={friend.id} onRemoved={() => setAttempt((value) => value + 1)} />)}
         </div> : <div className="empty-state"><span><UserPlus size={22} /></span><h3>No friends yet</h3><p>Send a friend request using a classmate's NYU email to get started.</p></div>}
       </section>
     </>}

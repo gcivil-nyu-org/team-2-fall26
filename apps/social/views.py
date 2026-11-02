@@ -56,7 +56,12 @@ def friends_view(request):
     received = FriendRequest.objects.pending().filter(recipient=request.user).select_related('sender')
     sent = FriendRequest.objects.pending().filter(sender=request.user).select_related('recipient')
     friends = sorted(
-        (_user_summary(fr.other(request.user)) for fr in accepted),
+        (
+            # friendship_id is the FriendRequest's own pk — the frontend needs
+            # it (not the friend's user id) to call DELETE and remove them.
+            {**_user_summary(fr.other(request.user)), 'friendship_id': fr.pk}
+            for fr in accepted
+        ),
         key=lambda item: (item['first_name'] or item['email'], item['last_name']),
     )
     return JsonResponse({
@@ -130,12 +135,29 @@ def friend_request_view(request, pk):
         )
 
         if request.method == 'DELETE':
-            if friend_request.sender_id != request.user.pk:
-                return JsonResponse({'detail': 'Only the sender can cancel a friend request.'}, status=403)
-            if friend_request.status != FriendRequest.Status.PENDING:
-                return JsonResponse({'detail': 'This request has already been responded to.'}, status=400)
-            friend_request.delete()
-            return JsonResponse({'ok': True})
+            if friend_request.status == FriendRequest.Status.PENDING:
+                # Canceling a request you haven't heard back on yet is a
+                # sender-only action — the recipient already has PATCH
+                # (accept/decline) for responding to it.
+                if friend_request.sender_id != request.user.pk:
+                    return JsonResponse({'detail': 'Only the sender can cancel a friend request.'}, status=403)
+                friend_request.delete()
+                return JsonResponse({'ok': True})
+            if friend_request.status == FriendRequest.Status.ACCEPTED:
+                # Removing a friend isn't directional the way sending/canceling
+                # a request is — either side of an existing friendship can end
+                # it. `involving()` above already guarantees request.user is
+                # one of the two parties, so no extra ownership check is
+                # needed. This only ever deletes this FriendRequest row — it
+                # never touches either User account (deleting a friendship is
+                # not deleting an account), and since this app has no message
+                # model at all, there's nothing message-related to delete
+                # either; a future messaging feature should key conversations
+                # by the two users, not by this row, so they'd survive this
+                # regardless.
+                friend_request.delete()
+                return JsonResponse({'ok': True})
+            return JsonResponse({'detail': 'This request has already been responded to.'}, status=400)
 
         if friend_request.recipient_id != request.user.pk:
             return JsonResponse({'detail': 'Only the recipient can respond to a friend request.'}, status=403)
