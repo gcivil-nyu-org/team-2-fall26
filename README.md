@@ -76,6 +76,36 @@ entered through Django admin while the separate automatic-generation story
 (#41) is pending. No generated or example sessions are added by migrations.
 Locking, rescheduling, completion, and deletion remain separate stories.
 
+## Friends (#16)
+
+The React sidebar links to **Friends** (`/app/friends`). Add a classmate by
+their NYU email to send a friend request; they see it under "Friend requests"
+and can accept or decline. You can cancel a request you sent while it's still
+pending. If you send a request to someone who already sent you one, the two
+requests are reconciled automatically and you become friends immediately,
+instead of ending up with two pending requests waiting on each other.
+
+A friend request can't be sent to yourself, to an email with no SemesterPilot
+account, to someone you're already friends with, or a second time while an
+earlier request between the same two people is still pending. A declined
+request doesn't block trying again later.
+
+API endpoints (session authentication and CSRF protection apply):
+
+- `GET /api/social/friends/`: current friends, plus pending requests split
+  into `received_requests` and `sent_requests`.
+- `POST /api/social/friends/requests/`: send a request; body:
+  `{"email": "friend@nyu.edu"}`. Returns the new pending request (201), or the
+  now-accepted request (200) if this reconciled a request already sent the
+  other way.
+- `PATCH /api/social/friends/requests/<id>/`: the recipient accepts or
+  declines; body: `{"status": "accepted"}` or `{"status": "declined"}`.
+- `DELETE /api/social/friends/requests/<id>/`: the sender cancels a request
+  that's still pending.
+
+Run `python manage.py migrate` to create the friend request table. Blocking,
+unfriending, and messaging remain separate stories.
+
 ## Assignment deadlines
 
 Assignments require a title and deadline date and time; descriptions are optional.
@@ -163,6 +193,8 @@ apps/
   accounts/      # user model and signup validation
   api/           # session-authenticated JSON endpoints
   coursework/    # course and assignment domain logic
+  study/         # availability and study-session scheduling
+  social/        # friend requests and the friends list
 config/          # project settings, root URLs
 templates/       # minimal Django shell that mounts React
 frontend/        # React single-page app

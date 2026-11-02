@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'apps.coursework',
     'apps.api',
     'apps.study',
+    'apps.social',
 ]
 
 MIDDLEWARE = [
