@@ -16,7 +16,7 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import ProfileForm, SignUpForm
+from apps.accounts.forms import ProfileForm, ProfilePictureForm, SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
@@ -48,6 +48,7 @@ def _user_payload(user):
         'email': user.email,
         'first_name': user.first_name,
         'last_name': user.last_name,
+        'profile_picture': user.profile_picture.url if user.profile_picture else None,
     }
 
 
@@ -244,6 +245,34 @@ def profile_view(request):
         return JsonResponse({'errors': _errors(form)}, status=400)
     user = form.save()
     return JsonResponse({'user': _user_payload(user)})
+
+
+@require_http_methods(['POST', 'DELETE'])
+def profile_picture_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # Capture the old file's storage name up front. We delete it through
+    # storage directly (below) rather than via its FieldFile.delete(), because
+    # FieldFile.delete() also resets request.user.profile_picture on this
+    # instance as a side effect — which, if called after saving the new
+    # picture, would wipe out the picture we just saved (in memory and
+    # therefore in the JSON response), even though the DB row stays correct.
+    old_name = request.user.profile_picture.name if request.user.profile_picture else None
+    if request.method == 'DELETE':
+        request.user.profile_picture = None
+        request.user.save()
+        if old_name:
+            request.user.profile_picture.storage.delete(old_name)
+        return JsonResponse({'user': _user_payload(request.user)})
+    form = ProfilePictureForm(request.POST, request.FILES, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    form.save()
+    if old_name:
+        # Clean up the previous file now that the new one is safely saved
+        # under its own (storage-assigned) name.
+        request.user.profile_picture.storage.delete(old_name)
+    return JsonResponse({'user': _user_payload(request.user)})
 
 
 @require_POST

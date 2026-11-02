@@ -1,16 +1,24 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
-import '../test/dom-setup.mjs'
-
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-
-import { FriendsPage } from './FriendsPage.jsx'
+import { api as realApi } from './api'
+import { FriendsPage } from './FriendsPage'
 
 // Covers the "remove a friend" confirm/cancel/removal flow (#19 AC: confirm
 // before removing, cancel leaves the friendship untouched, confirming
 // removes it and it disappears from the list, and a failed removal doesn't
 // silently drop the friend).
+
+vi.mock('./api', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, api: vi.fn() }
+})
+
+afterEach(() => {
+  cleanup()
+  vi.mocked(realApi).mockReset()
+})
 
 function friendsPayload(overrides = {}) {
   return {
@@ -21,81 +29,71 @@ function friendsPayload(overrides = {}) {
   }
 }
 
-function jsonResponse(body, { ok = true, status = ok ? 200 : 400 } = {}) {
-  return { ok, status, json: async () => body }
+function mockFriendsLoad(payload) {
+  vi.mocked(realApi).mockImplementation(async (path) => {
+    if (path === '/social/friends/') return payload
+    throw new Error(`unexpected call to api(${path})`)
+  })
 }
 
-test.afterEach(() => {
-  cleanup()
-  delete globalThis.fetch
-})
+describe('removing a friend', () => {
+  test('the remove button asks for confirmation before anything happens', async () => {
+    mockFriendsLoad(friendsPayload())
+    render(<FriendsPage />)
+    await screen.findByText('Sam Lee')
 
-test('remove button asks for confirmation before anything happens', async () => {
-  globalThis.fetch = async (url) => {
-    assert.equal(url, '/api/social/friends/')
-    return jsonResponse(friendsPayload())
-  }
-  render(<FriendsPage />)
-  await screen.findByText('Sam Lee')
+    expect(screen.queryByText('Remove Sam Lee as a friend?')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
+    expect(screen.getByText('Remove Sam Lee as a friend?')).toBeInTheDocument()
+  })
 
-  assert.equal(screen.queryByText('Remove Sam Lee as a friend?'), null)
-  fireEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
-  assert.ok(screen.getByText('Remove Sam Lee as a friend?'))
-})
+  test('canceling the confirmation leaves the friendship unchanged', async () => {
+    mockFriendsLoad(friendsPayload())
+    render(<FriendsPage />)
+    await screen.findByText('Sam Lee')
 
-test('canceling the confirmation leaves the friendship unchanged', async () => {
-  let deleteWasCalled = false
-  globalThis.fetch = async (url, options) => {
-    if (options?.method === 'DELETE') { deleteWasCalled = true }
-    return jsonResponse(friendsPayload())
-  }
-  render(<FriendsPage />)
-  await screen.findByText('Sam Lee')
+    await userEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
-  fireEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(vi.mocked(realApi)).not.toHaveBeenCalledWith(expect.stringContaining('/requests/'), expect.objectContaining({ method: 'DELETE' }))
+    expect(screen.queryByText('Remove Sam Lee as a friend?')).not.toBeInTheDocument()
+    expect(screen.getByText('Sam Lee')).toBeInTheDocument()
+  })
 
-  assert.equal(deleteWasCalled, false)
-  assert.equal(screen.queryByText('Remove Sam Lee as a friend?'), null)
-  assert.ok(screen.getByText('Sam Lee'), 'the friend is still listed after canceling')
-})
+  test('confirming sends the DELETE request and the friend disappears from the list', async () => {
+    let friendsRequestCount = 0
+    vi.mocked(realApi).mockImplementation(async (path, options) => {
+      if (path === '/social/friends/') {
+        friendsRequestCount += 1
+        return friendsRequestCount === 1 ? friendsPayload() : friendsPayload({ friends: [] })
+      }
+      if (path === '/social/friends/requests/42/' && options?.method === 'DELETE') return { ok: true }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    render(<FriendsPage />)
+    await screen.findByText('Sam Lee')
 
-test('confirming sends the DELETE request and the friend disappears from the list', async () => {
-  let friendsRequestCount = 0
-  let deleteUrl = null
-  globalThis.fetch = async (url, options) => {
-    if (url === '/api/social/friends/') {
-      friendsRequestCount += 1
-      return jsonResponse(friendsRequestCount === 1 ? friendsPayload() : friendsPayload({ friends: [] }))
-    }
-    if (options?.method === 'DELETE') {
-      deleteUrl = url
-      return jsonResponse({ ok: true })
-    }
-    throw new Error(`unexpected fetch: ${url}`)
-  }
-  render(<FriendsPage />)
-  await screen.findByText('Sam Lee')
+    await userEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
-  fireEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(screen.getByText('No friends yet')).toBeInTheDocument())
+  })
 
-  await screen.findByText('No friends yet')
-  assert.equal(deleteUrl, '/api/social/friends/requests/42/')
-})
+  test('a failed removal shows an error and keeps the friend in the list', async () => {
+    vi.mocked(realApi).mockImplementation(async (path, options) => {
+      if (path === '/social/friends/') return friendsPayload()
+      if (path === '/social/friends/requests/42/' && options?.method === 'DELETE') {
+        throw new Error('Something went wrong.')
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    render(<FriendsPage />)
+    await screen.findByText('Sam Lee')
 
-test('a failed removal shows an error and keeps the friend in the list', async () => {
-  globalThis.fetch = async (url, options) => {
-    if (url === '/api/social/friends/') return jsonResponse(friendsPayload())
-    if (options?.method === 'DELETE') return jsonResponse({ detail: 'Something went wrong.' }, { ok: false, status: 500 })
-    throw new Error(`unexpected fetch: ${url}`)
-  }
-  render(<FriendsPage />)
-  await screen.findByText('Sam Lee')
+    await userEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
-  fireEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
-  fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
-
-  await screen.findByText('Something went wrong.')
-  assert.ok(screen.getByText('Sam Lee'), 'the friend is still listed after a failed removal')
+    await waitFor(() => expect(screen.getByText('Something went wrong.')).toBeInTheDocument())
+    expect(screen.getByText('Sam Lee')).toBeInTheDocument()
+  })
 })

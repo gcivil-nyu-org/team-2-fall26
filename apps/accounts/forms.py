@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from django.contrib.auth.forms import UserCreationForm
 
 from .models import User
@@ -39,3 +40,25 @@ class ProfileForm(forms.ModelForm):
         self.fields['last_name'].required = True
         self.fields['first_name'].error_messages['required'] = 'First name is required.'
         self.fields['last_name'].error_messages['required'] = 'Last name is required.'
+
+
+class ProfilePictureForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ['profile_picture']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The model field is blank=True (a user may have no picture at all),
+        # but this form is only ever used to submit a new upload. Without
+        # this, an empty submission with no existing picture would reach
+        # clean_profile_picture() with None and crash on `picture.size`
+        # instead of failing validation cleanly.
+        self.fields['profile_picture'].required = True
+
+    def clean_profile_picture(self):
+        picture = self.cleaned_data['profile_picture']
+        max_size = settings.MAX_PROFILE_PICTURE_SIZE
+        if picture.size > max_size:
+            raise forms.ValidationError(f'Image must be smaller than {max_size // (1024 * 1024)}MB.')
+        return picture
