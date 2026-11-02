@@ -4,6 +4,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ command }) => ({
   plugins: [react()],
   base: command === 'serve' ? '/app/' : '/static/frontend/',
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/setupTests.js'],
+    include: ['src/**/*.test.jsx'],
+    globals: true,
+  },
   build: {
     outDir: '../static/frontend',
     emptyOutDir: true,
@@ -20,6 +26,7 @@ export default defineConfig(({ command }) => ({
     proxy: {
       '/api': 'http://127.0.0.1:8000',
       '/admin': 'http://127.0.0.1:8000',
+      '/media': 'http://127.0.0.1:8000',
     },
   },
 }))
