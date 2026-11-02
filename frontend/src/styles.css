@@ -361,6 +361,26 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .calendar-summary > span:last-child { margin-left: 0; }
 }
 
+.friends-add__body { display: flex; align-items: flex-start; gap: .85rem; padding: 1.25rem 1.4rem; }
+.friends-add__body .field { flex: 1; }
+.friends-add__body .button { flex: 0 0 auto; margin-top: 0; }
+.friends-add__error { padding: 0 1.4rem 1.1rem; }
+.friend-list { display: flex; flex-direction: column; }
+.friend-row { display: flex; align-items: center; gap: .85rem; padding: 1rem 1.4rem; }
+.friend-row + .friend-row { border-top: 1px solid #f0edf2; }
+.friend-row__copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: .15rem; }
+.friend-row__copy strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
+.friend-row__copy small { color: var(--muted); font-size: .72rem; }
+.friend-row__actions { display: flex; flex: 0 0 auto; gap: .5rem; }
+
+@media (max-width: 640px) {
+  .friends-add__body { flex-direction: column; }
+  .friends-add__body .button { width: 100%; }
+  .friend-row { flex-wrap: wrap; }
+  .friend-row__actions { width: 100%; }
+  .friend-row__actions .button { flex: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

@@ -4,6 +4,7 @@ __pycache__/
 db.sqlite3
 .env
 staticfiles/
+media/
 frontend/node_modules/
 .DS_Store
 # Elastic Beanstalk Files
