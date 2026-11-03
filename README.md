@@ -263,3 +263,28 @@ eb init                       # once: Python 3.13 (Amazon Linux 2023), region us
 git checkout develop && eb deploy semesterpilot-staging
 git checkout main    && eb deploy semesterpilot-prod
 ```
+
+
+### Study session controls (#42, #43)
+
+On the study calendar, **Lock** preserves a session's time during future schedule
+regeneration; **Unlock** makes it replaceable again. Locked sessions have a badge
+and a distinct border. **Reschedule** opens start/end fields labeled UTC. Saving
+outside availability or over another session shows warnings first; **Move anyway**
+confirms that specific move, while **Cancel** leaves it unchanged. Editing either
+field clears the previous warning confirmation. A manual move keeps the lock state.
+
+Run `python manage.py migrate` after pulling to add `StudySession.is_locked`.
+`PATCH /api/study/sessions/<id>/` accepts `is_locked` or both `starts_at` and
+`ends_at`, with `confirm_warnings: true` to override current scheduling warnings.
+Only the signed-in owner's sessions can be changed; writes require CSRF protection.
+
+**Integration with #41:** automatic generation is a separate, still-open story.
+`apps.study.services.replace_unlocked_sessions(user, starts_at, ends_at, candidates)`
+is the tested persistence boundary for that generator. Plan around existing locked
+sessions and pass new, unsaved `StudySession` instances. The helper preserves locked
+sessions and other accounts' sessions, replaces only unlocked sessions fully inside
+the planning window, and rejects candidates that overlap preserved sessions or each
+other. Session edits, availability updates, and this helper serialize writes using
+the same account-row lock. Jane's generator must call this helper (or provide the
+same guarantees); end-to-end generation integration remains to be checked in #41.

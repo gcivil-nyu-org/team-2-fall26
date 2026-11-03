@@ -3,12 +3,15 @@ from datetime import date, datetime, time, timedelta, timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django import forms
 from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
 from .forms import AvailabilityBlockForm
 from .models import AvailabilityBlock, StudySession
+from .services import lock_study_account, reschedule_warnings
 
 
 def _availability_payload(user):
@@ -100,6 +103,7 @@ def calendar_view(request):
         'sessions': [
             {
                 'id': session.pk,
+                'is_locked': session.is_locked,
                 'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
                 'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat(),
                 'assignment': {'id': session.assignment_id, 'title': session.assignment.title},
@@ -108,3 +112,62 @@ def calendar_view(request):
             for session in sessions
         ],
     })
+
+
+class SessionTimeForm(forms.Form):
+    starts_at = forms.DateTimeField()
+    ends_at = forms.DateTimeField()
+
+    def clean(self):
+        values = super().clean()
+        start, end = values.get('starts_at'), values.get('ends_at')
+        if start and end:
+            if end <= start:
+                self.add_error('ends_at', 'The session must end after it starts.')
+            elif not date(1900, 1, 8) <= start.date() <= end.date() <= date(9998, 12, 20):
+                self.add_error('starts_at', 'Choose dates between 1900 and 9998.')
+        return values
+
+
+@require_http_methods(['PATCH'])
+def session_view(request, session_id):
+    if not request.user.is_authenticated:
+        return JsonResponse({'detail': 'Authentication required.'}, status=401)
+    try:
+        body = json.loads(request.body)
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'detail': 'Send a JSON object.'}, status=400)
+    if not isinstance(body, dict) or not body or set(body) - {'is_locked', 'starts_at', 'ends_at', 'confirm_warnings'}:
+        return JsonResponse({'detail': 'Send only lock or reschedule fields.'}, status=400)
+    for field in ('is_locked', 'confirm_warnings'):
+        if field in body and type(body[field]) is not bool:
+            return JsonResponse({'errors': {field: ['Enter true or false.']}}, status=400)
+    moving = 'starts_at' in body or 'ends_at' in body
+    if not moving and 'is_locked' not in body:
+        return JsonResponse({'detail': 'Choose a lock state or a new time.'}, status=400)
+    form = None
+    if moving:
+        for field in ('starts_at', 'ends_at'):
+            if field in body and not isinstance(body[field], str):
+                return JsonResponse({'errors': {field: ['Enter a valid date and time.']}}, status=400)
+        # Naive datetime-local input is explicitly UTC, independent of server settings.
+        with timezone.override(dt_timezone.utc):
+            form = SessionTimeForm(body)
+            if not form.is_valid():
+                return JsonResponse({'errors': {key: list(value) for key, value in form.errors.items()}}, status=400)
+    with transaction.atomic():
+        lock_study_account(request.user)
+        session = get_object_or_404(StudySession.objects.select_for_update(), pk=session_id,
+                                    assignment__course__owner=request.user)
+        if moving:
+            start, end = form.cleaned_data['starts_at'], form.cleaned_data['ends_at']
+            warnings = reschedule_warnings(request.user, session, start, end)
+            if warnings and not body.get('confirm_warnings', False):
+                return JsonResponse({'detail': 'Review these warnings before moving the session.', 'warnings': warnings}, status=409)
+            session.starts_at, session.ends_at = start, end
+        if 'is_locked' in body:
+            session.is_locked = body['is_locked']
+        session.save(update_fields=['starts_at', 'ends_at', 'is_locked'])
+    return JsonResponse({'id': session.pk, 'is_locked': session.is_locked,
+                         'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
+                         'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat()})

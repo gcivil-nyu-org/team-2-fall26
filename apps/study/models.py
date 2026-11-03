@@ -33,6 +33,7 @@ class StudySession(models.Model):
     # Ownership and course/task details come from the assignment, avoiding
     # independent owner/course fields that could disagree with one another.
     assignment = models.ForeignKey('coursework.Assignment', on_delete=models.CASCADE, related_name='study_sessions')
+    is_locked = models.BooleanField(default=False)
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField()
 
