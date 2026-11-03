@@ -30,11 +30,13 @@ import {
   Sparkles,
   Trash2,
   Users,
+  Utensils,
   X,
 } from 'lucide-react'
 
 import { api, formatDate, toUTCInput } from './api'
 import { AvailabilityPage, CalendarPage } from './StudyPages'
+import { FoodFeedPage } from './FoodFeedPage'
 import { FriendProfilePage, FriendsPage } from './FriendsPage'
 
 export const AuthContext = createContext(null)
@@ -101,6 +103,7 @@ const navItems = [
   { to: '/calendar', label: 'Study calendar', icon: CalendarDays },
   { to: '/availability', label: 'Availability', icon: Clock3 },
   { to: '/friends', label: 'Friends', icon: Users },
+  { to: '/community', label: 'Community', icon: Utensils },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
 ]
 
@@ -1203,6 +1206,7 @@ function AppRoutes() {
         <Route path="/availability" element={<AvailabilityPage />} />
         <Route path="/friends" element={<FriendsPage />} />
         <Route path="/friends/:friendshipId" element={<FriendProfilePage />} />
+        <Route path="/community" element={<FoodFeedPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />
