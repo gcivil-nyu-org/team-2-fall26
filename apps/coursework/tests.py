@@ -308,3 +308,9 @@ class ExamModelTests(TestCase):
         Exam.objects.create(course=other_course, title='Theirs', starts_at=timezone.now())
 
         self.assertEqual(list(Exam.objects.owned_by(self.user)), [mine])
+
+
+class CIRedCheckTests(SimpleTestCase):
+    def test_deliberate_failure(self):
+        # deliberate failure to verify CI
+        self.assertEqual(1, 2)
