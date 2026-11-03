@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import time, timedelta
 
 from django.contrib.auth.tokens import default_token_generator
 from django.test import Client, TestCase
@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.coursework.models import Assignment, Course, Exam
+from apps.study.models import AvailabilityBlock, StudySession
 
 
 class AccountControlTests(TestCase):
@@ -22,6 +23,11 @@ class AccountControlTests(TestCase):
         self.other_course = Course.objects.create(owner=self.other, name='Other course', semester='Fall 2026')
         self.other_assignment = Assignment.objects.create(course=self.other_course, title='Other assignment')
         self.other_exam = Exam.objects.create(course=self.other_course, title='Other exam', starts_at=timezone.now())
+        self.availability = AvailabilityBlock.objects.create(owner=self.user, weekday=0, start_time=time(9), end_time=time(11))
+        self.other_availability = AvailabilityBlock.objects.create(owner=self.other, weekday=0, start_time=time(9), end_time=time(11))
+        starts_at = timezone.now()
+        self.study_session = StudySession.objects.create(assignment=self.assignment, starts_at=starts_at, ends_at=starts_at + timedelta(hours=1))
+        self.other_study_session = StudySession.objects.create(assignment=self.other_assignment, starts_at=starts_at, ends_at=starts_at + timedelta(hours=1))
         self.client.force_login(self.user)
 
     def act(self, action, client=None, **overrides):
@@ -38,6 +44,8 @@ class AccountControlTests(TestCase):
         self.assertTrue(Course.objects.filter(pk=self.other_course.pk).exists())
         self.assertTrue(Assignment.objects.filter(pk=self.other_assignment.pk).exists())
         self.assertTrue(Exam.objects.filter(pk=self.other_exam.pk).exists())
+        self.assertTrue(AvailabilityBlock.objects.filter(pk=self.other_availability.pk).exists())
+        self.assertTrue(StudySession.objects.filter(pk=self.other_study_session.pk).exists())
 
     def test_deactivation_keeps_data_and_signs_out(self):
         response = self.act('deactivate')
@@ -48,6 +56,8 @@ class AccountControlTests(TestCase):
         self.assertTrue(Course.objects.filter(pk=self.course.pk).exists())
         self.assertTrue(Assignment.objects.filter(pk=self.assignment.pk).exists())
         self.assertTrue(Exam.objects.filter(pk=self.exam.pk).exists())
+        self.assertTrue(AvailabilityBlock.objects.filter(pk=self.availability.pk).exists())
+        self.assertTrue(StudySession.objects.filter(pk=self.study_session.pk).exists())
         self.assertFalse(self.client.get(reverse('api:session')).json()['authenticated'])
         self.assertEqual(self.client.get(reverse('api:dashboard')).status_code, 401)
         self.assert_other_account_unchanged()
@@ -79,6 +89,8 @@ class AccountControlTests(TestCase):
         self.assertFalse(Course.objects.filter(pk=self.course.pk).exists())
         self.assertFalse(Assignment.objects.filter(pk=self.assignment.pk).exists())
         self.assertFalse(Exam.objects.filter(pk=self.exam.pk).exists())
+        self.assertFalse(AvailabilityBlock.objects.filter(pk=self.availability.pk).exists())
+        self.assertFalse(StudySession.objects.filter(pk=self.study_session.pk).exists())
         self.assertFalse(self.client.get(reverse('api:session')).json()['authenticated'])
         self.assertFalse(second.get(reverse('api:session')).json()['authenticated'])
         self.assert_other_account_unchanged()

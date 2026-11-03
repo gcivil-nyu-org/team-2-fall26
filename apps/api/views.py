@@ -2,7 +2,7 @@ import json
 import logging
 from datetime import timedelta
 
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -17,7 +17,7 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import AccountActionForm, SignUpForm
+from apps.accounts.forms import AccountActionForm, ProfileForm, ProfilePictureForm, SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
@@ -44,7 +44,13 @@ def _unauthorized():
 
 
 def _user_payload(user):
-    return {'id': user.pk, 'email': user.email}
+    return {
+        'id': user.pk,
+        'email': user.email,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'profile_picture': user.profile_picture.url if user.profile_picture else None,
+    }
 
 
 def _course_payload(course, include_assignments=False):
@@ -69,6 +75,13 @@ def _assignment_payload(assignment):
         'title': assignment.title,
         'description': assignment.description,
         'due_date': due_date,
+        'priority': assignment.priority,
+        'priority_label': assignment.get_priority_display() if assignment.priority else '',
+        'estimated_workload': (
+            float(assignment.estimated_workload)
+            if assignment.estimated_workload is not None
+            else None
+        ),
         'status': assignment.status,
         'completed_at': completed_at,
         'is_overdue': assignment.is_overdue,
@@ -87,6 +100,13 @@ def _exam_payload(exam):
         'title': exam.title,
         'starts_at': timezone.localtime(exam.starts_at).isoformat(),
         'location': exam.location,
+        'priority': exam.priority,
+        'priority_label': exam.get_priority_display() if exam.priority else '',
+        'estimated_workload': (
+            float(exam.estimated_workload)
+            if exam.estimated_workload is not None
+            else None
+        ),
         'course': {
             'id': exam.course_id,
             'name': exam.course.name,
@@ -252,6 +272,77 @@ def password_reset_confirm_view(request):
     return JsonResponse({'ok': True})
 
 
+@require_http_methods(['GET', 'PUT'])
+def profile_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    if request.method == 'GET':
+        return JsonResponse({'user': _user_payload(request.user)})
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    form = ProfileForm(body, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    user = form.save()
+    return JsonResponse({'user': _user_payload(user)})
+
+
+@require_http_methods(['POST', 'DELETE'])
+def profile_picture_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # Capture the old file's storage name up front. We delete it through
+    # storage directly (below) rather than via its FieldFile.delete(), because
+    # FieldFile.delete() also resets request.user.profile_picture on this
+    # instance as a side effect — which, if called after saving the new
+    # picture, would wipe out the picture we just saved (in memory and
+    # therefore in the JSON response), even though the DB row stays correct.
+    old_name = request.user.profile_picture.name if request.user.profile_picture else None
+    if request.method == 'DELETE':
+        request.user.profile_picture = None
+        request.user.save()
+        if old_name:
+            request.user.profile_picture.storage.delete(old_name)
+        return JsonResponse({'user': _user_payload(request.user)})
+    form = ProfilePictureForm(request.POST, request.FILES, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    form.save()
+    if old_name:
+        # Clean up the previous file now that the new one is safely saved
+        # under its own (storage-assigned) name.
+        request.user.profile_picture.storage.delete(old_name)
+    return JsonResponse({'user': _user_payload(request.user)})
+
+
+@require_POST
+def change_password_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    current_password = body.get('current_password', '')
+    new_password = body.get('new_password', '')
+    new_password_confirm = body.get('new_password_confirm', '')
+    if not request.user.check_password(current_password):
+        return JsonResponse({'errors': {'current_password': ['Current password is incorrect.']}}, status=400)
+    if new_password != new_password_confirm:
+        return JsonResponse({'errors': {'new_password_confirm': ['Passwords do not match.']}}, status=400)
+    try:
+        validate_password(new_password, user=request.user)
+    except DjangoValidationError as exc:
+        return JsonResponse({'errors': {'new_password': list(exc.messages)}}, status=400)
+    request.user.set_password(new_password)
+    request.user.save()
+    # Keep the current session valid across the password change, instead of
+    # forcing an immediate re-login (Django invalidates the session hash on
+    # password change by default).
+    update_session_auth_hash(request, request.user)
+    return JsonResponse({'ok': True})
+
+
 @require_GET
 def dashboard_view(request):
     if not request.user.is_authenticated:
@@ -355,6 +446,24 @@ def course_exams_view(request, pk):
     exam.course = course
     exam.save()
     return JsonResponse({'exam': _exam_payload(exam)}, status=201)
+
+
+@require_http_methods(['GET', 'PUT'])
+def exam_view(request, pk):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    exam = get_object_or_404(
+        Exam.objects.owned_by(request.user).select_related('course'), pk=pk,
+    )
+    if request.method == 'GET':
+        return JsonResponse({'exam': _exam_payload(exam)})
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    form = ExamForm(body, instance=exam)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    return JsonResponse({'exam': _exam_payload(form.save())})
 
 
 @require_GET

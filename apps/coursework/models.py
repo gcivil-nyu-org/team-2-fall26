@@ -1,7 +1,16 @@
+from decimal import Decimal
+
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import F
 from django.utils import timezone
+
+
+class Priority(models.TextChoices):
+    LOW = 'low', 'Low'
+    MEDIUM = 'medium', 'Medium'
+    HIGH = 'high', 'High'
 
 
 class Course(models.Model):
@@ -52,6 +61,14 @@ class Assignment(models.Model):
     # Nullable to preserve assignments created before deadlines were required.
     due_date = models.DateTimeField(blank=True, null=True)
     description = models.TextField(blank=True)
+    priority = models.CharField(max_length=10, choices=Priority.choices, blank=True, default='')
+    estimated_workload = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal('0.5'))],
+    )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.INCOMPLETE)
     completed_at = models.DateTimeField(blank=True, null=True)
 
@@ -103,6 +120,14 @@ class Exam(models.Model):
     title = models.CharField(max_length=200)
     starts_at = models.DateTimeField()
     location = models.CharField(max_length=200, blank=True)
+    priority = models.CharField(max_length=10, choices=Priority.choices, blank=True, default='')
+    estimated_workload = models.DecimalField(
+        max_digits=5,
+        decimal_places=1,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal('0.5'))],
+    )
 
     objects = ExamQuerySet.as_manager()
 

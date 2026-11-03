@@ -59,6 +59,8 @@ INSTALLED_APPS = [
     'apps.accounts',
     'apps.coursework',
     'apps.api',
+    'apps.study',
+    'apps.social',
 ]
 
 MIDDLEWARE = [
@@ -198,7 +200,13 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
-# WhiteNoise serves collected static files from gunicorn, so no S3/nginx setup is needed.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+# Max size for an uploaded profile picture; enforced in ProfilePictureForm.
+MAX_PROFILE_PICTURE_SIZE = 2 * 1024 * 1024  # 2 MB
+
+# WhiteNoise serves collected static files from gunicorn, so static files never
+# need S3. Uploaded media (profile pictures) is a different story: see below.
 STORAGES = {
     'default': {
         'BACKEND': 'django.core.files.storage.FileSystemStorage',
@@ -211,6 +219,25 @@ STORAGES = {
         ),
     },
 }
+
+# Uploaded media (profile pictures) on Elastic Beanstalk's app servers would be
+# lost on every deploy and wouldn't be shared across instances behind the load
+# balancer, since EB's local disk is ephemeral and per-instance. Setting
+# AWS_STORAGE_BUCKET_NAME switches media storage to S3 instead; leaving it unset
+# (the default, including in local dev and the test suite) keeps local-disk
+# storage exactly as before. Credentials are NOT read from Django settings here
+# on purpose — boto3 resolves them itself, preferring an IAM instance role
+# attached to the EB environment over any AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
+# env vars, so no secret keys need to live in EB's env var config at all.
+AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME', '')
+if AWS_STORAGE_BUCKET_NAME:
+    AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
+    AWS_S3_FILE_OVERWRITE = False  # keep Django's own unique-filename behavior
+    AWS_DEFAULT_ACL = None  # bucket policy controls access, not per-object ACLs
+    AWS_QUERYSTRING_AUTH = False  # profile pictures aren't sensitive; plain URLs
+    STORAGES['default'] = {
+        'BACKEND': 'storages.backends.s3.S3Storage',
+    }
 
 
 # HTTPS hardening. Off by default because the EB environments currently serve plain

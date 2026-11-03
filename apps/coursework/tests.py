@@ -98,6 +98,47 @@ class AssignmentFormTests(SimpleTestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
 
+    def test_priority_and_estimated_workload_are_optional(self):
+        form = AssignmentForm({
+            'title': 'Demo',
+            'due_date': '2026-11-20T17:45',
+            'priority': '',
+            'estimated_workload': '',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data['priority'], '')
+        self.assertIsNone(form.cleaned_data['estimated_workload'])
+
+    def test_accepts_priority_and_positive_estimated_hours(self):
+        for priority in ('low', 'medium', 'high'):
+            form = AssignmentForm({
+                'title': 'Demo',
+                'due_date': '2026-11-20T17:45',
+                'priority': priority,
+                'estimated_workload': '3.5',
+            })
+            self.assertTrue(form.is_valid(), form.errors)
+
+        half_hour = AssignmentForm({
+            'title': 'Demo',
+            'due_date': '2026-11-20T17:45',
+            'estimated_workload': '0.5',
+        })
+        self.assertTrue(half_hour.is_valid(), half_hour.errors)
+
+    def test_rejects_unknown_priority_and_non_positive_workload(self):
+        form = AssignmentForm({
+            'title': 'Demo',
+            'due_date': '2026-11-20T17:45',
+            'priority': 'urgent',
+            'estimated_workload': '0.1',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('priority', form.errors)
+        self.assertIn('estimated_workload', form.errors)
+
 
 class AssignmentModelTests(TestCase):
     def setUp(self):
@@ -224,6 +265,27 @@ class ExamFormTests(SimpleTestCase):
     def test_location_is_optional(self):
         self.assertTrue(ExamForm({'title': 'Midterm', 'starts_at': '2026-11-05T14:00'}).is_valid())
         self.assertTrue(ExamForm({'title': 'Midterm', 'starts_at': '2026-11-05T14:00', 'location': 'Jacobs 474'}).is_valid())
+
+    def test_priority_and_estimated_workload_are_optional(self):
+        form = ExamForm({
+            'title': 'Midterm',
+            'starts_at': '2026-11-05T14:00',
+            'priority': '',
+            'estimated_workload': '',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIsNone(form.cleaned_data['estimated_workload'])
+
+    def test_accepts_priority_and_estimated_hours(self):
+        form = ExamForm({
+            'title': 'Midterm',
+            'starts_at': '2026-11-05T14:00',
+            'priority': 'high',
+            'estimated_workload': '8.5',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
 
 
 class ExamModelTests(TestCase):

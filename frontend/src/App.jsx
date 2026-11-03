@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Navigate,
   NavLink,
@@ -13,6 +13,7 @@ import {
   ArrowRight,
   BookOpen,
   CalendarDays,
+  Camera,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -29,13 +30,16 @@ import {
   Settings,
   Sparkles,
   Trash2,
+  Users,
   X,
 } from 'lucide-react'
 
 import { api, formatDate, toUTCInput } from './api'
 import AccountSettings from './AccountSettings'
+import { AvailabilityPage, CalendarPage } from './StudyPages'
+import { FriendsPage } from './FriendsPage'
 
-const AuthContext = createContext(null)
+export const AuthContext = createContext(null)
 
 function useAuth() {
   return useContext(AuthContext)
@@ -96,11 +100,14 @@ function GuestRoute({ children }) {
 
 const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
+  { to: '/calendar', label: 'Study calendar', icon: CalendarDays },
+  { to: '/availability', label: 'Availability', icon: Clock3 },
+  { to: '/friends', label: 'Friends', icon: Users },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
   { to: '/settings/account', label: 'Account settings', icon: Settings },
 ]
 
-function AppShell({ children }) {
+export function AppShell({ children }) {
   const { session, setSession } = useAuth()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -129,11 +136,17 @@ function AppShell({ children }) {
         </nav>
         <div className="sidebar__spacer" />
         <div className="sidebar__profile">
-          <div className="avatar">{session.user?.email?.[0]?.toUpperCase()}</div>
-          <div className="sidebar__identity">
-            <strong>Student</strong>
-            <span>{session.user?.email}</span>
-          </div>
+          <NavLink to="/profile" onClick={() => setMobileOpen(false)} className="sidebar__profile-link" aria-label="Edit your profile">
+            <div className="avatar">
+              {session.user?.profile_picture
+                ? <img src={session.user.profile_picture} alt="" />
+                : (session.user?.first_name?.[0] || session.user?.email?.[0] || '?').toUpperCase()}
+            </div>
+            <div className="sidebar__identity">
+              <strong>{[session.user?.first_name, session.user?.last_name].filter(Boolean).join(' ') || 'Student'}</strong>
+              <span>{session.user?.email}</span>
+            </div>
+          </NavLink>
           <button className="icon-button" onClick={logout} aria-label="Log out"><LogOut size={17} /></button>
         </div>
       </aside>
@@ -242,7 +255,8 @@ function AuthLayout({ mode }) {
 }
 
 function ForgotPassword() {
-  const [email, setEmail] = useState('')
+  const { session } = useAuth()
+  const [email, setEmail] = useState(session.user?.email || '')
   const [submitting, setSubmitting] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
@@ -473,6 +487,24 @@ function CourseRow({ course, index }) {
   )
 }
 
+function PlanningMeta({ item }) {
+  if (!item.priority && item.estimated_workload == null) return null
+  return (
+    <>
+      {item.priority && (
+        <span className={`status-pill status-pill--priority-${item.priority}`}>
+          {item.priority_label || item.priority}
+        </span>
+      )}
+      {item.estimated_workload != null && (
+        <span className="workload-pill" title="Estimated workload">
+          <Clock3 size={12} /> {item.estimated_workload}h
+        </span>
+      )}
+    </>
+  )
+}
+
 function AssignmentRow({ assignment, onChange, compact = false, completed = false, deletable = false }) {
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -522,6 +554,7 @@ function AssignmentRow({ assignment, onChange, compact = false, completed = fals
         <small>{assignment.course.name}{assignment.description && !compact ? ` · ${assignment.description}` : ''}</small>
       </div>
       <div className="assignment-row__date">
+        <PlanningMeta item={assignment} />
         {assignment.is_overdue && <span className="status-pill status-pill--danger">Overdue</span>}
         <span>{formatDate(assignment.due_date)}</span>
       </div>
@@ -555,9 +588,11 @@ function ExamRow({ exam }) {
         <small>{exam.course.name}{exam.location ? ` · ${exam.location}` : ''}</small>
       </div>
       <div className="assignment-row__date">
+        <PlanningMeta item={exam} />
         <span className="status-pill status-pill--exam">Exam</span>
         <span>{formatDate(exam.starts_at)}</span>
       </div>
+      <NavLink className="icon-button" to={`/exams/${exam.id}/edit`} aria-label={`Edit ${exam.title}`}><Pencil size={15} /></NavLink>
     </div>
   )
 }
@@ -724,11 +759,206 @@ function CourseFormPage({ editing = false }) {
   )
 }
 
+export function ProfilePage() {
+  const navigate = useNavigate()
+  const { refresh } = useAuth()
+  const [values, setValues] = useState({ first_name: '', last_name: '' })
+  const [email, setEmail] = useState('')
+  const [errors, setErrors] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  const [passwordValues, setPasswordValues] = useState({ current_password: '', new_password: '', new_password_confirm: '' })
+  const [passwordErrors, setPasswordErrors] = useState({})
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false)
+  const [passwordSaved, setPasswordSaved] = useState(false)
+  const [picture, setPicture] = useState(null)
+  const [pictureError, setPictureError] = useState('')
+  const [pictureBusy, setPictureBusy] = useState(false)
+  const fileInputRef = useRef(null)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError('')
+    async function load() {
+      try {
+        const data = await api('/profile/')
+        if (!active) return
+        setValues({ first_name: data.user.first_name, last_name: data.user.last_name })
+        setEmail(data.user.email)
+        setPicture(data.user.profile_picture)
+      } catch (error) {
+        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load your profile. Try again.')
+      } finally { if (active) setLoading(false) }
+    }
+    load()
+    return () => { active = false }
+  }, [loadAttempt])
+
+  function update(event) {
+    setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
+    setErrors((current) => ({ ...current, [event.target.name]: undefined }))
+    setSaved(false)
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    setSubmitting(true)
+    setErrors({})
+    try {
+      await api('/profile/', { method: 'PUT', body: values })
+      await refresh()
+      setSaved(true)
+    } catch (error) { setErrors(error.errors || {}) } finally { setSubmitting(false) }
+  }
+
+  function updatePassword(event) {
+    setPasswordValues((current) => ({ ...current, [event.target.name]: event.target.value }))
+    setPasswordErrors((current) => ({ ...current, [event.target.name]: undefined, detail: undefined }))
+  }
+
+  function cancelPasswordEdit() {
+    setPasswordOpen(false)
+    setPasswordValues({ current_password: '', new_password: '', new_password_confirm: '' })
+    setPasswordErrors({})
+  }
+
+  async function uploadPicture(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setPictureBusy(true)
+    setPictureError('')
+    try {
+      const body = new FormData()
+      body.append('profile_picture', file)
+      const data = await api('/profile/picture/', { method: 'POST', body })
+      setPicture(data.user.profile_picture)
+      await refresh()
+    } catch (error) {
+      setPictureError(error.errors?.profile_picture?.[0] || error.message)
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
+  async function removePicture() {
+    setPictureBusy(true)
+    setPictureError('')
+    try {
+      const data = await api('/profile/picture/', { method: 'DELETE' })
+      setPicture(data.user.profile_picture)
+      await refresh()
+    } catch (error) {
+      setPictureError(error.message)
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
+  async function submitPassword(event) {
+    event.preventDefault()
+    setPasswordSubmitting(true)
+    setPasswordErrors({})
+    try {
+      await api('/auth/change-password/', { method: 'POST', body: passwordValues })
+      setPasswordValues({ current_password: '', new_password: '', new_password_confirm: '' })
+      setPasswordOpen(false)
+      setPasswordSaved(true)
+    } catch (error) {
+      setPasswordErrors(error.errors || { detail: [error.message] })
+    } finally {
+      setPasswordSubmitting(false)
+    }
+  }
+
+  if (loading) return <PageSkeleton />
+  if (loadError) return <ErrorState message={loadError} onRetry={() => setLoadAttempt((value) => value + 1)} />
+  return (
+    <FormPage
+      backTo="/dashboard"
+      eyebrow="Account"
+      title="Edit profile"
+      subtitle="Keep your name accurate so your work stays personal to you."
+      actions={
+        <div className="profile-picture-header">
+          <button
+            type="button"
+            className="avatar avatar--large avatar--editable"
+            disabled={pictureBusy}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label={picture ? 'Change profile photo' : 'Upload a profile photo'}
+          >
+            {picture
+              ? <img src={picture} alt="" />
+              : (values.first_name?.[0] || email?.[0] || '?').toUpperCase()}
+            <span className="avatar__badge"><Camera size={13} /></span>
+          </button>
+          {picture && (
+            <button type="button" className="text-link profile-picture-header__remove" disabled={pictureBusy} onClick={removePicture}>
+              <Trash2 size={13} /> Remove
+            </button>
+          )}
+          {pictureError && <span className="profile-picture-header__error">{pictureError}</span>}
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={uploadPicture} hidden data-testid="profile-picture-input" />
+        </div>
+      }
+    >
+      <form onSubmit={submit} className="editor-card">
+        {saved && <div className="form-alert form-alert--success">Your profile has been updated.</div>}
+        <Field label="First name" error={errors.first_name?.[0]}>
+          <input name="first_name" value={values.first_name} onChange={update} autoFocus required />
+        </Field>
+        <Field label="Last name" error={errors.last_name?.[0]}>
+          <input name="last_name" value={values.last_name} onChange={update} required />
+        </Field>
+        <Field label="Email">
+          <input value={email} disabled />
+        </Field>
+        <FormActions submitting={submitting} label="Save changes" cancel={() => navigate('/dashboard')} />
+      </form>
+      <div className="editor-card">
+        {passwordOpen ? (
+          <form onSubmit={submitPassword} className="form-stack">
+            <h3>Change password</h3>
+            {passwordErrors.detail && <div className="form-alert">{passwordErrors.detail[0]}</div>}
+            <Field label="Current password" error={passwordErrors.current_password?.[0]}>
+              <input name="current_password" type="password" autoComplete="current-password" value={passwordValues.current_password} onChange={updatePassword} autoFocus required />
+            </Field>
+            <p className="auth-forgot"><NavLink to="/forgot-password">Forgot your current password?</NavLink></p>
+            <Field label="New password" error={passwordErrors.new_password?.[0]}>
+              <input name="new_password" type="password" autoComplete="new-password" placeholder="At least 8 characters" value={passwordValues.new_password} onChange={updatePassword} required />
+            </Field>
+            <Field label="Confirm new password" error={passwordErrors.new_password_confirm?.[0]}>
+              <input name="new_password_confirm" type="password" autoComplete="new-password" value={passwordValues.new_password_confirm} onChange={updatePassword} required />
+            </Field>
+            <FormActions submitting={passwordSubmitting} label="Update password" cancel={cancelPasswordEdit} />
+          </form>
+        ) : (
+          <div className="profile-security">
+            <div>
+              <h3>Password</h3>
+              <p>{passwordSaved ? 'Your password has been updated.' : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}</p>
+            </div>
+            <button type="button" className="button button--secondary" onClick={() => setPasswordOpen(true)}>Change password</button>
+          </div>
+        )}
+      </div>
+    </FormPage>
+  )
+}
+
 function AssignmentFormPage({ editing = false }) {
   const { courseId, assignmentId } = useParams()
   const navigate = useNavigate()
   const [course, setCourse] = useState(null)
-  const [values, setValues] = useState({ title: '', due_date: '', description: '' })
+  const [values, setValues] = useState({
+    title: '', due_date: '', description: '', priority: '', estimated_workload: '',
+  })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -745,7 +975,13 @@ function AssignmentFormPage({ editing = false }) {
           const data = await api(`/assignments/${assignmentId}/`)
           if (!active) return
           setCourse(data.assignment.course)
-          setValues({ title: data.assignment.title, due_date: toUTCInput(data.assignment.due_date), description: data.assignment.description })
+          setValues({
+            title: data.assignment.title,
+            due_date: toUTCInput(data.assignment.due_date),
+            description: data.assignment.description,
+            priority: data.assignment.priority || '',
+            estimated_workload: data.assignment.estimated_workload ?? '',
+          })
         } else {
           const data = await api(`/courses/${courseId}/`)
           if (!active) return
@@ -788,6 +1024,19 @@ function AssignmentFormPage({ editing = false }) {
       <form onSubmit={submit} className="editor-card">
         <Field label="Assignment title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Sprint retrospective" autoFocus required /></Field>
         <Field label="Deadline" hint="Time zone: UTC" error={errors.due_date?.[0]}><input name="due_date" type="datetime-local" value={values.due_date} onChange={update} onInput={update} required /></Field>
+        <div className="field-pair">
+          <Field label="Priority" hint="Optional" error={errors.priority?.[0]}>
+            <select name="priority" value={values.priority} onChange={update}>
+              <option value="">No priority</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </Field>
+          <Field label="Estimated workload" hint="Optional · hours" error={errors.estimated_workload?.[0]}>
+            <input name="estimated_workload" type="number" min="0.5" step="0.5" inputMode="decimal" value={values.estimated_workload} onChange={update} placeholder="e.g. 3.5" />
+          </Field>
+        </div>
         <Field label="Description" hint="Optional" error={errors.description?.[0]}><textarea name="description" rows="4" value={values.description} onChange={update} placeholder="Add context, requirements, or a quick note…" /></Field>
         <FormActions submitting={submitting} label={editing ? 'Save changes' : 'Add assignment'} cancel={() => navigate(`/courses/${course.id}`)} />
       </form>
@@ -795,11 +1044,13 @@ function AssignmentFormPage({ editing = false }) {
   )
 }
 
-function ExamFormPage() {
-  const { courseId } = useParams()
+function ExamFormPage({ editing = false }) {
+  const { courseId, examId } = useParams()
   const navigate = useNavigate()
   const [course, setCourse] = useState(null)
-  const [values, setValues] = useState({ title: '', starts_at: '', location: '' })
+  const [values, setValues] = useState({
+    title: '', starts_at: '', location: '', priority: '', estimated_workload: '',
+  })
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -812,15 +1063,28 @@ function ExamFormPage() {
     setLoadError('')
     async function load() {
       try {
-        const data = await api(`/courses/${courseId}/`)
-        if (active) setCourse(data.course)
+        if (editing) {
+          const data = await api(`/exams/${examId}/`)
+          if (!active) return
+          setCourse(data.exam.course)
+          setValues({
+            title: data.exam.title,
+            starts_at: toUTCInput(data.exam.starts_at),
+            location: data.exam.location,
+            priority: data.exam.priority || '',
+            estimated_workload: data.exam.estimated_workload ?? '',
+          })
+        } else {
+          const data = await api(`/courses/${courseId}/`)
+          if (active) setCourse(data.course)
+        }
       } catch (error) {
-        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load this course. Check the link or try again.')
+        if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load this exam or course. Check the link or try again.')
       } finally { if (active) setLoading(false) }
     }
     load()
     return () => { active = false }
-  }, [courseId, loadAttempt])
+  }, [editing, examId, courseId, loadAttempt])
 
   function update(event) {
     setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
@@ -832,7 +1096,9 @@ function ExamFormPage() {
     setSubmitting(true)
     setErrors({})
     try {
-      await api(`/courses/${courseId}/exams/`, { method: 'POST', body: values })
+      await api(editing ? `/exams/${examId}/` : `/courses/${courseId}/exams/`, {
+        method: editing ? 'PUT' : 'POST', body: values,
+      })
       navigate(`/courses/${course.id}`)
     } catch (error) { setErrors(error.errors || {}) } finally { setSubmitting(false) }
   }
@@ -842,25 +1108,38 @@ function ExamFormPage() {
   return (
     <FormPage
       backTo={`/courses/${course.id}`}
-      eyebrow={course.code || 'New exam'}
-      title="Add an exam"
+      eyebrow={editing ? 'Exam details' : course.code || 'New exam'}
+      title={editing ? 'Edit exam' : 'Add an exam'}
       subtitle={`${course.name} · Know when and where it is.`}
     >
       <form onSubmit={submit} className="editor-card">
         <Field label="Exam title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Midterm" autoFocus required /></Field>
         <Field label="Date and time" hint="Time zone: UTC" error={errors.starts_at?.[0]}><input name="starts_at" type="datetime-local" value={values.starts_at} onChange={update} onInput={update} required /></Field>
+        <div className="field-pair">
+          <Field label="Priority" hint="Optional" error={errors.priority?.[0]}>
+            <select name="priority" value={values.priority} onChange={update}>
+              <option value="">No priority</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </Field>
+          <Field label="Estimated workload" hint="Optional · hours" error={errors.estimated_workload?.[0]}>
+            <input name="estimated_workload" type="number" min="0.5" step="0.5" inputMode="decimal" value={values.estimated_workload} onChange={update} placeholder="e.g. 2.5" />
+          </Field>
+        </div>
         <Field label="Location" hint="Optional" error={errors.location?.[0]}><input name="location" value={values.location} onChange={update} placeholder="e.g. 370 Jay St, Room 202" /></Field>
-        <FormActions submitting={submitting} label="Add exam" cancel={() => navigate(`/courses/${course.id}`)} />
+        <FormActions submitting={submitting} label={editing ? 'Save changes' : 'Add exam'} cancel={() => navigate(`/courses/${course.id}`)} />
       </form>
     </FormPage>
   )
 }
 
-function FormPage({ backTo, eyebrow, title, subtitle, children }) {
+function FormPage({ backTo, eyebrow, title, subtitle, actions, children }) {
   return (
     <div className="form-page">
       <NavLink className="back-link" to={backTo}><ArrowLeft size={16} /> Back</NavLink>
-      <PageHeader eyebrow={eyebrow} title={title} subtitle={subtitle} />
+      <PageHeader eyebrow={eyebrow} title={title} subtitle={subtitle} actions={actions} />
       {children}
     </div>
   )
@@ -930,12 +1209,17 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/settings/account" element={<AccountSettingsPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/availability" element={<AvailabilityPage />} />
+        <Route path="/friends" element={<FriendsPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />
         <Route path="/courses/:courseId/assignments/new" element={<AssignmentFormPage />} />
         <Route path="/courses/:courseId/exams/new" element={<ExamFormPage />} />
         <Route path="/assignments/:assignmentId/edit" element={<AssignmentFormPage editing />} />
+        <Route path="/exams/:examId/edit" element={<ExamFormPage editing />} />
         <Route path="/completed" element={<Completed />} />
         <Route path="*" element={<NotFound />} />
       </Routes></AppShell></ProtectedRoute>} />

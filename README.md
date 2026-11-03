@@ -44,9 +44,84 @@ python manage.py test
 ```
 
 Run `npm test` inside `frontend/` for the deadline time-zone and Vite base-path
-regression tests. Django shell tests use plain static storage so a fresh checkout
+regression tests, plus study-calendar helpers. Django shell tests use plain static storage so a fresh checkout
 does not need a collected manifest; deployments still use WhiteNoise's hashed
 assets after `collectstatic`.
+
+## Study availability and calendar (#38, #39)
+
+The React sidebar links to **Availability** (`/app/availability`) and **Study
+calendar** (`/app/calendar`). Availability repeats Monday–Sunday and supports
+multiple non-overlapping blocks per day. Both availability and the calendar use
+UTC, explicitly labeled in the UI. Saving an empty week clears availability;
+the UI explains that availability is required before schedule generation.
+Changing availability leaves already scheduled sessions unchanged.
+
+Study sessions belong to an assignment, which supplies their course, task, and
+account ownership. The calendar shows sessions overlapping the selected week,
+including sessions crossing midnight, with previous/next/this-week navigation.
+`?week=YYYY-MM-DD` selects the Monday–Sunday week containing that date.
+
+API endpoints (session authentication and CSRF protection apply):
+
+- `GET /api/study/availability/`: saved blocks and configuration state.
+- `PUT /api/study/availability/`: atomically replace the user's weekly blocks;
+  body: `{"blocks": [{"weekday": 0, "start_time": "09:00", "end_time": "11:00"}]}`.
+  Weekdays run from Monday (0) to Sunday (6). Invalid or overlapping blocks
+  return field errors without replacing saved availability.
+- `GET /api/study/calendar/?week=2026-10-19`: the user's sessions for that week.
+
+Run `python manage.py migrate` to create the study tables. Sessions can be
+entered through Django admin while the separate automatic-generation story
+(#41) is pending. No generated or example sessions are added by migrations.
+Locking, rescheduling, completion, and deletion remain separate stories.
+
+## Friends (#16)
+
+The React sidebar links to **Friends** (`/app/friends`). Add a classmate by
+their NYU email to send a friend request; they see it under "Friend requests"
+and can accept or decline. You can cancel a request you sent while it's still
+pending. If you send a request to someone who already sent you one, the two
+requests are reconciled automatically and you become friends immediately,
+instead of ending up with two pending requests waiting on each other.
+
+A friend request can't be sent to yourself, to an email with no SemesterPilot
+account, to someone you're already friends with, or a second time while an
+earlier request between the same two people is still pending. A declined
+request doesn't block trying again later.
+
+API endpoints (session authentication and CSRF protection apply):
+
+- `GET /api/social/friends/`: current friends, plus pending requests split
+  into `received_requests` and `sent_requests`.
+- `POST /api/social/friends/requests/`: send a request; body:
+  `{"email": "friend@nyu.edu"}`. Returns the new pending request (201), or the
+  now-accepted request (200) if this reconciled a request already sent the
+  other way.
+- `PATCH /api/social/friends/requests/<id>/`: the recipient accepts or
+  declines; body: `{"status": "accepted"}` or `{"status": "declined"}`.
+- `DELETE /api/social/friends/requests/<id>/`: cancel or remove, depending on
+  the request's status. Pending: only the original sender can cancel it.
+  Accepted: either person in the friendship can remove it — see "Removing a
+  friend" below. Already-declined requests can't be deleted this way (400).
+
+Run `python manage.py migrate` to create the friend request table. Blocking
+and messaging remain separate stories.
+
+## Removing a friend (#19)
+
+Each entry in "Your friends" has a **Remove** button; it asks you to confirm
+before anything happens. Either person in the friendship can remove it, not
+just whoever originally sent the request. Removing a friend doesn't delete
+either account — there's no message history or other data tied to the
+friendship to lose.
+
+Under the hood this reuses the same `FriendRequest` row and the same
+`DELETE /api/social/friends/requests/<id>/` endpoint as cancelling a pending
+request (see "Friends (#16)" above): deleting an **accepted** request is
+what "removing a friend" means, since the accepted row is the friendship
+record itself. After removal, both people are free to send a new friend
+request to each other.
 
 ## Assignment deadlines
 
@@ -65,11 +140,12 @@ actions require the current password and a typed confirmation. Cancel clears
 the confirmation form without sending a request.
 
 - **Deactivate:** type `DEACTIVATE`. The account is disabled and signed out;
-  courses, assignments, and exams are retained. An administrator must enable
+  courses, assignments, exams, availability, and study sessions are retained. An administrator must enable
   the user's **Active** flag in Django admin before they can sign in again.
   The password stays the same, but old sessions and reset links are invalidated.
-- **Delete:** type `DELETE`. The account and its courses, assignments, and exams
-  are permanently removed. Other students' accounts and coursework are unaffected.
+- **Delete:** type `DELETE`. The account and its courses, assignments, exams,
+  availability, and study sessions are permanently removed. Other students'
+  accounts, coursework, and study data are unaffected.
 
 Session-authenticated API endpoints are `POST /api/account/deactivate/` and
 `DELETE /api/account/`. Both require CSRF protection and a JSON body with
@@ -109,6 +185,42 @@ EMAIL_USE_TLS=True
 DEFAULT_FROM_EMAIL=noreply@semesterpilot.app
 ```
 
+## Profile pictures
+
+Students can upload a profile picture from `/profile` (JPG, PNG, or GIF, max 2MB,
+enforced by `MAX_PROFILE_PICTURE_SIZE` in `config/settings.py`).
+
+**Local dev (and the test suite): unchanged, local disk.** With no
+`AWS_STORAGE_BUCKET_NAME` env var set, files are stored under `MEDIA_ROOT`
+(`media/`, gitignored) and served from `MEDIA_URL` (`/media/`) by Django's dev
+server when `DEBUG=True`. This is also what the test suite uses — nothing about
+testing or local dev changes with the S3 support described below.
+
+**Staging/prod: S3-ready, but still needs real infrastructure set up.**
+Elastic Beanstalk's app servers have ephemeral, non-shared local disks, so local
+storage would lose every uploaded picture on the next deploy, or not show it on
+a different instance behind the load balancer. The app code now supports S3 via
+`django-storages` — setting `AWS_STORAGE_BUCKET_NAME` (plus optionally
+`AWS_S3_REGION_NAME`, default `us-east-1`) in `config/settings.py` switches
+`STORAGES['default']` to S3 automatically, no code change needed. AWS
+credentials are deliberately **not** read from Django settings: boto3 resolves
+them itself and will prefer an IAM instance role attached to the EB environment
+over any access-key env vars, so no secret keys need to be stored in EB's
+environment config at all.
+
+What *isn't* done, and can't be from code alone: an actual S3 bucket and IAM
+role/policy need to exist in AWS, and `AWS_STORAGE_BUCKET_NAME` (and the IAM
+role, or `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`) need to be set on the real
+EB environment. Flagging this the same way the SMTP setup was flagged for
+password reset: it's an infrastructure/ops task for whoever manages the EB
+environments and AWS account, not something this app's code alone can finish.
+
+**Also fixed:** EB's default nginx config caps uploads at 1MB, below our 2MB
+app-level limit, which would reject a valid upload before it even reached
+Django. `.ebextensions/02_nginx_upload_size.config` raises nginx's own limit to
+3MB so the app's own size-limit error (not a generic nginx 413) is what a user
+sees for an oversized file.
+
 ## Project structure
 
 Each feature lives in its own app under `apps/`, registered in `config/settings.py`:
@@ -118,6 +230,8 @@ apps/
   accounts/      # user model and signup validation
   api/           # session-authenticated JSON endpoints
   coursework/    # course and assignment domain logic
+  study/         # availability and study-session scheduling
+  social/        # friend requests and the friends list
 config/          # project settings, root URLs
 templates/       # minimal Django shell that mounts React
 frontend/        # React single-page app

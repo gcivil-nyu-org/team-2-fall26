@@ -62,7 +62,7 @@ class AssignmentForm(forms.ModelForm):
 
     class Meta:
         model = Assignment
-        fields = ['title', 'due_date', 'description']
+        fields = ['title', 'due_date', 'description', 'priority', 'estimated_workload']
 
 
 class ExamForm(forms.ModelForm):
@@ -77,7 +77,7 @@ class ExamForm(forms.ModelForm):
 
     class Meta:
         model = Exam
-        fields = ['title', 'starts_at', 'location']
+        fields = ['title', 'starts_at', 'location', 'priority', 'estimated_workload']
         error_messages = {
             'title': {'required': 'Exam title is required.'},
         }
