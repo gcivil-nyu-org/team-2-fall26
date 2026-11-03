@@ -381,7 +381,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .friend-row__copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: .15rem; }
 .friend-row__copy strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
 .friend-row__copy small { color: var(--muted); font-size: .72rem; }
-.friend-row__actions { display: flex; flex: 0 0 auto; gap: .5rem; }
+.friend-row__actions { display: flex; flex: 0 0 auto; align-items: center; gap: .5rem; }
+.friend-row__actions > span { color: var(--muted); font-size: .76rem; }
+.friend-row__actions > .friend-row__error { color: #af4e25; }
 
 @media (max-width: 640px) {
   .friends-add__body { flex-direction: column; }
@@ -389,6 +391,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .friend-row { flex-wrap: wrap; }
   .friend-row__actions { width: 100%; }
   .friend-row__actions .button { flex: 1; }
+  .friend-row__actions--confirm { flex-wrap: wrap; }
+  .friend-row__actions--confirm > span { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

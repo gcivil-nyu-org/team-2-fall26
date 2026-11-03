@@ -241,6 +241,15 @@ class FriendsListTests(SocialTestCase):
         self.assertEqual(data['sent_requests'], [])
         self.assertEqual(data['received_requests'], [])
 
+    def test_each_friend_carries_the_friendship_id_needed_to_remove_them(self):
+        # The friend object's own 'id' is the OTHER user's id, not this
+        # FriendRequest row's id — removing a friend needs the latter.
+        friendship = FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        friendship.accept()
+        data = self.client.get(self.url).json()
+        self.assertEqual(data['friends'][0]['friendship_id'], friendship.pk)
+        self.assertEqual(data['friends'][0]['id'], self.other.pk)
+
     def test_declined_requests_are_not_listed_anywhere(self):
         declined = FriendRequest.objects.create(sender=self.user, recipient=self.other)
         declined.decline()
@@ -290,6 +299,78 @@ class FriendsListProfilePictureTests(SocialTestCase):
         FriendRequest.objects.create(sender=self.user, recipient=self.other)
         data = self.client.get(self.url).json()
         self.assertIsNotNone(data['sent_requests'][0]['user']['profile_picture'])
+
+
+class RemoveFriendTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.friendship = FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        self.friendship.accept()
+        self.url = reverse('social:friend_request', args=[self.friendship.pk])
+
+    def test_requires_authentication(self):
+        self.client.logout()
+        self.assertEqual(self.client.delete(self.url).status_code, 401)
+
+    def test_the_user_who_sent_the_original_request_can_remove_the_friendship(self):
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(FriendRequest.objects.filter(pk=self.friendship.pk).exists())
+
+    def test_the_user_who_received_the_original_request_can_also_remove_the_friendship(self):
+        # Removing a friend isn't directional — it shouldn't matter who sent
+        # the original request. (AC: "I can remove a student who is
+        # currently in my friends list.")
+        self.client.force_login(self.other)
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(FriendRequest.objects.filter(pk=self.friendship.pk).exists())
+
+    def test_a_stranger_cannot_remove_a_friendship_they_are_not_part_of(self):
+        self.client.force_login(self.third)
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(FriendRequest.objects.filter(pk=self.friendship.pk).exists())
+
+    def test_removed_friend_disappears_from_both_sides_friends_list(self):
+        # AC: "After removal, the student no longer appears in my friends
+        # list" — checked from both ends, since it's a shared relationship.
+        self.client.delete(self.url)
+        mine = self.client.get(reverse('social:friends')).json()
+        self.assertEqual(mine['friends'], [])
+        self.client.force_login(self.other)
+        theirs = self.client.get(reverse('social:friends')).json()
+        self.assertEqual(theirs['friends'], [])
+
+    def test_removing_a_friend_does_not_delete_either_account(self):
+        # AC: "Removing a friend does not delete either student's account or
+        # previous messages." This app has no message model at all (nothing
+        # to lose there), so the account-preservation half is what a test
+        # can actually exercise: removing the friendship must never touch
+        # the User rows themselves.
+        self.client.delete(self.url)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+        self.assertTrue(User.objects.filter(pk=self.other.pk).exists())
+
+    def test_removing_a_friend_allows_sending_a_new_request_afterward(self):
+        self.client.delete(self.url)
+        response = self.client.post(
+            reverse('social:friend_requests'),
+            json.dumps({'email': self.other.email}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+
+    def test_cannot_remove_a_declined_request_this_way(self):
+        declined = FriendRequest.objects.create(sender=self.user, recipient=self.third)
+        declined.decline()
+        response = self.client.delete(reverse('social:friend_request', args=[declined.pk]))
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(FriendRequest.objects.filter(pk=declined.pk).exists())
+
+    def test_unknown_friendship_id_is_a_404(self):
+        response = self.client.delete(reverse('social:friend_request', args=[999999]))
+        self.assertEqual(response.status_code, 404)
 
 
 class RespondToFriendRequestTests(SocialTestCase):
@@ -377,11 +458,10 @@ class CancelFriendRequestTests(SocialTestCase):
         response = self.client.delete(self.url)
         self.assertEqual(response.status_code, 404)
 
-    def test_cannot_cancel_an_already_accepted_request(self):
-        self.outgoing.accept()
-        response = self.client.delete(self.url)
-        self.assertEqual(response.status_code, 400)
-        self.assertTrue(FriendRequest.objects.filter(pk=self.outgoing.pk).exists())
+    # Deleting an ACCEPTED request is no longer rejected here — it's the
+    # "remove a friend" action now (see RemoveFriendTests), which either
+    # party can do, not just the original sender. That behavior lives in
+    # its own test class rather than this one.
 
     def test_unknown_request_id_is_a_404(self):
         response = self.client.delete(reverse('social:friend_request', args=[999999]))
