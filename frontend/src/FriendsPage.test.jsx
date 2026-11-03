@@ -71,6 +71,23 @@ describe('viewing the friends list', () => {
   })
 })
 
+  test('shows an error with a retry option when the list fails to load', async () => {
+    let callCount = 0
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/') {
+        callCount += 1
+        if (callCount === 1) throw new Error('Could not load your friends.')
+        return friendsPayload({ friends: [] })
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    renderFriendsPage()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load your friends.')
+    await userEvent.click(screen.getByRole('button', { name: /try again/i }))
+    expect(await screen.findByText('No friends yet')).toBeInTheDocument()
+  })
+
 // Covers the "remove a friend" confirm/cancel/removal flow (#19 AC: confirm
 // before removing, cancel leaves the friendship untouched, confirming
 // removes it and it disappears from the list, and a failed removal doesn't
