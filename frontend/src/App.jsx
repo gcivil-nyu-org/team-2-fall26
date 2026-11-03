@@ -37,7 +37,7 @@ import {
 import { api, formatDate, toUTCInput } from './api'
 import AccountSettings from './AccountSettings'
 import { AvailabilityPage, CalendarPage } from './StudyPages'
-import { FriendsPage } from './FriendsPage'
+import { FriendProfilePage, FriendsPage } from './FriendsPage'
 
 export const AuthContext = createContext(null)
 
@@ -1213,6 +1213,7 @@ function AppRoutes() {
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/availability" element={<AvailabilityPage />} />
         <Route path="/friends" element={<FriendsPage />} />
+        <Route path="/friends/:friendshipId" element={<FriendProfilePage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />
