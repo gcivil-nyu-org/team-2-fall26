@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 import { api as realApi } from './api'
-import { FriendsPage } from './FriendsPage'
+import { FriendProfilePage, FriendsPage } from './FriendsPage'
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal()
@@ -35,6 +36,12 @@ function rowFor(text) {
   return screen.getByText(text).closest('.friend-row')
 }
 
+// FriendRow links to a friend's profile now (#18), so every render needs a
+// Router around it — a bare <FriendsPage /> throws without one.
+function renderFriendsPage() {
+  return render(<MemoryRouter><FriendsPage /></MemoryRouter>)
+}
+
 // Covers the "remove a friend" confirm/cancel/removal flow (#19 AC: confirm
 // before removing, cancel leaves the friendship untouched, confirming
 // removes it and it disappears from the list, and a failed removal doesn't
@@ -42,7 +49,7 @@ function rowFor(text) {
 describe('removing a friend', () => {
   test('the remove button asks for confirmation before anything happens', async () => {
     mockFriendsLoad(friendsPayload())
-    render(<FriendsPage />)
+    renderFriendsPage()
     await screen.findByText('Sam Lee')
 
     expect(screen.queryByText('Remove Sam Lee as a friend?')).not.toBeInTheDocument()
@@ -52,7 +59,7 @@ describe('removing a friend', () => {
 
   test('canceling the confirmation leaves the friendship unchanged', async () => {
     mockFriendsLoad(friendsPayload())
-    render(<FriendsPage />)
+    renderFriendsPage()
     await screen.findByText('Sam Lee')
 
     await userEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
@@ -73,7 +80,7 @@ describe('removing a friend', () => {
       if (path === '/social/friends/requests/42/' && options?.method === 'DELETE') return { ok: true }
       throw new Error(`unexpected call to api(${path})`)
     })
-    render(<FriendsPage />)
+    renderFriendsPage()
     await screen.findByText('Sam Lee')
 
     await userEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
@@ -90,7 +97,7 @@ describe('removing a friend', () => {
       }
       throw new Error(`unexpected call to api(${path})`)
     })
-    render(<FriendsPage />)
+    renderFriendsPage()
     await screen.findByText('Sam Lee')
 
     await userEvent.click(screen.getByRole('button', { name: /remove sam lee as a friend/i }))
@@ -113,7 +120,7 @@ describe('profile photos on friend requests and the friends list', () => {
       friends: [],
       received_requests: [{ id: 1, direction: 'received', user: { id: 2, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', profile_picture: '/media/profile-pictures/sam.png' } }],
     }))
-    render(<FriendsPage />)
+    renderFriendsPage()
     await screen.findByText('Sam Lee')
     expect(rowFor('Sam Lee').querySelector('img')).toHaveAttribute('src', '/media/profile-pictures/sam.png')
   })
@@ -123,7 +130,7 @@ describe('profile photos on friend requests and the friends list', () => {
       friends: [],
       received_requests: [{ id: 1, direction: 'received', user: { id: 2, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', profile_picture: null } }],
     }))
-    render(<FriendsPage />)
+    renderFriendsPage()
     await screen.findByText('Sam Lee')
     const row = rowFor('Sam Lee')
     expect(row.querySelector('img')).toBeNull()
@@ -134,7 +141,7 @@ describe('profile photos on friend requests and the friends list', () => {
     mockFriendsLoad(friendsPayload({
       friends: [{ id: 3, friendship_id: 42, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu', profile_picture: '/media/profile-pictures/jordan.png' }],
     }))
-    render(<FriendsPage />)
+    renderFriendsPage()
     await screen.findByText('Jordan')
     expect(rowFor('Jordan').querySelector('img')).toHaveAttribute('src', '/media/profile-pictures/jordan.png')
   })
@@ -143,10 +150,72 @@ describe('profile photos on friend requests and the friends list', () => {
     mockFriendsLoad(friendsPayload({
       friends: [{ id: 3, friendship_id: 42, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu', profile_picture: null }],
     }))
-    render(<FriendsPage />)
+    renderFriendsPage()
     await screen.findByText('Jordan')
     const row = rowFor('Jordan')
     expect(row.querySelector('img')).toBeNull()
     expect(row.querySelector('.avatar')).toHaveTextContent('J')
+  })
+})
+
+// #18 AC: "I can select a friend from the list to view their profile."
+describe('selecting a friend to view their profile', () => {
+  test('a friend row links to their profile by friendship id', async () => {
+    mockFriendsLoad(friendsPayload())
+    renderFriendsPage()
+    await screen.findByText('Sam Lee')
+    expect(screen.getByRole('link', { name: /view sam lee.s profile/i })).toHaveAttribute('href', '/friends/42')
+  })
+
+  test('the profile page shows the friend’s name, email, and photo', async () => {
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/42/') {
+        return { user: { id: 2, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', profile_picture: '/media/profile-pictures/sam.png' } }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    render(
+      <MemoryRouter initialEntries={['/friends/42']}>
+        <Routes><Route path="/friends/:friendshipId" element={<FriendProfilePage />} /></Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText('Sam Lee')
+    expect(screen.getByText('sam@nyu.edu')).toBeInTheDocument()
+    expect(document.querySelector('.friend-profile img')).toHaveAttribute('src', '/media/profile-pictures/sam.png')
+    expect(screen.getByRole('link', { name: /back to friends/i })).toHaveAttribute('href', '/friends')
+  })
+
+  test('a friend with no photo shows an initial on their profile page too', async () => {
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/42/') {
+        return { user: { id: 2, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', profile_picture: null } }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    render(
+      <MemoryRouter initialEntries={['/friends/42']}>
+        <Routes><Route path="/friends/:friendshipId" element={<FriendProfilePage />} /></Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText('Sam Lee')
+    expect(document.querySelector('.friend-profile img')).toBeNull()
+    expect(document.querySelector('.friend-profile .avatar')).toHaveTextContent('S')
+  })
+
+  test('a removed or non-existent friendship shows an error instead of a blank page', async () => {
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/999/') {
+        const error = new Error('Not found.')
+        error.status = 404
+        throw error
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    render(
+      <MemoryRouter initialEntries={['/friends/999']}>
+        <Routes><Route path="/friends/:friendshipId" element={<FriendProfilePage />} /></Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/couldn.t be found/i))
   })
 })
