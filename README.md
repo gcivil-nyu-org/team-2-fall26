@@ -76,7 +76,7 @@ entered through Django admin while the separate automatic-generation story
 (#41) is pending. No generated or example sessions are added by migrations.
 Locking, rescheduling, completion, and deletion remain separate stories.
 
-## Friends (#16, #17)
+## Friends (#16, #17, #18)
 
 The React sidebar links to **Friends** (`/app/friends`). Add a classmate by
 their NYU email to send a friend request; they see it under "Friend requests"
@@ -127,6 +127,20 @@ request (see "Friends (#16)" above): deleting an **accepted** request is
 what "removing a friend" means, since the accepted row is the friendship
 record itself. After removal, both people are free to send a new friend
 request to each other.
+
+## Viewing a friend's profile (#18)
+
+Clicking a friend's name or photo in "Your friends" opens their profile —
+their name, email, and photo (falling back to an initial, same as
+everywhere else). The link lives at `/friends/<friendshipId>`, keyed by the
+friendship itself rather than the other person's user id, so it only ever
+resolves for an actual, current friendship.
+
+`GET /api/social/friends/<friendshipId>/` backs this: it 404s for anyone who
+isn't one of the two people in that friendship, for a friendship that's
+still pending or was declined, and for one that's since been removed — the
+same privacy pattern used elsewhere in this app, and the same error page a
+stale or broken link produces.
 
 **Note on #16/#17/#18's "search or identify by username" acceptance
 criteria**: this app has no username concept a person ever sets or sees —

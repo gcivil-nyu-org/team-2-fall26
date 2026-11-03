@@ -378,12 +378,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .friend-list { display: flex; flex-direction: column; }
 .friend-row { display: flex; align-items: center; gap: .85rem; padding: 1rem 1.4rem; }
 .friend-row + .friend-row { border-top: 1px solid #f0edf2; }
+.friend-row__link { display: flex; min-width: 0; flex: 1; align-items: center; gap: .85rem; color: inherit; text-decoration: none; border-radius: 10px; }
+.friend-row__link:hover .friend-row__copy strong, .friend-row__link:focus-visible .friend-row__copy strong { color: var(--violet); }
+.friend-row__link:focus-visible { outline: 2px solid var(--violet-soft); outline-offset: 2px; }
 .friend-row__copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: .15rem; }
 .friend-row__copy strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
 .friend-row__copy small { color: var(--muted); font-size: .72rem; }
 .friend-row__actions { display: flex; flex: 0 0 auto; align-items: center; gap: .5rem; }
 .friend-row__actions > span { color: var(--muted); font-size: .76rem; }
 .friend-row__actions > .friend-row__error { color: #af4e25; }
+.friend-profile { display: flex; flex-direction: column; align-items: center; gap: .6rem; padding: 2.5rem 1.4rem; text-align: center; }
+.friend-profile h1 { font-size: 1.2rem; }
+.friend-profile__email { color: var(--muted); font-size: .84rem; }
 
 @media (max-width: 640px) {
   .friends-add__body { flex-direction: column; }

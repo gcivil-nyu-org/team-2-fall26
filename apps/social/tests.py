@@ -373,6 +373,59 @@ class RemoveFriendTests(SocialTestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class FriendProfileTests(SocialTestCase):
+    # #18 AC: "I can select a friend from the list to view their profile."
+    def setUp(self):
+        super().setUp()
+        self.friendship = FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        self.friendship.accept()
+        self.url = reverse('social:friend_profile', args=[self.friendship.pk])
+
+    def test_requires_authentication(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 401)
+
+    def test_returns_the_friends_profile(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        user = response.json()['user']
+        self.assertEqual(user['email'], self.other.email)
+        self.assertEqual(user['first_name'], self.other.first_name)
+
+    def test_either_side_of_the_friendship_can_view_the_others_profile(self):
+        self.client.force_login(self.other)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user']['email'], self.user.email)
+
+    def test_a_stranger_cannot_view_a_friendship_they_are_not_part_of(self):
+        self.client.force_login(self.third)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_pending_requests_sender_is_not_accessible_as_a_friend_profile(self):
+        # Only an accepted friendship counts — sending or receiving a request
+        # doesn't give either side a "profile" view of the other yet.
+        pending = FriendRequest.objects.create(sender=self.user, recipient=self.third)
+        response = self.client.get(reverse('social:friend_profile', args=[pending.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_declined_requests_other_party_is_not_accessible(self):
+        declined = FriendRequest.objects.create(sender=self.user, recipient=self.third)
+        declined.decline()
+        response = self.client.get(reverse('social:friend_profile', args=[declined.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_unknown_friendship_id_is_a_404(self):
+        response = self.client.get(reverse('social:friend_profile', args=[999999]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_removed_friendship_is_no_longer_accessible(self):
+        self.client.delete(reverse('social:friend_request', args=[self.friendship.pk]))
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 404)
+
+
 class RespondToFriendRequestTests(SocialTestCase):
     def setUp(self):
         super().setUp()

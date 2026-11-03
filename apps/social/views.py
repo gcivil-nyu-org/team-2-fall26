@@ -76,6 +76,21 @@ def friends_view(request):
     })
 
 
+@require_GET
+def friend_profile_view(request, pk):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # #18 AC: "select a friend to view their profile." Only an actual
+    # (accepted) friendship grants access — a pending or declined request
+    # doesn't let either side see this. involving() + accepted() together
+    # also keep this 404 (not 403) for anyone who isn't one of the two
+    # parties, same privacy pattern used everywhere else in this app.
+    friendship = get_object_or_404(
+        FriendRequest.objects.accepted().involving(request.user), pk=pk,
+    )
+    return JsonResponse({'user': _user_summary(friendship.other(request.user))})
+
+
 @require_http_methods(['POST'])
 def friend_requests_view(request):
     if not request.user.is_authenticated:

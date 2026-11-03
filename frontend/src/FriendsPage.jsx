@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Check, UserPlus, UserX, X } from 'lucide-react'
+import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, Check, UserPlus, UserX, X } from 'lucide-react'
 
 import { api } from './api'
 import { displayName, initial } from './friends'
@@ -49,11 +50,13 @@ function FriendRow({ friend, onRemoved }) {
   }
 
   return <div className="friend-row">
-    <div className="avatar">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</div>
-    <div className="friend-row__copy">
-      <strong>{displayName(friend)}</strong>
-      <small>{friend.email}</small>
-    </div>
+    <Link to={`/friends/${friend.friendship_id}`} className="friend-row__link" aria-label={`View ${displayName(friend)}'s profile`}>
+      <div className="avatar">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</div>
+      <div className="friend-row__copy">
+        <strong>{displayName(friend)}</strong>
+        <small>{friend.email}</small>
+      </div>
+    </Link>
     <div className={`friend-row__actions ${confirming ? 'friend-row__actions--confirm' : ''}`}>
       {confirming ? (
         <>
@@ -184,5 +187,39 @@ export function FriendsPage() {
         </div> : <div className="empty-state"><span><UserPlus size={22} /></span><h3>No friends yet</h3><p>Send a friend request using a classmate's NYU email to get started.</p></div>}
       </section>
     </>}
+  </>
+}
+
+// #18 AC: "I can select a friend from the list to view their profile."
+// GET /api/social/friends/<friendshipId>/ only succeeds for an actual
+// (accepted) friendship, so this 404s the same way for a stale link, a
+// friendship that's since been removed, or someone who was never a friend
+// — LoadError below covers all three the same way it covers a network error.
+export function FriendProfilePage() {
+  const { friendshipId } = useParams()
+  const [friend, setFriend] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    api(`/social/friends/${friendshipId}/`).then((result) => { if (active) setFriend(result.user) })
+      .catch((err) => { if (active) setError(err.status === 404 ? 'This friend couldn’t be found — the friendship may have been removed.' : err.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [friendshipId, attempt])
+
+  return <>
+    <Link className="back-link" to="/friends"><ArrowLeft size={16} /> Back to friends</Link>
+    {loading ? <p role="status">Loading profile…</p>
+      : error ? <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
+        : friend && <section className="panel friend-profile">
+          <div className="avatar avatar--large">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</div>
+          <h1>{displayName(friend)}</h1>
+          <p className="friend-profile__email">{friend.email}</p>
+        </section>}
   </>
 }
