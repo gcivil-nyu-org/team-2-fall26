@@ -42,6 +42,35 @@ function renderFriendsPage() {
   return render(<MemoryRouter><FriendsPage /></MemoryRouter>)
 }
 
+// #18 AC: "I can open a friends list that shows all students I am
+// currently connected with" / "each friend displays their full name,
+// username, and profile photo" (see README's note on #16/#17/#18 — there's
+// no real username field in this app, so name + email are what's shown and
+// tested) / "if I do not have any friends yet, the system displays a
+// message indicating that my friends list is empty."
+describe('viewing the friends list', () => {
+  test('shows every connected friend\'s name and email', async () => {
+    mockFriendsLoad(friendsPayload({
+      friends: [
+        { id: 1, friendship_id: 42, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu' },
+        { id: 2, friendship_id: 43, first_name: 'Jordan', last_name: 'Diaz', email: 'jordan@nyu.edu' },
+      ],
+    }))
+    renderFriendsPage()
+    await screen.findByText('Sam Lee')
+    expect(screen.getByText('sam@nyu.edu')).toBeInTheDocument()
+    expect(screen.getByText('Jordan Diaz')).toBeInTheDocument()
+    expect(screen.getByText('jordan@nyu.edu')).toBeInTheDocument()
+  })
+
+  test('shows a message when there are no friends yet', async () => {
+    mockFriendsLoad(friendsPayload({ friends: [] }))
+    renderFriendsPage()
+    expect(await screen.findByText('No friends yet')).toBeInTheDocument()
+    expect(screen.getByText(/get started/i)).toBeInTheDocument()
+  })
+})
+
 // Covers the "remove a friend" confirm/cancel/removal flow (#19 AC: confirm
 // before removing, cancel leaves the friendship untouched, confirming
 // removes it and it disappears from the list, and a failed removal doesn't
