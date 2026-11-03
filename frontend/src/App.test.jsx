@@ -32,6 +32,13 @@ function renderWithAuth(ui, { session } = {}) {
   }
 }
 
+describe('sidebar navigation', () => {
+  test('links to the community food feed', () => {
+    renderWithAuth(<AppShell>content</AppShell>)
+    expect(screen.getByRole('link', { name: /community/i })).toHaveAttribute('href', '/community')
+  })
+})
+
 describe('sidebar avatar', () => {
   test('shows the uploaded picture when the user has one', () => {
     renderWithAuth(<AppShell>content</AppShell>, {

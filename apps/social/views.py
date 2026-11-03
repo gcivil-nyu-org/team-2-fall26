@@ -7,8 +7,8 @@ from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.models import User
 
-from .forms import RespondToFriendRequestForm, SendFriendRequestForm
-from .models import FriendRequest
+from .forms import FoodPostForm, RespondToFriendRequestForm, SendFriendRequestForm
+from .models import FoodPost, FriendRequest
 
 
 def _json_body(request):
@@ -50,6 +50,19 @@ def _request_payload(friend_request, viewer):
         'direction': 'sent' if friend_request.sender_id == viewer.pk else 'received',
         'user': _user_summary(friend_request.other(viewer)),
         'created_at': friend_request.created_at.isoformat(),
+    }
+
+
+def _post_payload(post):
+    return {
+        'id': post.pk,
+        'place_name': post.place_name,
+        'description': post.description,
+        'location': post.location,
+        'cuisine': post.cuisine,
+        'rating': post.rating,
+        'author': _user_summary(post.author),
+        'created_at': post.created_at.isoformat(),
     }
 
 
@@ -194,3 +207,25 @@ def friend_request_view(request, pk):
         else:
             friend_request.decline()
         return JsonResponse({'friend_request': _request_payload(friend_request, request.user)})
+
+
+@require_http_methods(['GET', 'POST'])
+def food_posts_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    if request.method == 'GET':
+        # #46 AC: a submitted post appears in the community feed. This is
+        # every student's posts, newest first; browsing and filtering the
+        # feed is #47.
+        posts = FoodPost.objects.select_related('author')
+        return JsonResponse({'posts': [_post_payload(post) for post in posts]})
+    body = _json_body(request)
+    if body is None:
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    form = FoodPostForm(body)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    post = form.save(commit=False)
+    post.author = request.user
+    post.save()
+    return JsonResponse({'post': _post_payload(post)}, status=201)
