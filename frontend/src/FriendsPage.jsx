@@ -16,7 +16,7 @@ function LoadError({ message, retry }) {
 
 function PersonRow({ user, children }) {
   return <div className="friend-row">
-    <div className="avatar">{initial(user)}</div>
+    <div className="avatar">{user.profile_picture ? <img src={user.profile_picture} alt="" /> : initial(user)}</div>
     <div className="friend-row__copy">
       <strong>{displayName(user)}</strong>
       <small>{user.email}</small>
