@@ -76,7 +76,7 @@ entered through Django admin while the separate automatic-generation story
 (#41) is pending. No generated or example sessions are added by migrations.
 Locking, rescheduling, completion, and deletion remain separate stories.
 
-## Friends (#16)
+## Friends (#16, #17)
 
 The React sidebar links to **Friends** (`/app/friends`). Add a classmate by
 their NYU email to send a friend request; they see it under "Friend requests"
@@ -90,10 +90,15 @@ account, to someone you're already friends with, or a second time while an
 earlier request between the same two people is still pending. A declined
 request doesn't block trying again later.
 
+Every person shown on the Friends page — a request's sender/recipient, or a
+friend — shows their profile photo (see "Profile pictures" below) when
+they've set one, falling back to an initial the same way the sidebar does.
+
 API endpoints (session authentication and CSRF protection apply):
 
 - `GET /api/social/friends/`: current friends, plus pending requests split
-  into `received_requests` and `sent_requests`.
+  into `received_requests` and `sent_requests`. Each person's record includes
+  `profile_picture` (a URL, or `null` if they haven't set one).
 - `POST /api/social/friends/requests/`: send a request; body:
   `{"email": "friend@nyu.edu"}`. Returns the new pending request (201), or the
   now-accepted request (200) if this reconciled a request already sent the
@@ -122,6 +127,14 @@ request (see "Friends (#16)" above): deleting an **accepted** request is
 what "removing a friend" means, since the accepted row is the friendship
 record itself. After removal, both people are free to send a new friend
 request to each other.
+
+**Note on #16/#17/#18's "search or identify by username" acceptance
+criteria**: this app has no username concept a person ever sets or sees —
+`User.username` is only Django's internal field, silently mirrored to each
+person's email at signup. Searching or displaying "by username" isn't
+buildable as those stories are worded unless the team adds real,
+user-chosen usernames as their own feature first; in the meantime, name and
+email are the only real identifiers these stories can use.
 
 ## Assignment deadlines
 

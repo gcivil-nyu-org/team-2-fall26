@@ -16,7 +16,7 @@ function LoadError({ message, retry }) {
 
 function PersonRow({ user, children }) {
   return <div className="friend-row">
-    <div className="avatar">{initial(user)}</div>
+    <div className="avatar">{user.profile_picture ? <img src={user.profile_picture} alt="" /> : initial(user)}</div>
     <div className="friend-row__copy">
       <strong>{displayName(user)}</strong>
       <small>{user.email}</small>
@@ -49,7 +49,7 @@ function FriendRow({ friend, onRemoved }) {
   }
 
   return <div className="friend-row">
-    <div className="avatar">{initial(friend)}</div>
+    <div className="avatar">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</div>
     <div className="friend-row__copy">
       <strong>{displayName(friend)}</strong>
       <small>{friend.email}</small>
