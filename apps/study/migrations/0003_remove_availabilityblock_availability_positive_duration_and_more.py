@@ -14,14 +14,16 @@ def convert_availability(apps, schema_editor):
     anchor = datetime.date(2000, 1, 2)
     for block in list(blocks.all()):
         start = datetime.datetime.combine(anchor, block.start_time) - offset
-        end = datetime.datetime.combine(anchor, block.end_time) - offset
+        end_day = anchor + datetime.timedelta(days=1) if block.end_time == midnight else anchor
+        end = datetime.datetime.combine(end_day, block.end_time) - offset
         original_day = block.weekday
         block.weekday = (original_day + (start.date() - anchor).days) % 7
         block.start_time = start.time()
         block.end_time = end.time()
-        if start.date() != end.date() and end.time() != midnight:
+        if start.date() < end.date() and end.time() != midnight:
             block.end_time = midnight
-            blocks.create(owner_id=block.owner_id, weekday=original_day, start_time=midnight, end_time=end.time())
+            end_weekday = (original_day + (end.date() - anchor).days) % 7
+            blocks.create(owner_id=block.owner_id, weekday=end_weekday, start_time=midnight, end_time=end.time())
         block.save(using=schema_editor.connection.alias, update_fields=['weekday', 'start_time', 'end_time'])
 
 
