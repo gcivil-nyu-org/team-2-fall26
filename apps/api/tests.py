@@ -804,10 +804,6 @@ class CourseworkApiTests(ApiTestCase):
         self.assertEqual(after['completed_at'], before['completed_at'])
 
 
-@override_settings(STORAGES={
-    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
-    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
-})
 class StudyReminderApiTests(ApiTestCase):
     def setUp(self):
         super().setUp()
@@ -857,6 +853,10 @@ class StudyReminderApiTests(ApiTestCase):
         self.assertEqual(self.reminders(), [])
 
 
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
 class ReactShellTests(TestCase):
     def test_root_redirects_to_dashboard(self):
         response = self.client.get('/')
