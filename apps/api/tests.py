@@ -778,23 +778,23 @@ class CourseworkApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(list(Exam.objects.values_list('title', flat=True)), ['Midterm'])
 
-    def test_description_edit_preserves_utc_deadline_and_completion_state(self):
-        response = self.json_post(reverse('api:course_assignments', args=[self.course.pk]), {
-            'title': 'Deadline regression', 'due_date': '2026-11-20T17:45', 'description': 'Original',
-        })
-        self.assertEqual(response.status_code, 201)
-        assignment_id = response.json()['assignment']['id']
+    def test_description_edit_preserves_existing_deadline_and_completion_state(self):
+        # 1:30 occurs twice in New York on this date. Preserve the stored instant.
+        assignment_id = Assignment.objects.create(
+            course=self.course, title='Deadline regression', due_date='2026-11-01T06:30:42Z',
+            description='Original',
+        ).pk
         url = reverse('api:assignment', args=[assignment_id])
         self.json_patch(url, {'status': 'complete'})
         before = self.client.get(url).json()['assignment']
         response = self.json_put(url, {
             'title': before['title'], 'description': 'Updated description',
-            'due_date': '2026-11-20T17:45',
+            'due_date': '2026-11-01T01:30',
             'priority': 'high', 'estimated_workload': '3.0',
         })
         self.assertEqual(response.status_code, 200)
         after = self.client.get(url).json()['assignment']
-        self.assertEqual(after['due_date'], '2026-11-20T17:45:00+00:00')
+        self.assertEqual(after['due_date'], '2026-11-01T01:30:42-05:00')
         self.assertEqual(after['due_date'], before['due_date'])
         self.assertEqual(after['description'], 'Updated description')
         self.assertEqual(after['priority'], 'high')

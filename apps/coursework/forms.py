@@ -40,7 +40,11 @@ class CourseForm(forms.ModelForm):
 
 
 class DeadlineField(forms.DateTimeField):
+    original = None
+
     def to_python(self, value):
+        if self.original and value == timezone.localtime(self.original).strftime('%Y-%m-%dT%H:%M'):
+            return self.original
         # Django also accepts ISO date-only input; require an explicit time.
         if isinstance(value, str) and value.strip():
             try:
@@ -51,6 +55,10 @@ class DeadlineField(forms.DateTimeField):
 
 
 class AssignmentForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['due_date'].original = self.instance.due_date
+
     due_date = DeadlineField(
         label='Deadline',
         input_formats=['%Y-%m-%dT%H:%M'],
@@ -66,6 +74,10 @@ class AssignmentForm(forms.ModelForm):
 
 
 class ExamForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['starts_at'].original = self.instance.starts_at
+
     starts_at = DeadlineField(
         label='Date and time',
         input_formats=['%Y-%m-%dT%H:%M'],

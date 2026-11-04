@@ -1,11 +1,14 @@
 """Study-session writes shared by the calendar and future schedule generator."""
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, time, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from .models import AvailabilityBlock, StudySession
+
+NYU_TIME = ZoneInfo('America/New_York')
 
 
 def lock_study_account(user):
@@ -22,10 +25,17 @@ def reschedule_warnings(user, session, starts_at, ends_at):
     cursor = starts_at.astimezone(dt_timezone.utc)
     end = ends_at.astimezone(dt_timezone.utc)
     while cursor < end:
-        covered_until = max((datetime.combine(cursor.date(), block.end_time, tzinfo=dt_timezone.utc)
-                             for block in blocks if block.weekday == cursor.weekday()
-                             and block.start_time <= cursor.time().replace(tzinfo=None) < block.end_time),
-                            default=None)
+        day = cursor.astimezone(NYU_TIME).date()
+        ends = []
+        for block in blocks:
+            if block.weekday != day.weekday():
+                continue
+            end_day = day + timedelta(days=1) if block.end_time == time.min else day
+            block_start = datetime.combine(day, block.start_time, tzinfo=NYU_TIME).astimezone(dt_timezone.utc)
+            block_end = datetime.combine(end_day, block.end_time, tzinfo=NYU_TIME).astimezone(dt_timezone.utc)
+            if block_start <= cursor < block_end:
+                ends.append(block_end)
+        covered_until = max(ends, default=None)
         if covered_until is None:
             warnings.append('This time falls outside your weekly availability.')
             break

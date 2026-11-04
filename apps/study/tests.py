@@ -3,6 +3,7 @@ from datetime import datetime, timezone as dt_timezone
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import Client, TestCase
 from django.urls import reverse
@@ -10,7 +11,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.coursework.models import Assignment, Course
-from .models import AvailabilityBlock, StudySession
+from .models import AvailabilityBlock, ClassMeeting, StudySession
 
 
 def instant(value):
@@ -29,6 +30,58 @@ class StudyTestCase(TestCase):
         return StudySession.objects.create(assignment=assignment or self.assignment, starts_at=instant(start), ends_at=instant(end))
 
 
+class AlbertImportTests(StudyTestCase):
+    export = b"""BEGIN:VCALENDAR
+X-WR-CALNAME:Class Calendar - Fall 2026
+BEGIN:VEVENT
+UID:class-1
+SUMMARY:Software Eng I
+DTSTART;TZID=America/New_York:20261028T180000
+DTEND;TZID=America/New_York:20261028T203000
+RRULE:FREQ=WEEKLY;UNTIL=20261111T203000;BYDAY=WE
+EXDATE;TZID=America/New_York:20261111T180000
+END:VEVENT
+END:VCALENDAR
+"""
+
+    def upload(self, content=None, **fields):
+        return self.client.post(reverse('study:albert_import'), {
+            'calendar': SimpleUploadedFile('albert.ics', self.export if content is None else content),
+            **fields,
+        })
+
+    def test_preview_link_and_resync(self):
+        # Albert can mix CRLF and CR in one export.
+        mixed = self.export.replace(b'\nBEGIN:VEVENT\n', b'\rBEGIN:VEVENT\r').replace(b'\n', b'\r\n')
+        preview = self.upload(mixed).json()
+        self.assertEqual(preview['classes'][0]['selected'], '')
+        self.assertFalse(ClassMeeting.objects.exists())
+        choices = {'confirm': 'yes', 'course:class-1': self.course.pk}
+        self.assertEqual(self.upload(**choices).json()['meetings'], 2)
+        self.assertEqual(self.upload().json()['classes'][0]['selected'], str(self.course.pk))
+        self.assertEqual(list(ClassMeeting.objects.order_by('starts_at').values_list('starts_at', flat=True)), [
+            instant('2026-10-28T22:00'), instant('2026-11-04T23:00'),
+        ])
+        revised = self.export.replace(b'T180000', b'T190000')
+        self.assertEqual(self.upload(revised, **choices).status_code, 200)
+        self.assertEqual(ClassMeeting.objects.count(), 2)
+        self.assertEqual(self.user.courses.count(), 1)
+        self.assertTrue(self.course.assignments.filter(pk=self.assignment.pk).exists())
+        calendar = reverse('study:calendar') + '?week=2026-11-04'
+        self.assertEqual(len(self.client.get(calendar).json()['classes']), 1)
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(calendar).json()['classes'], [])
+        self.assertEqual(self.upload(**choices).status_code, 400)
+
+    def test_create_and_reimport_without_duplicates(self):
+        choices = {'confirm': 'yes', 'course:class-1': 'new'}
+        self.assertEqual(self.upload(**choices).status_code, 200)
+        self.assertEqual(self.upload(**choices).status_code, 200)
+        self.assertEqual(self.user.courses.count(), 2)
+        self.assertEqual(self.upload(b'invalid', **choices).status_code, 400)
+        self.assertEqual(ClassMeeting.objects.count(), 2)
+
+
 class AvailabilityTests(StudyTestCase):
     def setUp(self):
         super().setUp()
@@ -40,8 +93,17 @@ class AvailabilityTests(StudyTestCase):
     def block(self, weekday=0, start='09:00', end='11:00', **extra):
         return {'weekday': weekday, 'start_time': start, 'end_time': end, **extra}
 
+    def test_midnight_end_round_trips_and_blocks_overlaps(self):
+        late = self.block(weekday=6, start='23:00', end='00:00')
+        early = self.block(weekday=0, start='00:00', end='01:00')
+        response = self.save([late, early])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['blocks'], [early, late])
+        overlap = self.block(weekday=6, start='23:30', end='23:45')
+        self.assertEqual(self.save([late, overlap]).status_code, 400)
+
     def test_empty_availability_exposes_unconfigured_state(self):
-        self.assertEqual(self.client.get(self.url).json(), {'timezone': 'UTC', 'configured': False, 'blocks': []})
+        self.assertEqual(self.client.get(self.url).json(), {'timezone': 'America/New_York', 'configured': False, 'blocks': []})
         self.assertFalse(self.client.get(reverse('study:calendar')).json()['availability_configured'])
 
     def test_save_all_days_multiple_blocks_and_refresh(self):
@@ -141,14 +203,14 @@ class CalendarTests(StudyTestCase):
     def week(self, value='2026-10-23'):
         return self.client.get(self.url, {'week': value})
 
-    @patch('apps.study.views.timezone.now', return_value=instant('2026-10-25T23:30'))
-    def test_default_week_uses_utc_and_monday_start(self, mock_now):
+    @patch('apps.study.views.timezone.now', return_value=instant('2026-10-26T02:30'))
+    def test_default_week_uses_eastern_date_and_monday_start(self, mock_now):
         with timezone.override('Asia/Tokyo'):
             response = self.client.get(self.url)
         payload = response.json()
         self.assertEqual(payload['week_start'], '2026-10-19')
         self.assertEqual(payload['week_end'], '2026-10-26')
-        self.assertEqual(payload['timezone'], 'UTC')
+        self.assertEqual(payload['timezone'], 'America/New_York')
 
     def test_week_contains_course_task_time_and_sorts_sessions(self):
         later = self.session('2026-10-23T15:00', '2026-10-23T16:30')
@@ -171,10 +233,10 @@ class CalendarTests(StudyTestCase):
         self.assertEqual(self.week(payload['next_week']).json()['previous_week'], payload['week_start'])
 
     def test_week_boundaries_include_overlapping_sessions_only(self):
-        self.session('2026-10-18T23:00', '2026-10-19T00:00')
-        crossing_start = self.session('2026-10-18T23:00', '2026-10-19T01:00')
-        crossing_end = self.session('2026-10-25T23:00', '2026-10-26T01:00')
-        self.session('2026-10-26T00:00', '2026-10-26T01:00')
+        self.session('2026-10-19T03:00', '2026-10-19T04:00')
+        crossing_start = self.session('2026-10-19T03:00', '2026-10-19T05:00')
+        crossing_end = self.session('2026-10-26T03:00', '2026-10-26T05:00')
+        self.session('2026-10-26T04:00', '2026-10-26T05:00')
         self.assertEqual([s['id'] for s in self.week().json()['sessions']], [crossing_start.pk, crossing_end.pk])
 
     def test_other_weeks_have_empty_lists(self):

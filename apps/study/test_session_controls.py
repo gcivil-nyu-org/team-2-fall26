@@ -17,7 +17,7 @@ class SessionControlTests(StudyTestCase):
         super().setUp()
         self.entry = self.session('2026-11-02T09:00', '2026-11-02T10:00')
         self.url = reverse('study:session', args=[self.entry.pk])
-        AvailabilityBlock.objects.create(owner=self.user, weekday=0, start_time=time(9), end_time=time(12))
+        AvailabilityBlock.objects.create(owner=self.user, weekday=0, start_time=time(4), end_time=time(7))
         other_course = Course.objects.create(owner=self.other, name='Private', semester='Fall')
         self.other_task = Assignment.objects.create(course=other_course, title='Private')
         self.other_entry = self.session('2026-11-02T10:00', '2026-11-02T11:00', self.other_task)
@@ -25,7 +25,7 @@ class SessionControlTests(StudyTestCase):
     def update(self, body, client=None):
         return (client or self.client).patch(self.url, json.dumps(body), content_type='application/json')
 
-    def move(self, start='2026-11-02T10:00', end='2026-11-02T11:00', **extra):
+    def move(self, start='2026-11-02T05:00', end='2026-11-02T06:00', **extra):
         return self.update({'starts_at': start, 'ends_at': end, **extra})
 
     def test_lock_unlock_and_calendar_persistence(self):
@@ -76,18 +76,18 @@ class SessionControlTests(StudyTestCase):
 
     def test_both_warnings_return_together_and_combined_lock_is_atomic(self):
         self.session('2026-11-03T10:00', '2026-11-03T12:00')
-        response = self.move('2026-11-03T10:00', '2026-11-03T11:00', is_locked=True)
+        response = self.move('2026-11-03T05:00', '2026-11-03T06:00', is_locked=True)
         self.assertEqual(len(response.json()['warnings']), 2)
         self.entry.refresh_from_db()
         self.assertFalse(self.entry.is_locked)
         self.assertEqual(self.entry.starts_at, instant('2026-11-02T09:00'))
 
     def test_availability_boundaries_adjacent_blocks_and_gaps(self):
-        AvailabilityBlock.objects.create(owner=self.user, weekday=0, start_time=time(12), end_time=time(13))
-        self.assertEqual(self.move('2026-11-02T11:00', '2026-11-02T13:00').status_code, 200)
-        self.assertEqual(self.move('2026-11-02T12:00', '2026-11-02T13:01').status_code, 409)
-        AvailabilityBlock.objects.filter(start_time=time(12)).update(start_time=time(12, 30))
-        self.assertEqual(self.move('2026-11-02T11:00', '2026-11-02T13:00').status_code, 409)
+        AvailabilityBlock.objects.create(owner=self.user, weekday=0, start_time=time(7), end_time=time(8))
+        self.assertEqual(self.move('2026-11-02T06:00', '2026-11-02T08:00').status_code, 200)
+        self.assertEqual(self.move('2026-11-02T07:00', '2026-11-02T08:01').status_code, 409)
+        AvailabilityBlock.objects.filter(start_time=time(7)).update(start_time=time(7, 30))
+        self.assertEqual(self.move('2026-11-02T06:00', '2026-11-02T08:00').status_code, 409)
 
     def test_overnight_move_warns_and_can_be_confirmed(self):
         self.assertEqual(self.move('2026-11-02T23:30', '2026-11-03T00:30').status_code, 409)
@@ -99,7 +99,7 @@ class SessionControlTests(StudyTestCase):
         self.assertEqual(self.entry.starts_at, instant('2026-11-02T10:00'))
 
     def test_moving_to_another_week_updates_both_weeks(self):
-        self.assertEqual(self.move('2026-11-09T10:00', '2026-11-09T11:00').status_code, 200)
+        self.assertEqual(self.move('2026-11-09T05:00', '2026-11-09T06:00').status_code, 200)
         self.assertEqual(self.client.get(reverse('study:calendar'), {'week': '2026-11-02'}).json()['sessions'], [])
         self.assertEqual(self.client.get(reverse('study:calendar'), {'week': '2026-11-09'}).json()['sessions'][0]['id'], self.entry.pk)
 
