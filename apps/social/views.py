@@ -1,14 +1,14 @@
 import json
 
-from django.db import transaction
+from django.db import models, transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.models import User
 
-from .forms import RespondToFriendRequestForm, SendFriendRequestForm
-from .models import FriendRequest
+from .forms import RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm
+from .models import DirectMessage, FriendRequest
 
 
 def _json_body(request):
@@ -194,3 +194,52 @@ def friend_request_view(request, pk):
         else:
             friend_request.decline()
         return JsonResponse({'friend_request': _request_payload(friend_request, request.user)})
+
+
+def _message_payload(message, viewer):
+    sender = message.sender
+    return {
+        'id': message.pk,
+        'sender_id': message.sender_id,
+        'sender_name': ' '.join(filter(None, [sender.first_name, sender.last_name])) or sender.email,
+        'body': message.body,
+        'created_at': message.created_at.isoformat(),
+        'is_mine': message.sender_id == viewer.pk,
+    }
+
+
+@require_http_methods(['GET', 'POST'])
+def conversation_view(request, pk):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # A matching accepted FriendRequest is required for both reading and
+    # writing, including when the other person supplied a direct URL.
+    friend = get_object_or_404(
+        User.objects.exclude(pk=request.user.pk),
+        pk=pk,
+    )
+    if not FriendRequest.objects.accepted().between(request.user, friend).exists():
+        return JsonResponse({'detail': 'Conversation not found.'}, status=404)
+
+    if request.method == 'GET':
+        conversation = (
+            DirectMessage.objects.filter(
+                models.Q(sender=request.user, recipient=friend) |
+                models.Q(sender=friend, recipient=request.user)
+            ).select_related('sender').order_by('created_at', 'pk')
+        )
+        return JsonResponse({
+            'friend': _user_summary(friend),
+            'messages': [_message_payload(message, request.user) for message in conversation],
+        })
+
+    body = _json_body(request)
+    if not isinstance(body, dict) or not isinstance(body.get('body'), str):
+        return JsonResponse({'errors': {'body': ['Enter a valid message.']}}, status=400)
+    form = SendDirectMessageForm(body)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    message = DirectMessage.objects.create(
+        sender=request.user, recipient=friend, body=form.cleaned_data['body'],
+    )
+    return JsonResponse({'message': _message_payload(message, request.user)}, status=201)

@@ -23,6 +23,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageCircle,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -38,6 +39,7 @@ import { api, formatDate, toUTCInput } from './api'
 import AccountSettings from './AccountSettings'
 import { AvailabilityPage, CalendarPage } from './StudyPages'
 import { FriendProfilePage, FriendsPage } from './FriendsPage'
+import { ConversationPage, MessagesPage } from './MessagesPage'
 
 export const AuthContext = createContext(null)
 
@@ -103,6 +105,7 @@ const navItems = [
   { to: '/calendar', label: 'Study calendar', icon: CalendarDays },
   { to: '/availability', label: 'Availability', icon: Clock3 },
   { to: '/friends', label: 'Friends', icon: Users },
+  { to: '/messages', label: 'Messages', icon: MessageCircle },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
   { to: '/settings/account', label: 'Account settings', icon: Settings },
 ]
@@ -1214,6 +1217,8 @@ function AppRoutes() {
         <Route path="/availability" element={<AvailabilityPage />} />
         <Route path="/friends" element={<FriendsPage />} />
         <Route path="/friends/:friendshipId" element={<FriendProfilePage />} />
+        <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/messages/:userId" element={<ConversationPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />

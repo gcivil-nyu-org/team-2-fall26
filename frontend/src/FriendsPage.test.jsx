@@ -265,3 +265,34 @@ describe('selecting a friend to view their profile', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/couldn.t be found/i))
   })
 })
+
+
+describe('messaging navigation (#20, #21)', () => {
+  test('an accepted friend has a Message link using their user id, not the friendship id', async () => {
+    mockFriendsLoad(friendsPayload({
+      friends: [{ id: 2, friendship_id: 42, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu' }],
+    }))
+    renderFriendsPage()
+    await screen.findByText('Sam Lee')
+
+    expect(screen.getByRole('link', { name: 'Message Sam Lee' })).toHaveAttribute('href', '/messages/2')
+    expect(screen.getByRole('link', { name: /view sam lee.s profile/i })).toHaveAttribute('href', '/friends/42')
+  })
+
+  test('a friend profile has a Send message link to the same user', async () => {
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/42/') {
+        return { user: { id: 2, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', profile_picture: null } }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/friends/42']}>
+        <Routes><Route path="/friends/:friendshipId" element={<FriendProfilePage />} /></Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText('Sam Lee')
+    expect(screen.getByRole('link', { name: 'Send message' })).toHaveAttribute('href', '/messages/2')
+  })
+})

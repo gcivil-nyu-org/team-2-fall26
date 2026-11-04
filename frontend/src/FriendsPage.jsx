@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Check, UserPlus, UserX, X } from 'lucide-react'
+import { ArrowLeft, Check, MessageCircle, UserPlus, UserX, X } from 'lucide-react'
 
 import { api } from './api'
 import { displayName, initial } from './friends'
@@ -64,9 +64,10 @@ function FriendRow({ friend, onRemoved }) {
           <button className="button button--danger button--small" onClick={remove} disabled={busy}>Remove</button>
           <button className="button button--secondary button--small" onClick={cancel} disabled={busy} autoFocus>Cancel</button>
         </>
-      ) : (
+      ) : (<>
+        <Link className="button button--soft button--small" to={`/messages/${friend.id}`} aria-label={`Message ${displayName(friend)}`}><MessageCircle size={15} /> Message</Link>
         <button className="button button--secondary button--small" onClick={() => setConfirming(true)} aria-label={`Remove ${displayName(friend)} as a friend`}><UserX size={15} /> Remove</button>
-      )}
+      </>)}
     </div>
   </div>
 }
@@ -220,6 +221,7 @@ export function FriendProfilePage() {
           <div className="avatar avatar--large">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</div>
           <h1>{displayName(friend)}</h1>
           <p className="friend-profile__email">{friend.email}</p>
+          <Link className="button button--primary" to={`/messages/${friend.id}`}><MessageCircle size={16} /> Send message</Link>
         </section>}
   </>
 }

@@ -23,3 +23,14 @@ class RespondToFriendRequestForm(forms.Form):
             'invalid_choice': 'Choose to accept or decline this request.',
         },
     )
+
+
+class SendDirectMessageForm(forms.Form):
+    body = forms.CharField(
+        max_length=2000,
+        strip=True,
+        error_messages={
+            'required': 'Write a message before sending.',
+            'max_length': 'Messages must be 2000 characters or fewer.',
+        },
+    )
