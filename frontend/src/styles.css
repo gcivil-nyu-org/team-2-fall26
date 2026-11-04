@@ -317,6 +317,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .study-notice--success { background: #edf7f1; border-color: #cce6d6; color: #276245; }
 .study-notice--error { background: #fff5f2; border-color: #efd5d0; color: #9c4031; }
 .study-notice--error .button { margin-left: auto; }
+.study-notice--reminder .icon-button { margin-left: auto; color: inherit; }
 .availability-panel { max-width: 940px; }
 .availability-days { padding: 0; margin: 0; border: 0; min-width: 0; }
 .availability-day { display: grid; grid-template-columns: 165px 1fr; gap: 1rem; padding: 1.25rem 1.5rem; }

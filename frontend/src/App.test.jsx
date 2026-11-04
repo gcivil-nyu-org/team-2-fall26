@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
 import { api as realApi } from './api'
-import { AppShell, AuthContext, ProfilePage } from './App'
+import { AppShell, AuthContext, Dashboard, ProfilePage } from './App'
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal()
@@ -149,4 +149,126 @@ describe('Edit Profile page copy', () => {
       throw new Error(`unexpected call to api(${path})`)
     })
   }
+})
+
+describe('study session reminders on the dashboard', () => {
+  const reminder = {
+    id: 5,
+    starts_at: '2026-11-04T15:00:00+00:00',
+    ends_at: '2026-11-04T16:00:00+00:00',
+    assignment: { id: 2, title: 'Essay draft' },
+    course: { id: 1, name: 'Writing', code: 'EXPOS 101' },
+  }
+
+  function dashboardWith(study_reminders) {
+    return {
+      user: { email: 'sam@nyu.edu' },
+      metrics: { courses: 0, due_this_week: 0, overdue: 0 },
+      courses: [],
+      assignments: [],
+      upcoming: [],
+      study_reminders,
+    }
+  }
+
+  function renderDashboard() {
+    return render(<MemoryRouter><Dashboard /></MemoryRouter>)
+  }
+
+  async function refreshDashboard() {
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
+  }
+
+  afterEach(() => {
+    vi.useRealTimers()
+    localStorage.clear()
+  })
+
+  test('names the course, assignment and session time', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder]))
+    renderDashboard()
+    const alert = await screen.findByRole('status')
+    expect(alert).toHaveTextContent('EXPOS 101 Writing · Essay draft starts Nov 4, 3:00 PM UTC')
+  })
+
+  test('shows nothing when no session is coming up', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([]))
+    renderDashboard()
+    await screen.findByText('Everything is clear')
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  test('appears and clears while the page stays open', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([]))
+    renderDashboard()
+    await screen.findByText('Everything is clear')
+
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder]))
+    await refreshDashboard()
+    expect(screen.getByRole('status')).toHaveTextContent('Essay draft')
+
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([]))
+    await refreshDashboard()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  test('a failed refresh leaves the dashboard on screen', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder]))
+    renderDashboard()
+    await screen.findByRole('status')
+
+    vi.mocked(realApi).mockRejectedValue(new Error('Network error'))
+    await refreshDashboard()
+    expect(screen.getByRole('status')).toHaveTextContent('Essay draft')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  test('dismissing sends no request and stays dismissed after a reload', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder]))
+    const { unmount } = renderDashboard()
+    await screen.findByRole('status')
+    const callsBefore = vi.mocked(realApi).mock.calls.length
+
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss reminder for EXPOS 101 Writing' }))
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(vi.mocked(realApi).mock.calls.length).toBe(callsBefore)
+
+    unmount()
+    renderDashboard()
+    await screen.findByText('Everything is clear')
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  test('a dismissed session reminds again if it moves to a new time', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder]))
+    const { unmount } = renderDashboard()
+    await screen.findByRole('status')
+    await userEvent.click(screen.getByRole('button', { name: /dismiss reminder/i }))
+    unmount()
+
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([{ ...reminder, starts_at: '2026-11-04T15:30:00+00:00' }]))
+    renderDashboard()
+    expect(await screen.findByRole('status')).toHaveTextContent('3:30 PM UTC')
+  })
+
+  test('dismissing one reminder leaves the others', async () => {
+    const other = { ...reminder, id: 6, course: { id: 3, name: 'Algorithms', code: '' } }
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder, other]))
+    renderDashboard()
+    await screen.findAllByRole('status')
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss reminder for EXPOS 101 Writing' }))
+    expect(screen.getByRole('status')).toHaveTextContent('Algorithms · Essay draft')
+  })
+
+  test('still works when browser storage is unavailable', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder]))
+    renderDashboard()
+    await screen.findByRole('status')
+    await userEvent.click(screen.getByRole('button', { name: /dismiss reminder/i }))
+    expect(screen.queryByRole('status')).toBeNull()
+    setItem.mockRestore()
+  })
 })

@@ -20,8 +20,11 @@ from apps.accounts.forms import ProfileForm, ProfilePictureForm, SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
+from apps.study.models import StudySession
 
 logger = logging.getLogger(__name__)
+
+STUDY_REMINDER_WINDOW = timedelta(hours=1)
 
 
 def _json_body(request):
@@ -121,6 +124,24 @@ def _upcoming_payload(assignments, exams):
     items += [(item.starts_at, item.title, _exam_payload(item)) for item in exams]
     items.sort(key=lambda item: (item[0] is None, item[0] or timezone.now(), item[1]))
     return [payload for _, _, payload in items]
+
+
+def _study_reminder_payload(user, now):
+    sessions = StudySession.objects.filter(
+        assignment__course__owner=user,
+        starts_at__gt=now,
+        starts_at__lte=now + STUDY_REMINDER_WINDOW,
+    ).select_related('assignment__course')
+    return [
+        {
+            'id': session.pk,
+            'starts_at': timezone.localtime(session.starts_at).isoformat(),
+            'ends_at': timezone.localtime(session.ends_at).isoformat(),
+            'assignment': {'id': session.assignment_id, 'title': session.assignment.title},
+            'course': {'id': session.assignment.course_id, 'name': session.assignment.course.name, 'code': session.assignment.course.code},
+        }
+        for session in sessions
+    ]
 
 
 def _semester_payload(instance=None):
@@ -325,6 +346,7 @@ def dashboard_view(request):
         'courses': [_course_payload(course) for course in courses],
         'assignments': [_assignment_payload(item) for item in outstanding],
         'upcoming': _upcoming_payload(outstanding, exams),
+        'study_reminders': _study_reminder_payload(request.user, now),
     })
 
 
