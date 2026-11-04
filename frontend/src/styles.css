@@ -196,6 +196,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .field input:focus, .field select:focus, .field textarea:focus { border-color: #9c73b8; box-shadow: 0 0 0 3px rgba(87, 6, 140, .08); }
 .field--error input, .field--error select, .field--error textarea { border-color: #c55742; background: #fffaf9; }
 .field__error { color: #b84936; font-size: .69rem; }
+.field__note { color: var(--muted); font-size: .69rem; }
 .form-actions { display: flex; justify-content: flex-end; gap: .65rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 .form-alert { padding: .75rem .85rem; margin-bottom: 1rem; border: 1px solid #efd5d0; border-radius: 10px; background: #fff6f4; color: #9c4031; font-size: .75rem; }
 .form-alert a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
@@ -412,12 +413,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .friend-row__copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: .15rem; }
 .friend-row__copy strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
 .friend-row__copy small { color: var(--muted); font-size: .72rem; }
+.friend-row__bio { margin: .3rem 0 0; color: #554d5e; font-size: .76rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-line; }
 .friend-row__actions { display: flex; flex: 0 0 auto; align-items: center; gap: .5rem; }
 .friend-row__actions > span { color: var(--muted); font-size: .76rem; }
 .friend-row__actions > .friend-row__error { color: #af4e25; }
 .friend-profile { display: flex; flex-direction: column; align-items: center; gap: .6rem; padding: 2.5rem 1.4rem; text-align: center; }
 .friend-profile h1 { font-size: 1.2rem; }
 .friend-profile__email { color: var(--muted); font-size: .84rem; }
+.friend-profile__bio { max-width: 34rem; color: #554d5e; font-size: .84rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-line; }
 
 @media (max-width: 640px) {
   .friends-add__body { flex-direction: column; }
