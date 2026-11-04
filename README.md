@@ -1,5 +1,7 @@
 # SemesterPilot
 
+[![CI](https://github.com/gcivil-nyu-org/team-2-fall26/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/gcivil-nyu-org/team-2-fall26/actions/workflows/ci.yml)
+
 A React and Django web app for NYU students to track courses, assignments, and deadlines in one place.
 
 ## Tech stack
@@ -46,6 +48,10 @@ Run `npm test` inside `frontend/` for the deadline time-zone and Vite base-path
 regression tests, plus study-calendar helpers. Django shell tests use plain static storage so a fresh checkout
 does not need a collected manifest; deployments still use WhiteNoise's hashed
 assets after `collectstatic`.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs these on every push and pull
+request to `develop` and `main`: `makemigrations --check`, the Django tests,
+`npm test`, and `npm run build`. Results are in the repo's Actions tab.
 
 ## Study availability and calendar (#38, #39)
 
