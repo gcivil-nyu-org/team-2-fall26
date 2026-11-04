@@ -34,7 +34,7 @@ import {
   X,
 } from 'lucide-react'
 
-import { api, formatDate, toUTCInput } from './api'
+import { api, easternHour, formatDate, toEasternInput } from './api'
 import { AvailabilityPage, CalendarPage } from './StudyPages'
 import { FriendProfilePage, FriendsPage } from './FriendsPage'
 import { ConversationPage, MessagesPage } from './MessagesPage'
@@ -429,6 +429,12 @@ function Dashboard() {
         subtitle="Here’s what deserves your attention today."
         actions={<NavLink className="button button--primary" to="/courses/new"><Plus size={17} /> Add course</NavLink>}
       />
+      <div className="study-notice">
+        <CalendarDays size={20} />
+        <div><strong>Bring your class schedule into SemesterPilot</strong>
+          <p>Upload your Albert calendar to see class meetings alongside study sessions. <NavLink to="/calendar?import=albert">Import from Albert</NavLink></p>
+        </div>
+      </div>
       <section className="stats-grid" aria-label="Semester summary">
         <StatCard label="Active courses" value={data.metrics.courses} detail="this semester" icon={BookOpen} tone="violet" />
         <StatCard label="Due this week" value={data.metrics.due_this_week} detail="next 7 days" icon={CalendarDays} tone="green" />
@@ -975,7 +981,7 @@ function AssignmentFormPage({ editing = false }) {
           setCourse(data.assignment.course)
           setValues({
             title: data.assignment.title,
-            due_date: toUTCInput(data.assignment.due_date),
+            due_date: toEasternInput(data.assignment.due_date),
             description: data.assignment.description,
             priority: data.assignment.priority || '',
             estimated_workload: data.assignment.estimated_workload ?? '',
@@ -1021,7 +1027,7 @@ function AssignmentFormPage({ editing = false }) {
     >
       <form onSubmit={submit} className="editor-card">
         <Field label="Assignment title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Sprint retrospective" autoFocus required /></Field>
-        <Field label="Deadline" hint="Time zone: UTC" error={errors.due_date?.[0]}><input name="due_date" type="datetime-local" value={values.due_date} onChange={update} onInput={update} required /></Field>
+        <Field label="Deadline" hint="Time zone: Eastern" error={errors.due_date?.[0]}><input name="due_date" type="datetime-local" value={values.due_date} onChange={update} onInput={update} required /></Field>
         <div className="field-pair">
           <Field label="Priority" hint="Optional" error={errors.priority?.[0]}>
             <select name="priority" value={values.priority} onChange={update}>
@@ -1067,7 +1073,7 @@ function ExamFormPage({ editing = false }) {
           setCourse(data.exam.course)
           setValues({
             title: data.exam.title,
-            starts_at: toUTCInput(data.exam.starts_at),
+            starts_at: toEasternInput(data.exam.starts_at),
             location: data.exam.location,
             priority: data.exam.priority || '',
             estimated_workload: data.exam.estimated_workload ?? '',
@@ -1112,7 +1118,7 @@ function ExamFormPage({ editing = false }) {
     >
       <form onSubmit={submit} className="editor-card">
         <Field label="Exam title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Midterm" autoFocus required /></Field>
-        <Field label="Date and time" hint="Time zone: UTC" error={errors.starts_at?.[0]}><input name="starts_at" type="datetime-local" value={values.starts_at} onChange={update} onInput={update} required /></Field>
+        <Field label="Date and time" hint="Time zone: Eastern" error={errors.starts_at?.[0]}><input name="starts_at" type="datetime-local" value={values.starts_at} onChange={update} onInput={update} required /></Field>
         <div className="field-pair">
           <Field label="Priority" hint="Optional" error={errors.priority?.[0]}>
             <select name="priority" value={values.priority} onChange={update}>
@@ -1189,7 +1195,7 @@ function NotFound() {
 }
 
 function capitalize(value) { return value ? value[0].toUpperCase() + value.slice(1) : 'there' }
-function timeGreeting() { const hour = new Date().getHours(); return hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening' }
+function timeGreeting() { const hour = easternHour(); return hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening' }
 
 function AppRoutes() {
   return (

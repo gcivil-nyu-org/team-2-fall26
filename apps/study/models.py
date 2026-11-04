@@ -1,6 +1,17 @@
+from datetime import time
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+
+
+class ClassMeeting(models.Model):
+    course = models.ForeignKey('coursework.Course', on_delete=models.CASCADE, related_name='class_meetings')
+    term = models.CharField(max_length=64)
+    source_uid = models.CharField(max_length=255)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    location = models.CharField(max_length=255, blank=True)
 
 
 class AvailabilityBlock(models.Model):
@@ -22,11 +33,14 @@ class AvailabilityBlock(models.Model):
         ordering = ['weekday', 'start_time']
         constraints = [
             models.CheckConstraint(condition=models.Q(weekday__gte=0, weekday__lte=6), name='availability_valid_weekday'),
-            models.CheckConstraint(condition=models.Q(end_time__gt=models.F('start_time')), name='availability_positive_duration'),
+            models.CheckConstraint(
+                condition=models.Q(end_time__gt=models.F('start_time')) | models.Q(end_time=time.min, start_time__gt=time.min),
+                name='availability_positive_duration',
+            ),
         ]
 
     def __str__(self):
-        return f'{self.get_weekday_display()} {self.start_time:%H:%M}–{self.end_time:%H:%M} UTC'
+        return f'{self.get_weekday_display()} {self.start_time:%H:%M}–{self.end_time:%H:%M} Eastern'
 
 
 class StudySession(models.Model):

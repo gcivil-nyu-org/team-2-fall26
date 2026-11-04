@@ -314,6 +314,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .study-notice strong { display: block; margin-bottom: .15rem; }
 .study-notice p { margin-bottom: 0; }
 .study-notice a { font-weight: 700; text-underline-offset: 3px; }
+.albert-import { display: block; }
+.albert-import summary { cursor: pointer; font-weight: 700; }
+.albert-import form { display: grid; gap: .75rem; margin-top: .8rem; max-width: 36rem; }
+.albert-import .button { justify-self: start; }
+.calendar-session.calendar-session--class { border-left-color: #277768; background: #edf7f4; }
 .study-notice--success { background: #edf7f1; border-color: #cce6d6; color: #276245; }
 .study-notice--error { background: #fff5f2; border-color: #efd5d0; color: #9c4031; }
 .study-notice--error .button { margin-left: auto; }

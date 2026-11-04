@@ -33,9 +33,8 @@ For frontend development with hot reloading, run Django on port 8000 and then
 run `npm run dev` inside `frontend/`. Open `http://127.0.0.1:5173/app/`; Vite
 proxies API calls to Django.
 
-Deadline entry and display use UTC (shown on the assignment form and deadline
-labels), matching Django's configured time zone. Editing a deadline does not
-convert it to the browser's local zone.
+Deadline entry and display use Eastern time, regardless of the browser's local
+zone. Saved deadlines keep their original due instant.
 
 ## Running tests
 
@@ -52,8 +51,11 @@ assets after `collectstatic`.
 
 The React sidebar links to **Availability** (`/app/availability`) and **Study
 calendar** (`/app/calendar`). Availability repeats Monday–Sunday and supports
-multiple non-overlapping blocks per day. Both availability and the calendar use
-UTC, explicitly labeled in the UI. Saving an empty week clears availability;
+multiple non-overlapping blocks per day. Availability and the calendar use New
+York time. The availability migration converts legacy UTC blocks using Eastern
+standard time (UTC−05:00), splitting blocks that cross midnight. After migration,
+blocks repeat at the same New York wall-clock time through daylight-saving changes.
+Saving an empty week clears availability;
 the UI explains that availability is required before schedule generation.
 Changing availability leaves already scheduled sessions unchanged.
 
@@ -150,14 +152,22 @@ buildable as those stories are worded unless the team adds real,
 user-chosen usernames as their own feature first; in the meantime, name and
 email are the only real identifiers these stories can use.
 
+## Importing an Albert class schedule
+
+Download the Class Calendar (.ics) from Albert and use **Import from Albert**
+on the dashboard to review course matches and add class meetings to the study
+calendar. If Albert abbreviates a course name, choose its existing course or
+add a new one. Upload a fresh full-term export to refresh imported meetings.
+Existing courses, coursework, availability, and study sessions are preserved.
+
 ## Assignment deadlines
 
 Assignments require a title and deadline date and time; descriptions are optional.
-Deadlines are entered and displayed in UTC, as labeled on the form and assignment
+Deadlines are entered and displayed in Eastern time, as labeled on the form and assignment
 lists. Past deadlines are accepted. New assignments start as Incomplete.
 
 Run `python manage.py migrate` after updating to apply the assignment schema changes.
-Existing dated assignments retain their date at midnight UTC; existing assignments
+Existing deadlines retain their stored instant; existing assignments
 without a deadline remain readable. New submissions must include a deadline.
 
 ## Database

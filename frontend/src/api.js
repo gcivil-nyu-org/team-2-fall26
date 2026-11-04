@@ -45,18 +45,28 @@ export async function api(path, options = {}) {
   return data
 }
 
-export function toUTCInput(iso) {
+export const EASTERN_TIME = 'America/New_York'
+
+export function easternHour(instant = new Date()) {
+  return Number(easternClock.formatToParts(instant).find(({ type }) => type === 'hour').value)
+}
+
+const easternClock = new Intl.DateTimeFormat('en-US', {
+  timeZone: EASTERN_TIME, year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+})
+
+export function toEasternInput(iso) {
   if (!iso) return ''
-  // Django interprets datetime-local values in UTC. Keep the input in that
-  // same zone so opening and saving a form cannot shift the deadline.
-  return new Date(iso).toISOString().slice(0, 16)
+  const parts = Object.fromEntries(easternClock.formatToParts(new Date(iso)).map(({ type, value }) => [type, value]))
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`
 }
 
 export function formatDate(iso, includeYear = false) {
   if (!iso) return 'No deadline'
   const date = new Date(iso)
   return new Intl.DateTimeFormat('en-US', {
-    timeZone: 'UTC',
+    timeZone: EASTERN_TIME,
     timeZoneName: 'short',
     month: 'short',
     day: 'numeric',

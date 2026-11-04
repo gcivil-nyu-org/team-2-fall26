@@ -1,3 +1,5 @@
+from datetime import time
+
 from django import forms
 
 from .models import AvailabilityBlock
@@ -14,6 +16,6 @@ class AvailabilityBlockForm(forms.ModelForm):
     def clean(self):
         data = super().clean()
         start, end = data.get('start_time'), data.get('end_time')
-        if start is not None and end is not None and end <= start:
+        if start is not None and end is not None and (end == start or time.min < end < start):
             self.add_error('end_time', 'End time must be after start time on the same day.')
         return data

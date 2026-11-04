@@ -3,7 +3,8 @@ import { NavLink, useSearchParams } from 'react-router-dom'
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Plus, Trash2 } from 'lucide-react'
 
 import { api } from './api'
-import { availableHours, dateLabel, WEEKDAYS, weekDays } from './studyCalendar'
+import { AlbertImport } from './AlbertImport'
+import { availableHours, calendarDate, calendarMidnight, dateLabel, WEEKDAYS, weekDays } from './studyCalendar'
 
 function StudyHeader({ title, subtitle, children }) {
   return <header className="page-header">
@@ -74,7 +75,7 @@ export function AvailabilityPage() {
   }
 
   return <>
-    <StudyHeader title="Your study hours" subtitle="Choose when you’re free each week. All times are in UTC.">
+    <StudyHeader title="Your study hours" subtitle="Choose when you’re free each week in New York time.">
       <NavLink className="button button--secondary" to="/calendar"><CalendarDays size={17} /> View calendar</NavLink>
     </StudyHeader>
     {loading ? <p role="status">Loading your availability…</p> : loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} /> : <>
@@ -82,9 +83,9 @@ export function AvailabilityPage() {
       {message && <div className="study-notice study-notice--success" role="status">{message}</div>}
       {error && <div className="study-notice study-notice--error" role="alert">{error}</div>}
       <form onSubmit={submit} className="panel availability-panel">
-        <div className="panel__header"><div><p className="kicker">Repeats every week · UTC</p><h2>Weekly availability</h2></div><span className="count-pill">{Number.isFinite(hours) ? hours.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'} hours / week</span></div>
+        <div className="panel__header"><div><p className="kicker">Repeats every week · Eastern time</p><h2>Weekly availability</h2></div><span className="count-pill">{Number.isFinite(hours) ? hours.toLocaleString('en-US', { maximumFractionDigits: 2 }) : '—'} hours / week</span></div>
         <fieldset disabled={saving} className="availability-days">
-          <legend className="sr-only">Available time blocks for each day, in UTC</legend>
+          <legend className="sr-only">Available time blocks for each day, in Eastern time</legend>
           {WEEKDAYS.map((day, weekday) => {
             const daily = blocks.map((block, index) => ({ ...block, index })).filter((block) => block.weekday === weekday)
             return <section className="availability-day" aria-labelledby={`day-${weekday}`} key={day}>
@@ -108,7 +109,7 @@ export function AvailabilityPage() {
             </section>
           })}
         </fieldset>
-        <div className="availability-footer"><p>Use separate blocks for breaks. Blocks must end on the same day.</p><div className="form-actions"><button className="button button--secondary" type="button" disabled={!dirty || saving} onClick={() => change(saved)}>Discard changes</button><button className="button button--primary" disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save availability'}</button></div></div>
+        <div className="availability-footer"><p>Use separate blocks for breaks. An end time of 12:00 AM means midnight at the end of that day.</p><div className="form-actions"><button className="button button--secondary" type="button" disabled={!dirty || saving} onClick={() => change(saved)}>Discard changes</button><button className="button button--primary" disabled={!dirty || saving}>{saving ? 'Saving…' : 'Save availability'}</button></div></div>
       </form>
     </>}
   </>
@@ -132,18 +133,20 @@ export function CalendarPage() {
     return () => { active = false }
   }, [week, attempt])
 
-  const days = data ? weekDays(data.week_start, data.sessions) : []
+  const classes = data?.classes || []
+  const days = data ? weekDays(data.week_start, [...data.sessions, ...classes]) : []
   const totalHours = data ? data.sessions.reduce((total, session) => {
-    const start = Math.max(Date.parse(session.starts_at), Date.parse(`${data.week_start}T00:00:00Z`))
-    const end = Math.min(Date.parse(session.ends_at), Date.parse(`${data.week_end}T00:00:00Z`))
+    const start = Math.max(Date.parse(session.starts_at), calendarMidnight(data.week_start))
+    const end = Math.min(Date.parse(session.ends_at), calendarMidnight(data.week_end))
     return total + (end - start) / 3_600_000
   }, 0) : 0
-  const today = new Date().toISOString().slice(0, 10)
+  const today = calendarDate()
 
   return <>
-    <StudyHeader title="Your study calendar" subtitle="A little structure for the work ahead. All session times are in UTC.">
+    <StudyHeader title="Your study calendar" subtitle="Class meetings and study sessions, shown in Eastern time.">
       <NavLink className="button button--secondary" to="/availability"><Clock3 size={17} /> Set availability</NavLink>
     </StudyHeader>
+    <AlbertImport open={params.get('import') === 'albert'} onImported={() => setAttempt((value) => value + 1)} />
     {loading ? <p role="status">Loading your week…</p> : error ? <>
       <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
       <button className="button button--soft" onClick={() => setParams({})}>Return to this week</button>
@@ -151,22 +154,23 @@ export function CalendarPage() {
       {!data.availability_configured && <div className="study-notice"><Clock3 size={20} /><div><strong>Make room for your study plan</strong><p>Set your weekly availability before a study schedule can be generated. <NavLink to="/availability">Choose your available hours</NavLink></p></div></div>}
       <section className="panel calendar-panel" aria-label="Weekly study calendar">
         <div className="panel__header calendar-toolbar">
-          <div><p className="kicker">Monday – Sunday · UTC</p><h2 aria-live="polite">{dateLabel(data.week_start)} – {dateLabel(days[6].date, { year: 'numeric' })}</h2></div>
+          <div><p className="kicker">Monday – Sunday · Eastern time</p><h2 aria-live="polite">{dateLabel(data.week_start)} – {dateLabel(days[6].date, { year: 'numeric' })}</h2></div>
           <div className="calendar-navigation"><button className="icon-button" aria-label="Previous week" onClick={() => setParams({ week: data.previous_week })}><ChevronLeft size={20} /></button><button className="button button--secondary button--small" onClick={() => setParams({})}>This week</button><button className="icon-button" aria-label="Next week" onClick={() => setParams({ week: data.next_week })}><ChevronRight size={20} /></button></div>
         </div>
-        <div className="calendar-summary"><span>{data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}</span><span>{totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 })} study hours</span><span>Time zone: UTC</span></div>
-        {!data.sessions.length && <div className="calendar-empty" role="status"><CalendarDays size={26} /><div><h3>No study sessions this week</h3><p>Your week is clear. Browse another week to see other scheduled sessions.</p></div></div>}
+        <div className="calendar-summary"><span>{data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}</span><span>{totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 })} study hours</span><span>Time zone: New York</span></div>
+        {!data.sessions.length && !classes.length && <div className="calendar-empty" role="status"><CalendarDays size={26} /><div><h3>No events this week</h3><p>Browse another week or import your class schedule.</p></div></div>}
         <p className="calendar-scroll-hint">Scroll horizontally to see all seven days.</p>
         <div className="calendar-scroll" tabIndex="0" role="region" aria-label="Days of the week; scroll horizontally on smaller screens">
           <div className="calendar-week">
             {days.map((day) => <section key={day.date} className={`calendar-day ${day.date === today ? 'calendar-day--today' : ''}`} aria-label={`${day.name}, ${day.date}`}>
               <header className="calendar-day__header"><span>{day.name.slice(0, 3)}</span><time dateTime={day.date}>{new Date(`${day.date}T00:00:00Z`).getUTCDate()}</time>{day.date === today && <small>Today</small>}</header>
               <div className="calendar-day__sessions">
-                {day.entries.length ? day.entries.map((session) => <article key={session.id} className="calendar-session">
+                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={session.assignment ? 'calendar-session' : 'calendar-session calendar-session--class'}>
                   <div className="calendar-session__time"><Clock3 size={12} /><span>{session.time}</span></div>
-                  <h3>{session.assignment.title}</h3>
-                  <NavLink to={`/courses/${session.course.id}`}>{session.course.code || session.course.name}</NavLink>
-                  {session.course.code && <p>{session.course.name}</p>}
+                  <h3>{session.assignment?.title || 'Class meeting'}</h3>
+                  <NavLink to={`/courses/${session.course.id}`}>{session.assignment ? session.course.code || session.course.name : session.course.name}</NavLink>
+                  {session.assignment && session.course.code && <p>{session.course.name}</p>}
+                  {session.location && <p>{session.location}</p>}
                 </article>) : <p className="calendar-day__empty">No sessions</p>}
               </div>
             </section>)}
