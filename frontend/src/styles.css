@@ -378,12 +378,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .friend-list { display: flex; flex-direction: column; }
 .friend-row { display: flex; align-items: center; gap: .85rem; padding: 1rem 1.4rem; }
 .friend-row + .friend-row { border-top: 1px solid #f0edf2; }
+.friend-row__link { display: flex; min-width: 0; flex: 1; align-items: center; gap: .85rem; color: inherit; text-decoration: none; border-radius: 10px; }
+.friend-row__link:hover .friend-row__copy strong, .friend-row__link:focus-visible .friend-row__copy strong { color: var(--violet); }
+.friend-row__link:focus-visible { outline: 2px solid var(--violet-soft); outline-offset: 2px; }
 .friend-row__copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: .15rem; }
 .friend-row__copy strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
 .friend-row__copy small { color: var(--muted); font-size: .72rem; }
 .friend-row__actions { display: flex; flex: 0 0 auto; align-items: center; gap: .5rem; }
 .friend-row__actions > span { color: var(--muted); font-size: .76rem; }
 .friend-row__actions > .friend-row__error { color: #af4e25; }
+.friend-profile { display: flex; flex-direction: column; align-items: center; gap: .6rem; padding: 2.5rem 1.4rem; text-align: center; }
+.friend-profile h1 { font-size: 1.2rem; }
+.friend-profile__email { color: var(--muted); font-size: .84rem; }
 
 @media (max-width: 640px) {
   .friends-add__body { flex-direction: column; }
@@ -406,3 +412,24 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .session-editor { padding: 1.5rem; margin-bottom: 1.25rem; }
 .session-editor > p { color: var(--muted); font-size: .85rem; margin: .75rem 0 1rem; }
 .session-editor__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; border: 0; padding: 0; margin: 0; min-width: 0; }
+
+/* Private messages — same card, avatar, and button vocabulary as Friends. */
+.friend-row--conversation { color: inherit; text-decoration: none; }
+.friend-row--conversation:hover, .friend-row--conversation:focus-visible { background: #fbf8fd; }
+.friend-row--conversation > svg { color: var(--violet); }
+.conversation { overflow: hidden; }
+.conversation__history { display: flex; flex-direction: column; gap: .9rem; padding: 1.4rem; min-height: 260px; max-height: 60vh; overflow-y: auto; }
+.conversation__message { align-self: flex-start; max-width: min(85%, 540px); padding: .9rem 1rem; border-radius: 14px 14px 14px 3px; background: #f3edf9; overflow-wrap: anywhere; }
+.conversation__message--mine { align-self: flex-end; background: #e8f4eb; border-radius: 14px 14px 3px 14px; }
+.conversation__message strong { font-size: .74rem; }
+.conversation__message p { margin: .45rem 0; white-space: pre-wrap; font-size: .86rem; line-height: 1.5; }
+.conversation__message time { color: var(--muted); font-size: .65rem; }
+.conversation__compose { display: flex; flex-direction: column; gap: .65rem; padding: 1.25rem 1.4rem; border-top: 1px solid var(--line); }
+.conversation__compose label { font-size: .8rem; font-weight: 700; }
+.conversation__compose textarea { box-sizing: border-box; width: 100%; min-height: 90px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: .8rem; color: inherit; font: inherit; }
+.conversation__compose .button { align-self: flex-end; }
+@media (max-width: 640px) {
+  .conversation__history { padding: 1rem; }
+  .conversation__compose { padding: 1rem; }
+  .conversation__message { max-width: 95%; }
+}

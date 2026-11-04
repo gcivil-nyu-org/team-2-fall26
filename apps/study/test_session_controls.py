@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from apps.coursework.models import Assignment, Course
 from .models import AvailabilityBlock, StudySession
-from .services import replace_unlocked_sessions
+from .services import preserved_sessions, replace_unlocked_sessions
 from .tests import StudyTestCase, instant
 
 
@@ -167,3 +167,38 @@ class SessionControlTests(StudyTestCase):
         self.assertTrue(StudySession.objects.filter(pk=old.pk).exists())
         self.entry.refresh_from_db()
         self.assertTrue(self.entry.is_locked)
+
+    def test_preserved_helper_and_replacement_agree_on_boundaries_and_ownership(self):
+        start, end = instant('2026-11-02T00:00'), instant('2026-11-09T00:00')
+        self.update({'is_locked': True})
+        crosses_start = self.session('2026-11-01T23:30', '2026-11-02T00:30')
+        crosses_end = self.session('2026-11-08T23:30', '2026-11-09T00:30')
+        before = self.session('2026-11-01T23:00', '2026-11-02T00:00')
+        after = self.session('2026-11-09T00:00', '2026-11-09T01:00')
+        exact_start = self.session('2026-11-02T00:00', '2026-11-02T01:00')
+        exact_end = self.session('2026-11-08T23:00', '2026-11-09T00:00')
+        expected = {self.entry.pk, crosses_start.pk, crosses_end.pk, before.pk, after.pk}
+        self.assertSetEqual(set(preserved_sessions(self.user, start, end).values_list('pk', flat=True)), expected)
+        self.assertSetEqual(set(preserved_sessions(self.other, start, end).values_list('pk', flat=True)), set())
+        replace_unlocked_sessions(self.user, start, end, [])
+        self.assertSetEqual(set(StudySession.objects.filter(assignment__course__owner=self.user).values_list('pk', flat=True)), expected)
+        self.assertFalse(StudySession.objects.filter(pk__in=[exact_start.pk, exact_end.pk]).exists())
+        self.assertTrue(StudySession.objects.filter(pk=self.other_entry.pk).exists())
+
+    def test_generator_cannot_place_sessions_over_a_preserved_boundary_session(self):
+        boundary = self.session('2026-11-01T23:30', '2026-11-02T00:30')
+        candidate = StudySession(assignment=self.assignment, starts_at=instant('2026-11-02T00:00'), ends_at=instant('2026-11-02T01:00'))
+        with self.assertRaises(ValidationError):
+            replace_unlocked_sessions(self.user, instant('2026-11-02T00:00'), instant('2026-11-09T00:00'), [candidate])
+        self.assertTrue(StudySession.objects.filter(pk=boundary.pk).exists())
+        self.assertTrue(StudySession.objects.filter(pk=self.entry.pk).exists())
+
+    def test_preservation_and_replacement_reject_invalid_windows_without_changes(self):
+        start = instant('2026-11-02T00:00')
+        for end in [start, instant('2026-11-01T00:00')]:
+            with self.subTest(end=end):
+                with self.assertRaises(ValidationError):
+                    preserved_sessions(self.user, start, end)
+                with self.assertRaises(ValidationError):
+                    replace_unlocked_sessions(self.user, start, end, [])
+        self.assertEqual(StudySession.objects.count(), 2)

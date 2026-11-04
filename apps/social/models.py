@@ -103,3 +103,29 @@ class FriendRequest(models.Model):
         self.status = FriendRequest.Status.DECLINED
         self.responded_at = timezone.now()
         self.save(update_fields=['status', 'responded_at'])
+
+
+class DirectMessage(models.Model):
+    # Conversation identity is the pair of users, not a FriendRequest id.
+    # If a friendship is removed, the stored messages remain but the API
+    # denies access until the two users become friends again.
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='sent_direct_messages',
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='received_direct_messages',
+    )
+    body = models.CharField(max_length=2000)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'pk']
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(sender=models.F('recipient')),
+                name='direct_message_not_self',
+            ),
+        ]
+
+    def __str__(self):
+        return f'Message {self.pk} from {self.sender_id} to {self.recipient_id}'

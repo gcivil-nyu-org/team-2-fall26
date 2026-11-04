@@ -33,6 +33,21 @@ def reschedule_warnings(user, session, starts_at, ends_at):
     return warnings
 
 
+def preserved_sessions(user, starts_at, ends_at):
+    """Return the owner's sessions that regeneration must keep unchanged.
+
+    Only unlocked sessions wholly inside the window can be replaced. Locked
+    sessions, sessions crossing either edge, and sessions outside are preserved.
+    A generator should read this queryset under lock_study_account() inside the
+    same transaction as planning and replacement to avoid concurrent edits.
+    """
+    if ends_at <= starts_at:
+        raise ValidationError('The planning window must have a positive duration.')
+    return StudySession.objects.filter(assignment__course__owner=user).exclude(
+        is_locked=False, starts_at__gte=starts_at, ends_at__lte=ends_at,
+    ).select_related('assignment__course')
+
+
 @transaction.atomic
 def replace_unlocked_sessions(user, starts_at, ends_at, candidates):
     """#41 integration: atomically replace unlocked sessions in a planning window.
@@ -42,12 +57,11 @@ def replace_unlocked_sessions(user, starts_at, ends_at, candidates):
     This does not implement the workload allocation algorithm in #41.
     """
     lock_study_account(user)
-    if ends_at <= starts_at:
-        raise ValidationError('The planning window must have a positive duration.')
+    preserved = list(preserved_sessions(user, starts_at, ends_at))
     candidates = list(candidates)
-    existing = StudySession.objects.filter(assignment__course__owner=user)
-    replaceable = existing.filter(is_locked=False, starts_at__gte=starts_at, ends_at__lte=ends_at)
-    preserved = list(existing.exclude(pk__in=replaceable.values('pk')))
+    replaceable = StudySession.objects.filter(assignment__course__owner=user).exclude(
+        pk__in=[session.pk for session in preserved],
+    )
     planned = []
     for session in candidates:
         if session.pk or session.is_locked or session.assignment.course.owner_id != user.pk:
