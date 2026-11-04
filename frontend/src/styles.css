@@ -392,6 +392,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .friend-profile { display: flex; flex-direction: column; align-items: center; gap: .6rem; padding: 2.5rem 1.4rem; text-align: center; }
 .friend-profile h1 { font-size: 1.2rem; }
 .friend-profile__email { color: var(--muted); font-size: .84rem; }
+.friend-profile__bio { max-width: 34rem; color: #554d5e; font-size: .84rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-line; }
 
 @media (max-width: 640px) {
   .friends-add__body { flex-direction: column; }

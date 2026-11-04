@@ -312,4 +312,28 @@ describe('bios on the Friends page', () => {
     expect(screen.getByText('Jordan likes chess.')).toBeInTheDocument()
     expect(document.querySelectorAll('.friend-row__bio')).toHaveLength(2)
   })
+
+  test('a friend profile shows their bio, and nothing when they have none', async () => {
+    let bio = 'Sam studies math.'
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/42/') {
+        return { user: { id: 2, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', profile_picture: null, bio } }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    const renderProfile = () => render(
+      <MemoryRouter initialEntries={['/friends/42']}>
+        <Routes><Route path="/friends/:friendshipId" element={<FriendProfilePage />} /></Routes>
+      </MemoryRouter>,
+    )
+
+    const { unmount } = renderProfile()
+    expect(await screen.findByText('Sam studies math.')).toBeInTheDocument()
+    unmount()
+
+    bio = ''
+    renderProfile()
+    await screen.findByText('Sam Lee')
+    expect(document.querySelector('.friend-profile__bio')).toBeNull()
+  })
 })

@@ -542,6 +542,12 @@ class FriendBioVisibilityTests(SocialTestCase):
         self.assertEqual(data['sent_requests'][0]['user']['bio'], 'Sam studies math.')
         self.assertEqual(data['received_requests'][0]['user']['bio'], 'Jordan likes chess.')
 
+    def test_a_friends_profile_page_includes_their_bio(self):
+        friendship = FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        friendship.accept()
+        data = self.client.get(reverse('social:friend_profile', args=[friendship.pk])).json()
+        self.assertEqual(data['user']['bio'], 'Sam studies math.')
+
     def test_strangers_and_declined_requests_never_expose_a_bio(self):
         declined = FriendRequest.objects.create(sender=self.third, recipient=self.user)
         declined.decline()
