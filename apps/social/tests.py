@@ -1,13 +1,23 @@
 import json
+import shutil
+import tempfile
 
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from apps.accounts.models import User
 
 from .models import FriendRequest
+
+# A 1x1 GIF — just enough bytes to be a valid image for ImageField to accept.
+SMALL_GIF = (
+    b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x00\x00\x00\x21\xf9\x04'
+    b'\x01\x0a\x00\x01\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02'
+    b'\x02\x4c\x01\x00\x3b'
+)
 
 
 class SocialTestCase(TestCase):
@@ -247,6 +257,50 @@ class FriendsListTests(SocialTestCase):
         self.assertEqual(data, {'friends': [], 'received_requests': [], 'sent_requests': []})
 
 
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class FriendsListProfilePictureTests(SocialTestCase):
+    # #17/#18 AC: a friend request (and a friend) should show the other
+    # person's profile photo. _user_summary() just passes through whatever
+    # apps.accounts.models.User.profile_picture already has, same as
+    # apps/api/views.py's own _user_payload does for a user's own profile.
+    @classmethod
+    def tearDownClass(cls):
+        from django.conf import settings
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('social:friends')
+        self.other.profile_picture = SimpleUploadedFile('avatar.gif', SMALL_GIF, content_type='image/gif')
+        self.other.save()
+
+    def test_a_friends_profile_picture_url_is_included(self):
+        accepted = FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        accepted.accept()
+        data = self.client.get(self.url).json()
+        friend = next(item for item in data['friends'] if item['email'] == self.other.email)
+        self.assertIsNotNone(friend['profile_picture'])
+        self.assertIn('avatar', friend['profile_picture'])
+
+    def test_a_friend_with_no_profile_picture_reports_null_not_an_error(self):
+        accepted = FriendRequest.objects.create(sender=self.user, recipient=self.third)
+        accepted.accept()
+        data = self.client.get(self.url).json()
+        friend = next(item for item in data['friends'] if item['email'] == self.third.email)
+        self.assertIsNone(friend['profile_picture'])
+
+    def test_a_received_requests_sender_profile_picture_is_included(self):
+        FriendRequest.objects.create(sender=self.other, recipient=self.user)
+        data = self.client.get(self.url).json()
+        self.assertIsNotNone(data['received_requests'][0]['user']['profile_picture'])
+
+    def test_a_sent_requests_recipient_profile_picture_is_included(self):
+        FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        data = self.client.get(self.url).json()
+        self.assertIsNotNone(data['sent_requests'][0]['user']['profile_picture'])
+
+
 class RemoveFriendTests(SocialTestCase):
     def setUp(self):
         super().setUp()
@@ -316,6 +370,59 @@ class RemoveFriendTests(SocialTestCase):
 
     def test_unknown_friendship_id_is_a_404(self):
         response = self.client.delete(reverse('social:friend_request', args=[999999]))
+        self.assertEqual(response.status_code, 404)
+
+
+class FriendProfileTests(SocialTestCase):
+    # #18 AC: "I can select a friend from the list to view their profile."
+    def setUp(self):
+        super().setUp()
+        self.friendship = FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        self.friendship.accept()
+        self.url = reverse('social:friend_profile', args=[self.friendship.pk])
+
+    def test_requires_authentication(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 401)
+
+    def test_returns_the_friends_profile(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        user = response.json()['user']
+        self.assertEqual(user['email'], self.other.email)
+        self.assertEqual(user['first_name'], self.other.first_name)
+
+    def test_either_side_of_the_friendship_can_view_the_others_profile(self):
+        self.client.force_login(self.other)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user']['email'], self.user.email)
+
+    def test_a_stranger_cannot_view_a_friendship_they_are_not_part_of(self):
+        self.client.force_login(self.third)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_pending_requests_sender_is_not_accessible_as_a_friend_profile(self):
+        # Only an accepted friendship counts — sending or receiving a request
+        # doesn't give either side a "profile" view of the other yet.
+        pending = FriendRequest.objects.create(sender=self.user, recipient=self.third)
+        response = self.client.get(reverse('social:friend_profile', args=[pending.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_declined_requests_other_party_is_not_accessible(self):
+        declined = FriendRequest.objects.create(sender=self.user, recipient=self.third)
+        declined.decline()
+        response = self.client.get(reverse('social:friend_profile', args=[declined.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_unknown_friendship_id_is_a_404(self):
+        response = self.client.get(reverse('social:friend_profile', args=[999999]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_removed_friendship_is_no_longer_accessible(self):
+        self.client.delete(reverse('social:friend_request', args=[self.friendship.pk]))
+        response = self.client.get(self.url)
         self.assertEqual(response.status_code, 404)
 
 

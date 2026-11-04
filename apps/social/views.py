@@ -1,14 +1,14 @@
 import json
 
-from django.db import transaction
+from django.db import models, transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.models import User
 
-from .forms import RespondToFriendRequestForm, SendFriendRequestForm
-from .models import FriendRequest
+from .forms import RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm
+from .models import DirectMessage, FriendRequest
 
 
 def _json_body(request):
@@ -36,6 +36,11 @@ def _user_summary(user):
         'first_name': user.first_name,
         'last_name': user.last_name,
         'bio': user.bio,
+        # Lets the frontend show a real photo on friend requests and in the
+        # friends list (falling back to an initial when there isn't one) —
+        # same shape apps/api/views.py's _user_payload already uses for a
+        # user's own profile.
+        'profile_picture': user.profile_picture.url if user.profile_picture else None,
     }
 
 
@@ -70,6 +75,21 @@ def friends_view(request):
         'received_requests': [_request_payload(fr, request.user) for fr in received],
         'sent_requests': [_request_payload(fr, request.user) for fr in sent],
     })
+
+
+@require_GET
+def friend_profile_view(request, pk):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # #18 AC: "select a friend to view their profile." Only an actual
+    # (accepted) friendship grants access — a pending or declined request
+    # doesn't let either side see this. involving() + accepted() together
+    # also keep this 404 (not 403) for anyone who isn't one of the two
+    # parties, same privacy pattern used everywhere else in this app.
+    friendship = get_object_or_404(
+        FriendRequest.objects.accepted().involving(request.user), pk=pk,
+    )
+    return JsonResponse({'user': _user_summary(friendship.other(request.user))})
 
 
 @require_http_methods(['POST'])
@@ -175,3 +195,52 @@ def friend_request_view(request, pk):
         else:
             friend_request.decline()
         return JsonResponse({'friend_request': _request_payload(friend_request, request.user)})
+
+
+def _message_payload(message, viewer):
+    sender = message.sender
+    return {
+        'id': message.pk,
+        'sender_id': message.sender_id,
+        'sender_name': ' '.join(filter(None, [sender.first_name, sender.last_name])) or sender.email,
+        'body': message.body,
+        'created_at': message.created_at.isoformat(),
+        'is_mine': message.sender_id == viewer.pk,
+    }
+
+
+@require_http_methods(['GET', 'POST'])
+def conversation_view(request, pk):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # A matching accepted FriendRequest is required for both reading and
+    # writing, including when the other person supplied a direct URL.
+    friend = get_object_or_404(
+        User.objects.exclude(pk=request.user.pk),
+        pk=pk,
+    )
+    if not FriendRequest.objects.accepted().between(request.user, friend).exists():
+        return JsonResponse({'detail': 'Conversation not found.'}, status=404)
+
+    if request.method == 'GET':
+        conversation = (
+            DirectMessage.objects.filter(
+                models.Q(sender=request.user, recipient=friend) |
+                models.Q(sender=friend, recipient=request.user)
+            ).select_related('sender').order_by('created_at', 'pk')
+        )
+        return JsonResponse({
+            'friend': _user_summary(friend),
+            'messages': [_message_payload(message, request.user) for message in conversation],
+        })
+
+    body = _json_body(request)
+    if not isinstance(body, dict) or not isinstance(body.get('body'), str):
+        return JsonResponse({'errors': {'body': ['Enter a valid message.']}}, status=400)
+    form = SendDirectMessageForm(body)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    message = DirectMessage.objects.create(
+        sender=request.user, recipient=friend, body=form.cleaned_data['body'],
+    )
+    return JsonResponse({'message': _message_payload(message, request.user)}, status=201)
