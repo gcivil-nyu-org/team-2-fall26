@@ -117,6 +117,12 @@ class ProfileFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertEqual(form.errors['last_name'], ['Last name is required.'])
 
+    def test_bio_is_optional_and_limited_to_300_characters(self):
+        self.assertTrue(ProfileForm({'first_name': 'Jane', 'last_name': 'Doe'}, instance=self.user).is_valid())
+        form = ProfileForm({'first_name': 'Jane', 'last_name': 'Doe', 'bio': 'x' * 301}, instance=self.user)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors['bio'], ['Bio must be 300 characters or fewer.'])
+
     def test_does_not_change_email(self):
         form = ProfileForm({'first_name': 'Jane', 'last_name': 'Doe'}, instance=self.user)
         form.is_valid()

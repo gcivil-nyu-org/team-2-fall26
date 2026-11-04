@@ -21,6 +21,7 @@ function PersonRow({ user, children }) {
     <div className="friend-row__copy">
       <strong>{displayName(user)}</strong>
       <small>{user.email}</small>
+      {user.bio && <p className="friend-row__bio">{user.bio}</p>}
     </div>
     {children && <div className="friend-row__actions">{children}</div>}
   </div>
@@ -55,6 +56,7 @@ function FriendRow({ friend, onRemoved }) {
       <div className="friend-row__copy">
         <strong>{displayName(friend)}</strong>
         <small>{friend.email}</small>
+        {friend.bio && <p className="friend-row__bio">{friend.bio}</p>}
       </div>
     </Link>
     <div className={`friend-row__actions ${confirming ? 'friend-row__actions--confirm' : ''}`}>
@@ -221,6 +223,7 @@ export function FriendProfilePage() {
           <div className="avatar avatar--large">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</div>
           <h1>{displayName(friend)}</h1>
           <p className="friend-profile__email">{friend.email}</p>
+          {friend.bio && <p className="friend-profile__bio">{friend.bio}</p>}
           <Link className="button button--primary" to={`/messages/${friend.id}`}><MessageCircle size={16} /> Send message</Link>
         </section>}
   </>

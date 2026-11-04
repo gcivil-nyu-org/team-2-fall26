@@ -296,3 +296,44 @@ describe('messaging navigation (#20, #21)', () => {
     expect(screen.getByRole('link', { name: 'Send message' })).toHaveAttribute('href', '/messages/2')
   })
 })
+
+describe('bios on the Friends page', () => {
+  test('shows bios for friends and pending requests, and nothing when a student has none', async () => {
+    mockFriendsLoad(friendsPayload({
+      friends: [
+        { id: 1, friendship_id: 42, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', bio: 'Sam studies math.' },
+        { id: 2, friendship_id: 43, first_name: 'Ana', last_name: '', email: 'ana@nyu.edu', bio: '' },
+      ],
+      received_requests: [{ id: 7, status: 'pending', direction: 'received', user: { id: 3, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu', bio: 'Jordan likes chess.' } }],
+    }))
+    renderFriendsPage()
+
+    expect(await screen.findByText('Sam studies math.')).toBeInTheDocument()
+    expect(screen.getByText('Jordan likes chess.')).toBeInTheDocument()
+    expect(document.querySelectorAll('.friend-row__bio')).toHaveLength(2)
+  })
+
+  test('a friend profile shows their bio, and nothing when they have none', async () => {
+    let bio = 'Sam studies math.'
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/42/') {
+        return { user: { id: 2, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', profile_picture: null, bio } }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    const renderProfile = () => render(
+      <MemoryRouter initialEntries={['/friends/42']}>
+        <Routes><Route path="/friends/:friendshipId" element={<FriendProfilePage />} /></Routes>
+      </MemoryRouter>,
+    )
+
+    const { unmount } = renderProfile()
+    expect(await screen.findByText('Sam studies math.')).toBeInTheDocument()
+    unmount()
+
+    bio = ''
+    renderProfile()
+    await screen.findByText('Sam Lee')
+    expect(document.querySelector('.friend-profile__bio')).toBeNull()
+  })
+})

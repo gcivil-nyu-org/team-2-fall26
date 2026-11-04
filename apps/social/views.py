@@ -35,6 +35,7 @@ def _user_summary(user):
         'email': user.email,
         'first_name': user.first_name,
         'last_name': user.last_name,
+        'bio': user.bio,
         # Lets the frontend show a real photo on friend requests and in the
         # friends list (falling back to an initial when there isn't one) —
         # same shape apps/api/views.py's _user_payload already uses for a
