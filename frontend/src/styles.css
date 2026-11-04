@@ -367,7 +367,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .calendar-empty p { font-size: .78rem; line-height: 1.6; color: var(--muted); margin: 0; }
 .calendar-scroll { overflow-x: auto; }
 .calendar-scroll-hint { color: var(--muted); font-size: .7rem; margin: .8rem 1.4rem; }
-.calendar-week { display: grid; grid-template-columns: repeat(7, minmax(108px, 1fr)); min-width: 756px; }
+.calendar-week { display: grid; grid-template-columns: repeat(7, minmax(170px, 1fr)); min-width: 1190px; }
 .calendar-day { min-width: 0; border-top: 1px solid var(--line); }
 .calendar-day + .calendar-day { border-left: 1px solid var(--line); }
 .calendar-day__header { display: flex; min-height: 88px; align-items: center; justify-content: center; flex-direction: column; gap: .2rem; padding: .8rem; background: #fcfbfd; border-bottom: 1px solid var(--line); }
@@ -428,6 +428,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
+.calendar-session--locked { border: 1px solid #806198; background: #f0e6f6; }
+.calendar-session__locked { display: flex; align-items: center; gap: .3rem; font-size: .7rem; font-weight: 700; color: #57356c; margin: .4rem 0; }
+.calendar-session__actions { display: flex; flex-wrap: wrap; gap: .2rem; margin-top: .65rem; }
+.calendar-session__actions .button { font-size: .68rem; padding: .35rem; white-space: nowrap; }
+.session-editor { padding: 1.5rem; margin-bottom: 1.25rem; }
+.session-editor > p { color: var(--muted); font-size: .85rem; margin: .75rem 0 1rem; }
+.session-editor__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; border: 0; padding: 0; margin: 0; min-width: 0; }
 
 /* Private messages — same card, avatar, and button vocabulary as Friends. */
 .friend-row--conversation { color: inherit; text-decoration: none; }
