@@ -20,6 +20,7 @@ function PersonRow({ user, children }) {
     <div className="friend-row__copy">
       <strong>{displayName(user)}</strong>
       <small>{user.email}</small>
+      {user.bio && <p className="friend-row__bio">{user.bio}</p>}
     </div>
     {children && <div className="friend-row__actions">{children}</div>}
   </div>
@@ -53,6 +54,7 @@ function FriendRow({ friend, onRemoved }) {
     <div className="friend-row__copy">
       <strong>{displayName(friend)}</strong>
       <small>{friend.email}</small>
+      {friend.bio && <p className="friend-row__bio">{friend.bio}</p>}
     </div>
     <div className={`friend-row__actions ${confirming ? 'friend-row__actions--confirm' : ''}`}>
       {confirming ? (

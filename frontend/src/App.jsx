@@ -754,10 +754,12 @@ function CourseFormPage({ editing = false }) {
   )
 }
 
+const BIO_MAX_LENGTH = 300
+
 export function ProfilePage() {
   const navigate = useNavigate()
   const { refresh } = useAuth()
-  const [values, setValues] = useState({ first_name: '', last_name: '' })
+  const [values, setValues] = useState({ first_name: '', last_name: '', bio: '' })
   const [email, setEmail] = useState('')
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
@@ -783,7 +785,7 @@ export function ProfilePage() {
       try {
         const data = await api('/profile/')
         if (!active) return
-        setValues({ first_name: data.user.first_name, last_name: data.user.last_name })
+        setValues({ first_name: data.user.first_name, last_name: data.user.last_name, bio: data.user.bio || '' })
         setEmail(data.user.email)
         setPicture(data.user.profile_picture)
       } catch (error) {
@@ -910,6 +912,10 @@ export function ProfilePage() {
         </Field>
         <Field label="Last name" error={errors.last_name?.[0]}>
           <input name="last_name" value={values.last_name} onChange={update} required />
+        </Field>
+        <Field label="Bio" hint={`${values.bio.length} / ${BIO_MAX_LENGTH}`} error={errors.bio?.[0]}>
+          <textarea name="bio" rows="3" value={values.bio} onChange={update} placeholder="e.g. CS junior, into ML and climbing. Happy to study for algorithms together." aria-describedby="bio-visibility" />
+          <span id="bio-visibility" className="field__note">Your friends and anyone you have a pending friend request with can see this.</span>
         </Field>
         <Field label="Email">
           <input value={email} disabled />

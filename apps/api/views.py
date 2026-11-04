@@ -49,6 +49,7 @@ def _user_payload(user):
         'first_name': user.first_name,
         'last_name': user.last_name,
         'profile_picture': user.profile_picture.url if user.profile_picture else None,
+        'bio': user.bio,
     }
 
 
@@ -240,7 +241,8 @@ def profile_view(request):
     body = _json_body(request)
     if body is None:
         return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
-    form = ProfileForm(body, instance=request.user)
+    # A client that only sends the name fields shouldn't wipe an existing bio.
+    form = ProfileForm({'bio': request.user.bio, **body}, instance=request.user)
     if not form.is_valid():
         return JsonResponse({'errors': _errors(form)}, status=400)
     user = form.save()

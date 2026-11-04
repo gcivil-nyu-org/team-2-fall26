@@ -97,3 +97,20 @@ describe('removing a friend', () => {
     expect(screen.getByText('Sam Lee')).toBeInTheDocument()
   })
 })
+
+describe('bios on the Friends page', () => {
+  test('shows bios for friends and pending requests, and nothing when a student has none', async () => {
+    mockFriendsLoad(friendsPayload({
+      friends: [
+        { id: 1, friendship_id: 42, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', bio: 'Sam studies math.' },
+        { id: 2, friendship_id: 43, first_name: 'Ana', last_name: '', email: 'ana@nyu.edu', bio: '' },
+      ],
+      received_requests: [{ id: 7, status: 'pending', direction: 'received', user: { id: 3, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu', bio: 'Jordan likes chess.' } }],
+    }))
+    render(<FriendsPage />)
+
+    expect(await screen.findByText('Sam studies math.')).toBeInTheDocument()
+    expect(screen.getByText('Jordan likes chess.')).toBeInTheDocument()
+    expect(document.querySelectorAll('.friend-row__bio')).toHaveLength(2)
+  })
+})

@@ -412,3 +412,32 @@ class CancelFriendRequestTests(SocialTestCase):
     def test_unknown_request_id_is_a_404(self):
         response = self.client.delete(reverse('social:friend_request', args=[999999]))
         self.assertEqual(response.status_code, 404)
+
+
+class FriendBioVisibilityTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.other.bio = 'Sam studies math.'
+        self.other.save()
+        self.third.bio = 'Jordan likes chess.'
+        self.third.save()
+
+    def test_friends_see_each_others_bio(self):
+        friendship = FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        friendship.accept()
+        data = self.client.get(reverse('social:friends')).json()
+        self.assertEqual(data['friends'][0]['bio'], 'Sam studies math.')
+
+    def test_pending_requests_show_the_bio_in_both_directions(self):
+        FriendRequest.objects.create(sender=self.user, recipient=self.other)
+        FriendRequest.objects.create(sender=self.third, recipient=self.user)
+        data = self.client.get(reverse('social:friends')).json()
+        self.assertEqual(data['sent_requests'][0]['user']['bio'], 'Sam studies math.')
+        self.assertEqual(data['received_requests'][0]['user']['bio'], 'Jordan likes chess.')
+
+    def test_strangers_and_declined_requests_never_expose_a_bio(self):
+        declined = FriendRequest.objects.create(sender=self.third, recipient=self.user)
+        declined.decline()
+        FriendRequest.objects.create(sender=self.other, recipient=self.third)
+        data = self.client.get(reverse('social:friends')).json()
+        self.assertEqual(data, {'friends': [], 'received_requests': [], 'sent_requests': []})
