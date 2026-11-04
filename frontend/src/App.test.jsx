@@ -272,3 +272,40 @@ describe('study session reminders on the dashboard', () => {
     setItem.mockRestore()
   })
 })
+
+describe('bio on the Edit Profile page', () => {
+  function mockProfile(user) {
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/profile/') return { user }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('shows the saved bio with a live character count', async () => {
+    const user = userEvent.setup()
+    mockProfile({ first_name: 'Sanchu', last_name: 'Kavitha Babu', email: 'sanchu@nyu.edu', profile_picture: null, bio: 'Hi' })
+    renderWithAuth(<ProfilePage />)
+
+    const bio = await screen.findByLabelText(/bio/i)
+    expect(bio).toHaveValue('Hi')
+    expect(screen.getByText('2 / 300')).toBeInTheDocument()
+
+    await user.type(bio, ' there')
+    expect(screen.getByText('8 / 300')).toBeInTheDocument()
+  })
+
+  test('a rejected bio shows the server error under the field', async () => {
+    const user = userEvent.setup()
+    mockProfile({ first_name: 'Sanchu', last_name: 'Kavitha Babu', email: 'sanchu@nyu.edu', profile_picture: null, bio: '' })
+    renderWithAuth(<ProfilePage />)
+    await screen.findByLabelText(/bio/i)
+
+    const error = new Error('Something went wrong.')
+    error.status = 400
+    error.errors = { bio: ['Bio must be 300 characters or fewer.'] }
+    vi.mocked(realApi).mockImplementationOnce(async () => { throw error })
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+    expect(await screen.findByText('Bio must be 300 characters or fewer.')).toBeInTheDocument()
+  })
+})

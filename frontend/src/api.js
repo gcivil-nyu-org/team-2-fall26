@@ -40,6 +40,7 @@ export async function api(path, options = {}) {
     const error = new Error(data.detail || 'Something went wrong.')
     error.status = response.status
     error.errors = data.errors || {}
+    error.warnings = data.warnings || []
     throw error
   }
   return data

@@ -231,7 +231,7 @@ class ProfileApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['user'], {
             'id': self.user.pk, 'email': 'student@nyu.edu', 'first_name': 'Jane', 'last_name': 'Doe',
-            'profile_picture': None,
+            'profile_picture': None, 'bio': '',
         })
 
     def test_put_updates_the_name(self):
@@ -264,6 +264,50 @@ class ProfileApiTests(ApiTestCase):
 
         self.user.refresh_from_db()
         self.assertEqual(self.user.email, 'student@nyu.edu')
+
+    def test_put_saves_edits_and_clears_the_bio(self):
+        self.client.force_login(self.user)
+        url = reverse('api:profile')
+
+        response = self.json_put(url, {'first_name': 'Jane', 'last_name': 'Doe', 'bio': '  CS junior, into ML.  '})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user']['bio'], 'CS junior, into ML.')
+
+        self.json_put(url, {'first_name': 'Jane', 'last_name': 'Doe', 'bio': 'Senior now.'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.bio, 'Senior now.')
+
+        self.json_put(url, {'first_name': 'Jane', 'last_name': 'Doe', 'bio': ''})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.bio, '')
+
+    def test_put_rejects_a_bio_over_300_characters(self):
+        self.user.bio = 'Original bio.'
+        self.user.save()
+        self.client.force_login(self.user)
+
+        response = self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe', 'bio': 'x' * 301})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['errors']['bio'], ['Bio must be 300 characters or fewer.'])
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.bio, 'Original bio.')
+        self.assertEqual(self.user.first_name, '')
+
+    def test_put_accepts_a_bio_of_exactly_300_characters(self):
+        self.client.force_login(self.user)
+        response = self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe', 'bio': 'x' * 300})
+        self.assertEqual(response.status_code, 200)
+
+    def test_put_without_a_bio_keeps_the_existing_one(self):
+        self.user.bio = 'Keep me.'
+        self.user.save()
+        self.client.force_login(self.user)
+
+        self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe'})
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.bio, 'Keep me.')
 
     def test_another_users_name_is_unaffected(self):
         other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='testpass123')

@@ -29,6 +29,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Settings,
   Sparkles,
   Trash2,
   Users,
@@ -36,6 +37,7 @@ import {
 } from 'lucide-react'
 
 import { api, formatDate, toUTCInput } from './api'
+import AccountSettings from './AccountSettings'
 import { AvailabilityPage, CalendarPage } from './StudyPages'
 import { FriendProfilePage, FriendsPage } from './FriendsPage'
 import { ConversationPage, MessagesPage } from './MessagesPage'
@@ -106,6 +108,7 @@ const navItems = [
   { to: '/friends', label: 'Friends', icon: Users },
   { to: '/messages', label: 'Messages', icon: MessageCircle },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
+  { to: '/settings/account', label: 'Account settings', icon: Settings },
 ]
 
 export function AppShell({ children }) {
@@ -189,7 +192,8 @@ function AuthLayout({ mode }) {
   const isLogin = mode === 'login'
   const navigate = useNavigate()
   const location = useLocation()
-  const { refresh } = useAuth()
+  const { refresh, session } = useAuth()
+  const accountAction = location.state?.accountAction || session.accountAction
   const [values, setValues] = useState({ email: '', password: '', password_confirm: '' })
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
@@ -223,6 +227,7 @@ function AuthLayout({ mode }) {
           <p className="kicker">{isLogin ? 'Welcome back' : 'Start fresh'}</p>
           <h2>{isLogin ? 'Sign in to your workspace' : 'Create your account'}</h2>
           <p className="auth-card__intro">{isLogin ? 'Pick up where you left off.' : 'Your semester gets easier from here.'}</p>
+          {isLogin && ['delete', 'deactivate'].includes(accountAction) && <div className="form-alert form-alert--success" role="status">{accountAction === 'delete' ? 'Your account and its coursework have been permanently deleted.' : 'Your account has been deactivated and your data is saved. An administrator can reactivate it.'}</div>}
           {errors.non_field_errors && <div className="form-alert">{errors.non_field_errors[0]}</div>}
           <form onSubmit={submit} className="form-stack">
             <Field label="Email address" error={errors.email?.[0]}>
@@ -809,10 +814,12 @@ function CourseFormPage({ editing = false }) {
   )
 }
 
+const BIO_MAX_LENGTH = 300
+
 export function ProfilePage() {
   const navigate = useNavigate()
   const { refresh } = useAuth()
-  const [values, setValues] = useState({ first_name: '', last_name: '' })
+  const [values, setValues] = useState({ first_name: '', last_name: '', bio: '' })
   const [email, setEmail] = useState('')
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
@@ -838,7 +845,7 @@ export function ProfilePage() {
       try {
         const data = await api('/profile/')
         if (!active) return
-        setValues({ first_name: data.user.first_name, last_name: data.user.last_name })
+        setValues({ first_name: data.user.first_name, last_name: data.user.last_name, bio: data.user.bio || '' })
         setEmail(data.user.email)
         setPicture(data.user.profile_picture)
       } catch (error) {
@@ -965,6 +972,10 @@ export function ProfilePage() {
         </Field>
         <Field label="Last name" error={errors.last_name?.[0]}>
           <input name="last_name" value={values.last_name} onChange={update} required />
+        </Field>
+        <Field label="Bio" hint={`${values.bio.length} / ${BIO_MAX_LENGTH}`} error={errors.bio?.[0]}>
+          <textarea name="bio" rows="3" value={values.bio} onChange={update} placeholder="e.g. CS junior, into ML and climbing. Happy to study for algorithms together." aria-describedby="bio-visibility" />
+          <span id="bio-visibility" className="field__note">Your friends and anyone you have a pending friend request with can see this.</span>
         </Field>
         <Field label="Email">
           <input value={email} disabled />
@@ -1243,6 +1254,11 @@ function NotFound() {
 function capitalize(value) { return value ? value[0].toUpperCase() + value.slice(1) : 'there' }
 function timeGreeting() { const hour = new Date().getHours(); return hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening' }
 
+function AccountSettingsPage() {
+  const { setSession } = useAuth()
+  return <AccountSettings onAccountClosed={(accountAction) => setSession({ loading: false, authenticated: false, user: null, accountAction })} />
+}
+
 function AppRoutes() {
   return (
     <Routes>
@@ -1253,6 +1269,7 @@ function AppRoutes() {
       <Route path="*" element={<ProtectedRoute><AppShell><Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/settings/account" element={<AccountSettingsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/availability" element={<AvailabilityPage />} />

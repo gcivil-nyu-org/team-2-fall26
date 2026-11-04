@@ -196,6 +196,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .field input:focus, .field select:focus, .field textarea:focus { border-color: #9c73b8; box-shadow: 0 0 0 3px rgba(87, 6, 140, .08); }
 .field--error input, .field--error select, .field--error textarea { border-color: #c55742; background: #fffaf9; }
 .field__error { color: #b84936; font-size: .69rem; }
+.field__note { color: var(--muted); font-size: .69rem; }
 .form-actions { display: flex; justify-content: flex-end; gap: .65rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 .form-alert { padding: .75rem .85rem; margin-bottom: 1rem; border: 1px solid #efd5d0; border-radius: 10px; background: #fff6f4; color: #9c4031; font-size: .75rem; }
 .form-alert a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
@@ -308,6 +309,29 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .skeleton--card { height: 105px; }
 }
 
+.account-settings { max-width: 800px; margin: 0 auto; }
+.account-option { display: flex; align-items: flex-start; gap: 1.1rem; padding: 1.5rem; margin-bottom: 1.25rem; }
+.account-option__icon { display: grid; flex-shrink: 0; place-items: center; width: 46px; height: 46px; border-radius: 13px; color: var(--violet); background: var(--violet-soft); }
+.account-option h2 { margin-bottom: .65rem; }
+.account-option p { max-width: 590px; color: var(--muted); font-size: .84rem; line-height: 1.7; margin-bottom: .75rem; }
+.account-option .button { margin-top: .3rem; }
+.account-option--danger { border-color: #eed5d0; }
+.account-option--danger .account-option__icon { color: #a53e2e; background: #fff0ec; }
+.button--danger-outline { color: #a53e2e; border-color: #dcb3aa; background: #fff; }
+.button--danger-outline:hover { background: #fff4f1; }
+.account-confirmation { padding: 1.5rem; border-color: #dcb3aa; }
+.account-confirmation__heading { display: flex; align-items: flex-start; gap: .8rem; color: #a53e2e; margin-bottom: 1.1rem; }
+.account-confirmation__heading svg { flex-shrink: 0; }
+.account-confirmation__heading p { color: var(--muted); font-size: .82rem; line-height: 1.65; margin: .6rem 0 0; }
+.account-confirmation__fields { display: grid; gap: 1rem; min-width: 0; border: 0; padding: 0; margin: 0; }
+.account-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 620px) {
+  .account-option { padding: 1.1rem; gap: .8rem; }
+  .account-option__icon { width: 36px; height: 36px; }
+  .account-confirmation { padding: 1.1rem; }
+  .account-confirmation .form-actions { flex-direction: column-reverse; }
+}
+
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .study-notice { display: flex; align-items: flex-start; gap: .85rem; padding: 1.15rem 1.35rem; margin-bottom: 1.25rem; border: 1px solid #dfd2eb; border-radius: 14px; background: #f4eef9; color: #57356c; font-size: .83rem; line-height: 1.6; }
 .study-notice > svg { flex-shrink: 0; margin-top: .15rem; }
@@ -345,7 +369,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .calendar-empty p { font-size: .78rem; line-height: 1.6; color: var(--muted); margin: 0; }
 .calendar-scroll { overflow-x: auto; }
 .calendar-scroll-hint { color: var(--muted); font-size: .7rem; margin: .8rem 1.4rem; }
-.calendar-week { display: grid; grid-template-columns: repeat(7, minmax(108px, 1fr)); min-width: 756px; }
+.calendar-week { display: grid; grid-template-columns: repeat(7, minmax(170px, 1fr)); min-width: 1190px; }
 .calendar-day { min-width: 0; border-top: 1px solid var(--line); }
 .calendar-day + .calendar-day { border-left: 1px solid var(--line); }
 .calendar-day__header { display: flex; min-height: 88px; align-items: center; justify-content: center; flex-direction: column; gap: .2rem; padding: .8rem; background: #fcfbfd; border-bottom: 1px solid var(--line); }
@@ -385,12 +409,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .friend-row__copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: .15rem; }
 .friend-row__copy strong { overflow: hidden; font-size: .84rem; text-overflow: ellipsis; white-space: nowrap; }
 .friend-row__copy small { color: var(--muted); font-size: .72rem; }
+.friend-row__bio { margin: .3rem 0 0; color: #554d5e; font-size: .76rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-line; }
 .friend-row__actions { display: flex; flex: 0 0 auto; align-items: center; gap: .5rem; }
 .friend-row__actions > span { color: var(--muted); font-size: .76rem; }
 .friend-row__actions > .friend-row__error { color: #af4e25; }
 .friend-profile { display: flex; flex-direction: column; align-items: center; gap: .6rem; padding: 2.5rem 1.4rem; text-align: center; }
 .friend-profile h1 { font-size: 1.2rem; }
 .friend-profile__email { color: var(--muted); font-size: .84rem; }
+.friend-profile__bio { max-width: 34rem; color: #554d5e; font-size: .84rem; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-line; }
 
 @media (max-width: 640px) {
   .friends-add__body { flex-direction: column; }
@@ -406,6 +432,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
+.calendar-session--locked { border: 1px solid #806198; background: #f0e6f6; }
+.calendar-session__locked { display: flex; align-items: center; gap: .3rem; font-size: .7rem; font-weight: 700; color: #57356c; margin: .4rem 0; }
+.calendar-session__actions { display: flex; flex-wrap: wrap; gap: .2rem; margin-top: .65rem; }
+.calendar-session__actions .button { font-size: .68rem; padding: .35rem; white-space: nowrap; }
+.session-editor { padding: 1.5rem; margin-bottom: 1.25rem; }
+.session-editor > p { color: var(--muted); font-size: .85rem; margin: .75rem 0 1rem; }
+.session-editor__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; border: 0; padding: 0; margin: 0; min-width: 0; }
 
 /* Private messages — same card, avatar, and button vocabulary as Friends. */
 .friend-row--conversation { color: inherit; text-decoration: none; }
