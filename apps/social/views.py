@@ -234,7 +234,7 @@ def conversation_view(request, pk):
         })
 
     body = _json_body(request)
-    if not isinstance(body, dict):
+    if not isinstance(body, dict) or not isinstance(body.get('body'), str):
         return JsonResponse({'errors': {'body': ['Enter a valid message.']}}, status=400)
     form = SendDirectMessageForm(body)
     if not form.is_valid():
