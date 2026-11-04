@@ -1,20 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { api, buildRequestInit, formatDate, toUTCInput } from './api.js'
+import { api, buildRequestInit, formatDate, toEasternInput } from './api.js'
 import config from '../vite.config.js'
 
-test('deadline prefill and display stay in UTC in different browser zones', () => {
+test('deadline prefill and display use Eastern time in different browser zones', () => {
   const originalZone = process.env.TZ
   try {
     for (const zone of ['America/New_York', 'Asia/Tokyo', 'UTC']) {
       process.env.TZ = zone
       for (const month of ['07', '11']) {
         const deadline = `2026-${month}-20T17:45:00+00:00`
-        assert.equal(toUTCInput(deadline), `2026-${month}-20T17:45`)
-        assert.match(formatDate(deadline), /5:45 PM UTC/)
-        // The offset-free form value is interpreted as UTC by Django.
-        assert.equal(new Date(`${toUTCInput(deadline)}Z`).getTime(), Date.parse(deadline))
+        assert.equal(toEasternInput(deadline), `2026-${month}-20T${month === '07' ? '13' : '12'}:45`)
+        assert.match(formatDate(deadline), month === '07' ? /1:45 PM EDT/ : /12:45 PM EST/)
       }
     }
   } finally {
@@ -24,8 +22,8 @@ test('deadline prefill and display stay in UTC in different browser zones', () =
 })
 
 test('deadline prefill converts explicit offsets without changing the instant', () => {
-  assert.equal(toUTCInput('2026-11-20T12:45:00-05:00'), '2026-11-20T17:45')
-  assert.equal(toUTCInput(null), '')
+  assert.equal(toEasternInput('2026-11-20T12:45:00-05:00'), '2026-11-20T12:45')
+  assert.equal(toEasternInput(null), '')
   assert.equal(formatDate(null), 'No deadline')
 })
 

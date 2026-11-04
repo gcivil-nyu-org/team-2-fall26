@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, MessageCircle, Send } from 'lucide-react'
 
-import { api } from './api'
+import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
 
 function ErrorNotice({ text, retry }) {
@@ -98,7 +98,7 @@ export function ConversationPage() {
               {data.messages.length ? data.messages.map((message) => <article key={message.id} className={`conversation__message ${message.is_mine ? 'conversation__message--mine' : ''}`}>
                 <strong>{message.is_mine ? 'You' : message.sender_name}</strong>
                 <p>{message.body}</p>
-                <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time>
+                <time dateTime={message.created_at}>{formatDate(message.created_at, true)}</time>
               </article>) : <div className="empty-state"><span><MessageCircle size={22} /></span><h3>No messages yet</h3><p>Say hello to start your conversation.</p></div>}
             </div>
             <form className="conversation__compose" onSubmit={sendMessage}>

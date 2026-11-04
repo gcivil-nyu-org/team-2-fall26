@@ -7,17 +7,75 @@ from django import forms
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from apps.coursework.models import Course
+
+from .albert import parse_calendar
 from .forms import AvailabilityBlockForm
-from .models import AvailabilityBlock, StudySession
-from .services import lock_study_account, reschedule_warnings
+from .models import AvailabilityBlock, ClassMeeting, StudySession
+from .services import NYU_TIME, lock_study_account, reschedule_warnings
+
+
+@require_POST
+def albert_import_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'detail': 'Authentication required.'}, status=401)
+    try:
+        term, events = parse_calendar(request.FILES.get('calendar'))
+    except UnicodeError:
+        return JsonResponse({'detail': 'The calendar could not be read. Download a fresh .ics export from Albert.'}, status=400)
+    except ValueError as exc:
+        return JsonResponse({'detail': str(exc)}, status=400)
+
+    meetings = ClassMeeting.objects.filter(course__owner=request.user, term=term)
+    with transaction.atomic():
+        get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        courses = {str(course.pk): course for course in request.user.courses.filter(semester__iexact=term)}
+        previous = dict(meetings.values_list('source_uid', 'course_id').distinct())
+        if request.POST.get('confirm') != 'yes':
+            rows = []
+            for uid, event in events.items():
+                matches = [key for key, course in courses.items()
+                           if ' '.join(course.name.casefold().split()) == ' '.join(event['title'].casefold().split())]
+                saved = str(previous.get(uid))
+                selected = saved if saved in courses else matches[0] if len(matches) == 1 else 'new' if not courses else ''
+                rows.append({'uid': uid, 'title': event['title'], 'selected': selected})
+            return JsonResponse({
+                'term': term, 'classes': rows,
+                'courses': [{'id': key, 'name': course.name, 'code': course.code} for key, course in courses.items()],
+                'replacing': bool(previous),
+            })
+
+        choices = {uid: request.POST.get(f'course:{uid}') for uid in events}
+        if any(choice != 'new' and choice not in courses for choice in choices.values()):
+            return JsonResponse({'detail': 'Choose a course for every class and try again.'}, status=400)
+        created = {}
+        rows = []
+        for uid, event in events.items():
+            choice = choices[uid]
+            if choice == 'new':
+                key = ' '.join(event['title'].casefold().split())
+                if key not in created:
+                    matches = [course for course in courses.values() if ' '.join(course.name.casefold().split()) == key]
+                    if len(matches) == 1:
+                        created[key] = matches[0]
+                    else:
+                        created[key] = Course.objects.create(owner=request.user, semester=term, name=event['title'])
+                course = created[key]
+            else:
+                course = courses[choice]
+            rows.extend(ClassMeeting(course=course, term=term, source_uid=uid, starts_at=start,
+                                     ends_at=end, location=event['location']) for start, end in event['times'])
+        meetings.delete()
+        ClassMeeting.objects.bulk_create(rows)
+    return JsonResponse({'meetings': len(rows), 'term': term})
 
 
 def _availability_payload(user):
     blocks = list(user.availability_blocks.all())
     return {
-        'timezone': 'UTC',
+        'timezone': NYU_TIME.key,
         'configured': bool(blocks),
         'blocks': [
             {'weekday': block.weekday, 'start_time': block.start_time.strftime('%H:%M'), 'end_time': block.end_time.strftime('%H:%M')}
@@ -60,7 +118,8 @@ def availability_view(request):
         ordered = sorted(forms, key=lambda item: (item[1].cleaned_data['weekday'], item[1].cleaned_data['start_time']))
         for (_, previous), (index, form) in zip(ordered, ordered[1:]):
             if (form.cleaned_data['weekday'] == previous.cleaned_data['weekday']
-                    and form.cleaned_data['start_time'] < previous.cleaned_data['end_time']):
+                    and (previous.cleaned_data['end_time'] == time.min
+                         or form.cleaned_data['start_time'] < previous.cleaned_data['end_time'])):
                 errors[str(index)] = {'start_time': ['Time blocks on the same day cannot overlap.']}
     if errors:
         return JsonResponse({'detail': 'Check the highlighted time blocks.', 'errors': errors}, status=400)
@@ -80,7 +139,7 @@ def calendar_view(request):
     if not request.user.is_authenticated:
         return JsonResponse({'detail': 'Authentication required.'}, status=401)
     try:
-        selected = date.fromisoformat(request.GET['week']) if 'week' in request.GET else timezone.now().astimezone(dt_timezone.utc).date()
+        selected = date.fromisoformat(request.GET['week']) if 'week' in request.GET else timezone.now().astimezone(NYU_TIME).date()
         # Keep navigation and the exclusive end within representable dates.
         if not date(1900, 1, 8) <= selected <= date(9998, 12, 20):
             raise ValueError
@@ -88,18 +147,27 @@ def calendar_view(request):
         return JsonResponse({'detail': 'Choose a week using a valid date (YYYY-MM-DD).'}, status=400)
     monday = selected - timedelta(days=selected.weekday())
     end = monday + timedelta(days=7)
-    start_at = datetime.combine(monday, time.min, tzinfo=dt_timezone.utc)
-    end_at = datetime.combine(end, time.min, tzinfo=dt_timezone.utc)
+    start_at = datetime.combine(monday, time.min, tzinfo=NYU_TIME)
+    end_at = datetime.combine(end, time.min, tzinfo=NYU_TIME)
     sessions = StudySession.objects.filter(
         assignment__course__owner=request.user, starts_at__lt=end_at, ends_at__gt=start_at,
     ).select_related('assignment__course')
+    classes = ClassMeeting.objects.filter(
+        course__owner=request.user, starts_at__lt=end_at, ends_at__gt=start_at,
+    ).select_related('course')
     return JsonResponse({
-        'timezone': 'UTC',
+        'timezone': NYU_TIME.key,
         'week_start': monday.isoformat(),
         'week_end': end.isoformat(),
         'previous_week': (monday - timedelta(days=7)).isoformat(),
         'next_week': end.isoformat(),
         'availability_configured': AvailabilityBlock.objects.filter(owner=request.user).exists(),
+        'classes': [
+            {'id': f'class-{meeting.pk}', 'starts_at': meeting.starts_at.isoformat(),
+             'ends_at': meeting.ends_at.isoformat(), 'location': meeting.location,
+             'course': {'id': meeting.course_id, 'name': meeting.course.name, 'code': meeting.course.code}}
+            for meeting in classes
+        ],
         'sessions': [
             {
                 'id': session.pk,
@@ -122,7 +190,7 @@ class SessionTimeForm(forms.Form):
         values = super().clean()
         start, end = values.get('starts_at'), values.get('ends_at')
         if start and end:
-            if end <= start:
+            if end.astimezone(dt_timezone.utc) <= start.astimezone(dt_timezone.utc):
                 self.add_error('ends_at', 'The session must end after it starts.')
             elif not date(1900, 1, 8) <= start.date() <= end.date() <= date(9998, 12, 20):
                 self.add_error('starts_at', 'Choose dates between 1900 and 9998.')
@@ -150,8 +218,7 @@ def session_view(request, session_id):
         for field in ('starts_at', 'ends_at'):
             if field in body and not isinstance(body[field], str):
                 return JsonResponse({'errors': {field: ['Enter a valid date and time.']}}, status=400)
-        # Naive datetime-local input is explicitly UTC, independent of server settings.
-        with timezone.override(dt_timezone.utc):
+        with timezone.override(NYU_TIME):
             form = SessionTimeForm(body)
             if not form.is_valid():
                 return JsonResponse({'errors': {key: list(value) for key, value in form.errors.items()}}, status=400)

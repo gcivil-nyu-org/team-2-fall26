@@ -21,8 +21,8 @@ async function edit() {
   return user
 }
 function changeTime(start = '2026-11-03T10:00', end = '2026-11-03T11:00') {
-  fireEvent.input(screen.getByLabelText('Start (UTC)'), { target: { value: start } })
-  fireEvent.input(screen.getByLabelText('End (UTC)'), { target: { value: end } })
+  fireEvent.input(screen.getByLabelText('Start (Eastern)'), { target: { value: start } })
+  fireEvent.input(screen.getByLabelText('End (Eastern)'), { target: { value: end } })
 }
 
 test('lock and unlock update the badge and send the explicit target state', async () => {
@@ -39,13 +39,13 @@ test('lock and unlock update the badge and send the explicit target state', asyn
   expect(api).toHaveBeenLastCalledWith('/study/sessions/7/', { method: 'PATCH', body: { is_locked: false } })
 })
 
-test('cancel closes a UTC-prefilled editor without sending a mutation', async () => {
+test('cancel closes an Eastern-prefilled editor without sending a mutation', async () => {
   openCalendar()
   const user = await edit()
-  expect(screen.getByLabelText('Start (UTC)')).toHaveValue('2026-11-02T09:00')
+  expect(screen.getByLabelText('Start (Eastern)')).toHaveValue('2026-11-02T04:00')
   changeTime()
   await user.click(screen.getByRole('button', { name: 'Cancel' }))
-  expect(screen.queryByLabelText('Start (UTC)')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Start (Eastern)')).not.toBeInTheDocument()
   expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(0)
 })
 
@@ -57,7 +57,7 @@ test('reschedule refreshes the visible calendar after saving', async () => {
   vi.mocked(api).mockResolvedValueOnce({ ...week, sessions: [] })
   await user.click(screen.getByRole('button', { name: 'Save new time' }))
   expect(api).toHaveBeenCalledWith('/study/sessions/7/', { method: 'PATCH', body: { starts_at: '2026-11-03T10:00', ends_at: '2026-11-03T11:00', confirm_warnings: false } })
-  expect(await screen.findByText('No study sessions this week')).toBeInTheDocument()
+  expect(await screen.findByText('No events this week')).toBeInTheDocument()
 })
 
 test('warnings require a second explicit confirmation and editing clears confirmation', async () => {
