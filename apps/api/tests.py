@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.coursework.models import Assignment, Course, Exam
+from apps.study.models import StudySession
 
 # The smallest possible valid GIF (1x1, transparent) — enough for Pillow/
 # ImageField to accept it as a real image without shipping a binary fixture.
@@ -801,6 +802,55 @@ class CourseworkApiTests(ApiTestCase):
         self.assertEqual(after['estimated_workload'], 3.0)
         self.assertEqual(after['status'], before['status'])
         self.assertEqual(after['completed_at'], before['completed_at'])
+
+
+class StudyReminderApiTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.now = timezone.now()
+        self.course = Course.objects.create(owner=self.user, name='Software Engineering', code='CS-GY 6063', semester='Fall 2026')
+        self.assignment = Assignment.objects.create(course=self.course, title='Sprint review')
+
+    def session(self, starts_in, assignment=None):
+        starts_at = self.now + starts_in
+        return StudySession.objects.create(
+            assignment=assignment or self.assignment, starts_at=starts_at, ends_at=starts_at + timedelta(hours=1),
+        )
+
+    def reminders(self):
+        with mock.patch('apps.api.views.timezone.now', return_value=self.now):
+            return self.client.get(reverse('api:dashboard')).json()['study_reminders']
+
+    def test_only_sessions_starting_within_the_next_hour_are_included(self):
+        soon = self.session(timedelta(minutes=30))
+        on_the_hour = self.session(timedelta(hours=1))
+        self.session(timedelta(hours=1, seconds=1))
+        self.session(timedelta(seconds=-1))
+        self.session(timedelta(days=-1))
+        self.assertEqual([item['id'] for item in self.reminders()], [soon.pk, on_the_hour.pk])
+
+    def test_a_session_starting_right_now_has_already_started(self):
+        self.session(timedelta(0))
+        self.assertEqual(self.reminders(), [])
+
+    def test_reminder_names_the_course_and_session_time(self):
+        session = self.session(timedelta(minutes=30))
+        reminder = self.reminders()[0]
+        self.assertEqual(reminder['course'], {'id': self.course.pk, 'name': 'Software Engineering', 'code': 'CS-GY 6063'})
+        self.assertEqual(reminder['assignment'], {'id': self.assignment.pk, 'title': 'Sprint review'})
+        self.assertEqual(reminder['starts_at'], timezone.localtime(session.starts_at).isoformat())
+
+    def test_soonest_session_comes_first(self):
+        later = self.session(timedelta(minutes=50))
+        sooner = self.session(timedelta(minutes=10))
+        self.assertEqual([item['id'] for item in self.reminders()], [sooner.pk, later.pk])
+
+    def test_other_students_sessions_are_never_included(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='pass12345')
+        course = Course.objects.create(owner=other, name='Algorithms', code='', semester='Fall 2026')
+        self.session(timedelta(minutes=30), Assignment.objects.create(course=course, title='Theirs'))
+        self.assertEqual(self.reminders(), [])
 
 
 @override_settings(STORAGES={

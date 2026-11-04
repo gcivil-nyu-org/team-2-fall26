@@ -11,6 +11,7 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  Bell,
   BookOpen,
   CalendarDays,
   Camera,
@@ -407,7 +408,51 @@ function StatCard({ label, value, icon: Icon, tone, detail }) {
   )
 }
 
-function Dashboard() {
+const REMINDER_REFRESH_MS = 60_000
+const DISMISSED_REMINDERS_KEY = 'dismissed-study-reminders'
+
+// The start time is part of the key so a session moved to a new time reminds
+// the student again.
+function reminderKey(reminder) {
+  return `${reminder.id}@${reminder.starts_at}`
+}
+
+function readDismissedReminders() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DISMISSED_REMINDERS_KEY))
+    return Array.isArray(stored) ? stored : []
+  } catch {
+    return []
+  }
+}
+
+function StudyReminders({ reminders }) {
+  const [dismissed, setDismissed] = useState(readDismissedReminders)
+
+  // Dismissing is local to this browser and never calls the API, so it can't
+  // change or cancel the session. Keys for past reminders are dropped here to
+  // keep the stored list from growing.
+  function dismiss(reminder) {
+    const current = reminders.map(reminderKey)
+    const next = [...dismissed.filter((key) => current.includes(key)), reminderKey(reminder)]
+    setDismissed(next)
+    try { localStorage.setItem(DISMISSED_REMINDERS_KEY, JSON.stringify(next)) } catch { /* still hidden until reload */ }
+  }
+
+  return reminders.filter((reminder) => !dismissed.includes(reminderKey(reminder))).map((reminder) => {
+    const course = [reminder.course.code, reminder.course.name].filter(Boolean).join(' ')
+    return <div className="study-notice study-notice--reminder" role="status" key={reminderKey(reminder)}>
+      <Bell size={18} />
+      <div>
+        <strong>Study session soon</strong>
+        <p>{course} · {reminder.assignment.title} starts {formatDate(reminder.starts_at)}</p>
+      </div>
+      <button className="icon-button" onClick={() => dismiss(reminder)} aria-label={`Dismiss reminder for ${course}`}><X size={18} /></button>
+    </div>
+  })
+}
+
+export function Dashboard() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
@@ -416,7 +461,13 @@ function Dashboard() {
     try { setData(await api('/dashboard/')) } catch (err) { setError(err.message) }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    // Keeps reminders current while the page stays open. A failed refresh
+    // leaves the dashboard as it is; the next one tries again.
+    const refresh = setInterval(() => { api('/dashboard/').then(setData).catch(() => {}) }, REMINDER_REFRESH_MS)
+    return () => clearInterval(refresh)
+  }, [])
 
   if (!data && !error) return <PageSkeleton />
   if (error) return <ErrorState message={error} onRetry={load} />
@@ -434,6 +485,7 @@ function Dashboard() {
         subtitle="Here’s what deserves your attention today."
         actions={<NavLink className="button button--primary" to="/courses/new"><Plus size={17} /> Add course</NavLink>}
       />
+      <StudyReminders reminders={data.study_reminders} />
       <div className="study-notice">
         <CalendarDays size={20} />
         <div><strong>Bring your class schedule into SemesterPilot</strong>
