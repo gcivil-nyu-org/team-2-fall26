@@ -188,7 +188,7 @@ describe('study session reminders on the dashboard', () => {
     vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder]))
     renderDashboard()
     const alert = await screen.findByRole('status')
-    expect(alert).toHaveTextContent('EXPOS 101 Writing · Essay draft starts Nov 4, 3:00 PM UTC')
+    expect(alert).toHaveTextContent('EXPOS 101 Writing · Essay draft starts Nov 4, 10:00 AM EST')
   })
 
   test('shows nothing when no session is coming up', async () => {
@@ -250,7 +250,7 @@ describe('study session reminders on the dashboard', () => {
 
     vi.mocked(realApi).mockResolvedValue(dashboardWith([{ ...reminder, starts_at: '2026-11-04T15:30:00+00:00' }]))
     renderDashboard()
-    expect(await screen.findByRole('status')).toHaveTextContent('3:30 PM UTC')
+    expect(await screen.findByRole('status')).toHaveTextContent('10:30 AM EST')
   })
 
   test('dismissing one reminder leaves the others', async () => {
