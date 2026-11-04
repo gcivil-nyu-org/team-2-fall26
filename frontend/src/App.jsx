@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Navigate,
   NavLink,
@@ -11,8 +11,10 @@ import {
 import {
   ArrowLeft,
   ArrowRight,
+  Bell,
   BookOpen,
   CalendarDays,
+  Camera,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -22,19 +24,25 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageCircle,
   MoreHorizontal,
   Pencil,
   Plus,
   Search,
+  Settings,
   Sparkles,
   Trash2,
+  Users,
   X,
 } from 'lucide-react'
 
-import { api, formatDate, toUTCInput } from './api'
+import { api, easternHour, formatDate, toEasternInput } from './api'
+import AccountSettings from './AccountSettings'
 import { AvailabilityPage, CalendarPage } from './StudyPages'
+import { FriendProfilePage, FriendsPage } from './FriendsPage'
+import { ConversationPage, MessagesPage } from './MessagesPage'
 
-const AuthContext = createContext(null)
+export const AuthContext = createContext(null)
 
 function useAuth() {
   return useContext(AuthContext)
@@ -97,10 +105,13 @@ const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { to: '/calendar', label: 'Study calendar', icon: CalendarDays },
   { to: '/availability', label: 'Availability', icon: Clock3 },
+  { to: '/friends', label: 'Friends', icon: Users },
+  { to: '/messages', label: 'Messages', icon: MessageCircle },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
+  { to: '/settings/account', label: 'Account settings', icon: Settings },
 ]
 
-function AppShell({ children }) {
+export function AppShell({ children }) {
   const { session, setSession } = useAuth()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -130,7 +141,11 @@ function AppShell({ children }) {
         <div className="sidebar__spacer" />
         <div className="sidebar__profile">
           <NavLink to="/profile" onClick={() => setMobileOpen(false)} className="sidebar__profile-link" aria-label="Edit your profile">
-            <div className="avatar">{(session.user?.first_name?.[0] || session.user?.email?.[0] || '?').toUpperCase()}</div>
+            <div className="avatar">
+              {session.user?.profile_picture
+                ? <img src={session.user.profile_picture} alt="" />
+                : (session.user?.first_name?.[0] || session.user?.email?.[0] || '?').toUpperCase()}
+            </div>
             <div className="sidebar__identity">
               <strong>{[session.user?.first_name, session.user?.last_name].filter(Boolean).join(' ') || 'Student'}</strong>
               <span>{session.user?.email}</span>
@@ -177,7 +192,8 @@ function AuthLayout({ mode }) {
   const isLogin = mode === 'login'
   const navigate = useNavigate()
   const location = useLocation()
-  const { refresh } = useAuth()
+  const { refresh, session } = useAuth()
+  const accountAction = location.state?.accountAction || session.accountAction
   const [values, setValues] = useState({ email: '', password: '', password_confirm: '' })
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
@@ -211,6 +227,7 @@ function AuthLayout({ mode }) {
           <p className="kicker">{isLogin ? 'Welcome back' : 'Start fresh'}</p>
           <h2>{isLogin ? 'Sign in to your workspace' : 'Create your account'}</h2>
           <p className="auth-card__intro">{isLogin ? 'Pick up where you left off.' : 'Your semester gets easier from here.'}</p>
+          {isLogin && ['delete', 'deactivate'].includes(accountAction) && <div className="form-alert form-alert--success" role="status">{accountAction === 'delete' ? 'Your account and its coursework have been permanently deleted.' : 'Your account has been deactivated and your data is saved. An administrator can reactivate it.'}</div>}
           {errors.non_field_errors && <div className="form-alert">{errors.non_field_errors[0]}</div>}
           <form onSubmit={submit} className="form-stack">
             <Field label="Email address" error={errors.email?.[0]}>
@@ -391,7 +408,51 @@ function StatCard({ label, value, icon: Icon, tone, detail }) {
   )
 }
 
-function Dashboard() {
+const REMINDER_REFRESH_MS = 60_000
+const DISMISSED_REMINDERS_KEY = 'dismissed-study-reminders'
+
+// The start time is part of the key so a session moved to a new time reminds
+// the student again.
+function reminderKey(reminder) {
+  return `${reminder.id}@${reminder.starts_at}`
+}
+
+function readDismissedReminders() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DISMISSED_REMINDERS_KEY))
+    return Array.isArray(stored) ? stored : []
+  } catch {
+    return []
+  }
+}
+
+function StudyReminders({ reminders }) {
+  const [dismissed, setDismissed] = useState(readDismissedReminders)
+
+  // Dismissing is local to this browser and never calls the API, so it can't
+  // change or cancel the session. Keys for past reminders are dropped here to
+  // keep the stored list from growing.
+  function dismiss(reminder) {
+    const current = reminders.map(reminderKey)
+    const next = [...dismissed.filter((key) => current.includes(key)), reminderKey(reminder)]
+    setDismissed(next)
+    try { localStorage.setItem(DISMISSED_REMINDERS_KEY, JSON.stringify(next)) } catch { /* still hidden until reload */ }
+  }
+
+  return reminders.filter((reminder) => !dismissed.includes(reminderKey(reminder))).map((reminder) => {
+    const course = [reminder.course.code, reminder.course.name].filter(Boolean).join(' ')
+    return <div className="study-notice study-notice--reminder" role="status" key={reminderKey(reminder)}>
+      <Bell size={18} />
+      <div>
+        <strong>Study session soon</strong>
+        <p>{course} · {reminder.assignment.title} starts {formatDate(reminder.starts_at)}</p>
+      </div>
+      <button className="icon-button" onClick={() => dismiss(reminder)} aria-label={`Dismiss reminder for ${course}`}><X size={18} /></button>
+    </div>
+  })
+}
+
+export function Dashboard() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
@@ -400,7 +461,13 @@ function Dashboard() {
     try { setData(await api('/dashboard/')) } catch (err) { setError(err.message) }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    // Keeps reminders current while the page stays open. A failed refresh
+    // leaves the dashboard as it is; the next one tries again.
+    const refresh = setInterval(() => { api('/dashboard/').then(setData).catch(() => {}) }, REMINDER_REFRESH_MS)
+    return () => clearInterval(refresh)
+  }, [])
 
   if (!data && !error) return <PageSkeleton />
   if (error) return <ErrorState message={error} onRetry={load} />
@@ -418,6 +485,13 @@ function Dashboard() {
         subtitle="Here’s what deserves your attention today."
         actions={<NavLink className="button button--primary" to="/courses/new"><Plus size={17} /> Add course</NavLink>}
       />
+      <StudyReminders reminders={data.study_reminders} />
+      <div className="study-notice">
+        <CalendarDays size={20} />
+        <div><strong>Bring your class schedule into SemesterPilot</strong>
+          <p>Upload your Albert calendar to see class meetings alongside study sessions. <NavLink to="/calendar?import=albert">Import from Albert</NavLink></p>
+        </div>
+      </div>
       <section className="stats-grid" aria-label="Semester summary">
         <StatCard label="Active courses" value={data.metrics.courses} detail="this semester" icon={BookOpen} tone="violet" />
         <StatCard label="Due this week" value={data.metrics.due_this_week} detail="next 7 days" icon={CalendarDays} tone="green" />
@@ -746,10 +820,12 @@ function CourseFormPage({ editing = false }) {
   )
 }
 
-function ProfilePage() {
+const BIO_MAX_LENGTH = 300
+
+export function ProfilePage() {
   const navigate = useNavigate()
   const { refresh } = useAuth()
-  const [values, setValues] = useState({ first_name: '', last_name: '' })
+  const [values, setValues] = useState({ first_name: '', last_name: '', bio: '' })
   const [email, setEmail] = useState('')
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(true)
@@ -762,6 +838,10 @@ function ProfilePage() {
   const [passwordErrors, setPasswordErrors] = useState({})
   const [passwordSubmitting, setPasswordSubmitting] = useState(false)
   const [passwordSaved, setPasswordSaved] = useState(false)
+  const [picture, setPicture] = useState(null)
+  const [pictureError, setPictureError] = useState('')
+  const [pictureBusy, setPictureBusy] = useState(false)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     let active = true
@@ -771,8 +851,9 @@ function ProfilePage() {
       try {
         const data = await api('/profile/')
         if (!active) return
-        setValues({ first_name: data.user.first_name, last_name: data.user.last_name })
+        setValues({ first_name: data.user.first_name, last_name: data.user.last_name, bio: data.user.bio || '' })
         setEmail(data.user.email)
+        setPicture(data.user.profile_picture)
       } catch (error) {
         if (active) setLoadError(error.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load your profile. Try again.')
       } finally { if (active) setLoading(false) }
@@ -809,6 +890,39 @@ function ProfilePage() {
     setPasswordErrors({})
   }
 
+  async function uploadPicture(event) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    setPictureBusy(true)
+    setPictureError('')
+    try {
+      const body = new FormData()
+      body.append('profile_picture', file)
+      const data = await api('/profile/picture/', { method: 'POST', body })
+      setPicture(data.user.profile_picture)
+      await refresh()
+    } catch (error) {
+      setPictureError(error.errors?.profile_picture?.[0] || error.message)
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
+  async function removePicture() {
+    setPictureBusy(true)
+    setPictureError('')
+    try {
+      const data = await api('/profile/picture/', { method: 'DELETE' })
+      setPicture(data.user.profile_picture)
+      await refresh()
+    } catch (error) {
+      setPictureError(error.message)
+    } finally {
+      setPictureBusy(false)
+    }
+  }
+
   async function submitPassword(event) {
     event.preventDefault()
     setPasswordSubmitting(true)
@@ -828,7 +942,35 @@ function ProfilePage() {
   if (loading) return <PageSkeleton />
   if (loadError) return <ErrorState message={loadError} onRetry={() => setLoadAttempt((value) => value + 1)} />
   return (
-    <FormPage backTo="/dashboard" eyebrow="Account" title="Edit profile" subtitle="Keep your name accurate so your work stays personal to you.">
+    <FormPage
+      backTo="/dashboard"
+      eyebrow="Account"
+      title="Edit profile"
+      subtitle="Keep your name accurate so your work stays personal to you."
+      actions={
+        <div className="profile-picture-header">
+          <button
+            type="button"
+            className="avatar avatar--large avatar--editable"
+            disabled={pictureBusy}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label={picture ? 'Change profile photo' : 'Upload a profile photo'}
+          >
+            {picture
+              ? <img src={picture} alt="" />
+              : (values.first_name?.[0] || email?.[0] || '?').toUpperCase()}
+            <span className="avatar__badge"><Camera size={13} /></span>
+          </button>
+          {picture && (
+            <button type="button" className="text-link profile-picture-header__remove" disabled={pictureBusy} onClick={removePicture}>
+              <Trash2 size={13} /> Remove
+            </button>
+          )}
+          {pictureError && <span className="profile-picture-header__error">{pictureError}</span>}
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={uploadPicture} hidden data-testid="profile-picture-input" />
+        </div>
+      }
+    >
       <form onSubmit={submit} className="editor-card">
         {saved && <div className="form-alert form-alert--success">Your profile has been updated.</div>}
         <Field label="First name" error={errors.first_name?.[0]}>
@@ -837,7 +979,11 @@ function ProfilePage() {
         <Field label="Last name" error={errors.last_name?.[0]}>
           <input name="last_name" value={values.last_name} onChange={update} required />
         </Field>
-        <Field label="Email" hint="Can't be changed">
+        <Field label="Bio" hint={`${values.bio.length} / ${BIO_MAX_LENGTH}`} error={errors.bio?.[0]}>
+          <textarea name="bio" rows="3" value={values.bio} onChange={update} placeholder="e.g. CS junior, into ML and climbing. Happy to study for algorithms together." aria-describedby="bio-visibility" />
+          <span id="bio-visibility" className="field__note">Your friends and anyone you have a pending friend request with can see this.</span>
+        </Field>
+        <Field label="Email">
           <input value={email} disabled />
         </Field>
         <FormActions submitting={submitting} label="Save changes" cancel={() => navigate('/dashboard')} />
@@ -863,7 +1009,7 @@ function ProfilePage() {
           <div className="profile-security">
             <div>
               <h3>Password</h3>
-              <p>{passwordSaved ? 'Your password has been updated.' : "Update your password without leaving this page \u2014 you'll stay signed in."}</p>
+              <p>{passwordSaved ? 'Your password has been updated.' : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}</p>
             </div>
             <button type="button" className="button button--secondary" onClick={() => setPasswordOpen(true)}>Change password</button>
           </div>
@@ -898,7 +1044,7 @@ function AssignmentFormPage({ editing = false }) {
           setCourse(data.assignment.course)
           setValues({
             title: data.assignment.title,
-            due_date: toUTCInput(data.assignment.due_date),
+            due_date: toEasternInput(data.assignment.due_date),
             description: data.assignment.description,
             priority: data.assignment.priority || '',
             estimated_workload: data.assignment.estimated_workload ?? '',
@@ -944,7 +1090,7 @@ function AssignmentFormPage({ editing = false }) {
     >
       <form onSubmit={submit} className="editor-card">
         <Field label="Assignment title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Sprint retrospective" autoFocus required /></Field>
-        <Field label="Deadline" hint="Time zone: UTC" error={errors.due_date?.[0]}><input name="due_date" type="datetime-local" value={values.due_date} onChange={update} onInput={update} required /></Field>
+        <Field label="Deadline" hint="Time zone: Eastern" error={errors.due_date?.[0]}><input name="due_date" type="datetime-local" value={values.due_date} onChange={update} onInput={update} required /></Field>
         <div className="field-pair">
           <Field label="Priority" hint="Optional" error={errors.priority?.[0]}>
             <select name="priority" value={values.priority} onChange={update}>
@@ -990,7 +1136,7 @@ function ExamFormPage({ editing = false }) {
           setCourse(data.exam.course)
           setValues({
             title: data.exam.title,
-            starts_at: toUTCInput(data.exam.starts_at),
+            starts_at: toEasternInput(data.exam.starts_at),
             location: data.exam.location,
             priority: data.exam.priority || '',
             estimated_workload: data.exam.estimated_workload ?? '',
@@ -1035,7 +1181,7 @@ function ExamFormPage({ editing = false }) {
     >
       <form onSubmit={submit} className="editor-card">
         <Field label="Exam title" error={errors.title?.[0]}><input name="title" value={values.title} onChange={update} placeholder="e.g. Midterm" autoFocus required /></Field>
-        <Field label="Date and time" hint="Time zone: UTC" error={errors.starts_at?.[0]}><input name="starts_at" type="datetime-local" value={values.starts_at} onChange={update} onInput={update} required /></Field>
+        <Field label="Date and time" hint="Time zone: Eastern" error={errors.starts_at?.[0]}><input name="starts_at" type="datetime-local" value={values.starts_at} onChange={update} onInput={update} required /></Field>
         <div className="field-pair">
           <Field label="Priority" hint="Optional" error={errors.priority?.[0]}>
             <select name="priority" value={values.priority} onChange={update}>
@@ -1056,11 +1202,11 @@ function ExamFormPage({ editing = false }) {
   )
 }
 
-function FormPage({ backTo, eyebrow, title, subtitle, children }) {
+function FormPage({ backTo, eyebrow, title, subtitle, actions, children }) {
   return (
     <div className="form-page">
       <NavLink className="back-link" to={backTo}><ArrowLeft size={16} /> Back</NavLink>
-      <PageHeader eyebrow={eyebrow} title={title} subtitle={subtitle} />
+      <PageHeader eyebrow={eyebrow} title={title} subtitle={subtitle} actions={actions} />
       {children}
     </div>
   )
@@ -1112,7 +1258,12 @@ function NotFound() {
 }
 
 function capitalize(value) { return value ? value[0].toUpperCase() + value.slice(1) : 'there' }
-function timeGreeting() { const hour = new Date().getHours(); return hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening' }
+function timeGreeting() { const hour = easternHour(); return hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening' }
+
+function AccountSettingsPage() {
+  const { setSession } = useAuth()
+  return <AccountSettings onAccountClosed={(accountAction) => setSession({ loading: false, authenticated: false, user: null, accountAction })} />
+}
 
 function AppRoutes() {
   return (
@@ -1124,9 +1275,14 @@ function AppRoutes() {
       <Route path="*" element={<ProtectedRoute><AppShell><Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/settings/account" element={<AccountSettingsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/availability" element={<AvailabilityPage />} />
+        <Route path="/friends" element={<FriendsPage />} />
+        <Route path="/friends/:friendshipId" element={<FriendProfilePage />} />
+        <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/messages/:userId" element={<ConversationPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />

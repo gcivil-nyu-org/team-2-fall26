@@ -7,6 +7,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -16,12 +17,15 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import ProfileForm, SignUpForm
+from apps.accounts.forms import AccountActionForm, ProfileForm, ProfilePictureForm, SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
+from apps.study.models import StudySession
 
 logger = logging.getLogger(__name__)
+
+STUDY_REMINDER_WINDOW = timedelta(hours=1)
 
 
 def _json_body(request):
@@ -48,6 +52,8 @@ def _user_payload(user):
         'email': user.email,
         'first_name': user.first_name,
         'last_name': user.last_name,
+        'profile_picture': user.profile_picture.url if user.profile_picture else None,
+        'bio': user.bio,
     }
 
 
@@ -122,6 +128,24 @@ def _upcoming_payload(assignments, exams):
     return [payload for _, _, payload in items]
 
 
+def _study_reminder_payload(user, now):
+    sessions = StudySession.objects.filter(
+        assignment__course__owner=user,
+        starts_at__gt=now,
+        starts_at__lte=now + STUDY_REMINDER_WINDOW,
+    ).select_related('assignment__course')
+    return [
+        {
+            'id': session.pk,
+            'starts_at': timezone.localtime(session.starts_at).isoformat(),
+            'ends_at': timezone.localtime(session.ends_at).isoformat(),
+            'assignment': {'id': session.assignment_id, 'title': session.assignment.title},
+            'course': {'id': session.assignment.course_id, 'name': session.assignment.course.name, 'code': session.assignment.course.code},
+        }
+        for session in sessions
+    ]
+
+
 def _semester_payload(instance=None):
     form = CourseForm(instance=instance)
     selected = form['semester'].value()
@@ -174,6 +198,46 @@ def signup_view(request):
 def logout_view(request):
     logout(request)
     return JsonResponse({'ok': True})
+
+
+def _account_action(request, action):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Send a JSON object with your current password and confirmation.'}, status=400)
+    for field in ('current_password', 'confirmation'):
+        if field in body and not isinstance(body[field], str):
+            return JsonResponse({'errors': {field: ['Enter a text value.']}}, status=400)
+    with transaction.atomic():
+        # Only the signed-in account can be changed, regardless of any ID in
+        # the request. Recheck credentials against the locked, current row.
+        user = User.objects.select_for_update().filter(pk=request.user.pk, is_active=True).first()
+        if user is None:
+            return _unauthorized()
+        form = AccountActionForm(body, user=user, action=action)
+        if not form.is_valid():
+            return JsonResponse({'errors': _errors(form)}, status=400)
+        if action == 'delete':
+            user.delete()
+        else:
+            user.is_active = False
+            # Rehash the same password to retire existing session hashes and
+            # reset tokens, even if an administrator later reactivates access.
+            user.set_password(form.cleaned_data['current_password'])
+            user.save(update_fields=['is_active', 'password'])
+    logout(request)
+    return JsonResponse({'ok': True, 'action': action})
+
+
+@require_POST
+def account_deactivate_view(request):
+    return _account_action(request, 'deactivate')
+
+
+@require_http_methods(['DELETE'])
+def account_delete_view(request):
+    return _account_action(request, 'delete')
 
 
 @require_POST
@@ -239,11 +303,40 @@ def profile_view(request):
     body = _json_body(request)
     if body is None:
         return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
-    form = ProfileForm(body, instance=request.user)
+    # A client that only sends the name fields shouldn't wipe an existing bio.
+    form = ProfileForm({'bio': request.user.bio, **body}, instance=request.user)
     if not form.is_valid():
         return JsonResponse({'errors': _errors(form)}, status=400)
     user = form.save()
     return JsonResponse({'user': _user_payload(user)})
+
+
+@require_http_methods(['POST', 'DELETE'])
+def profile_picture_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # Capture the old file's storage name up front. We delete it through
+    # storage directly (below) rather than via its FieldFile.delete(), because
+    # FieldFile.delete() also resets request.user.profile_picture on this
+    # instance as a side effect — which, if called after saving the new
+    # picture, would wipe out the picture we just saved (in memory and
+    # therefore in the JSON response), even though the DB row stays correct.
+    old_name = request.user.profile_picture.name if request.user.profile_picture else None
+    if request.method == 'DELETE':
+        request.user.profile_picture = None
+        request.user.save()
+        if old_name:
+            request.user.profile_picture.storage.delete(old_name)
+        return JsonResponse({'user': _user_payload(request.user)})
+    form = ProfilePictureForm(request.POST, request.FILES, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    form.save()
+    if old_name:
+        # Clean up the previous file now that the new one is safely saved
+        # under its own (storage-assigned) name.
+        request.user.profile_picture.storage.delete(old_name)
+    return JsonResponse({'user': _user_payload(request.user)})
 
 
 @require_POST
@@ -296,6 +389,7 @@ def dashboard_view(request):
         'courses': [_course_payload(course) for course in courses],
         'assignments': [_assignment_payload(item) for item in outstanding],
         'upcoming': _upcoming_payload(outstanding, exams),
+        'study_reminders': _study_reminder_payload(request.user, now),
     })
 
 
