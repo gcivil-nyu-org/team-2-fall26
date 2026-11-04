@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { buildRequestInit, formatDate, toEasternInput } from './api.js'
+import { api, buildRequestInit, formatDate, toEasternInput } from './api.js'
 import config from '../vite.config.js'
 
 test('deadline prefill and display use Eastern time in different browser zones', () => {
@@ -59,4 +59,15 @@ test('GET/HEAD/OPTIONS requests never need a CSRF token', () => {
   for (const method of ['GET', 'HEAD', 'OPTIONS']) {
     assert.equal(buildRequestInit({ method }).needsCsrf, false)
   }
+})
+
+
+test('reschedule warnings survive the API error response', async (t) => {
+  const warnings = ['This time overlaps another study session.']
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 409, json: async () => ({ detail: 'Review warnings.', warnings }) }))
+  await assert.rejects(api('/study/sessions/7/'), (error) => {
+    assert.equal(error.status, 409)
+    assert.deepEqual(error.warnings, warnings)
+    return true
+  })
 })

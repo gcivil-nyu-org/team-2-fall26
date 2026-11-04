@@ -170,6 +170,26 @@ Run `python manage.py migrate` after updating to apply the assignment schema cha
 Existing deadlines retain their stored instant; existing assignments
 without a deadline remain readable. New submissions must include a deadline.
 
+## Account deactivation and deletion (#36)
+
+Open **Account settings** from the sidebar (`/app/settings/account`). Both
+actions require the current password and a typed confirmation. Cancel clears
+the confirmation form without sending a request.
+
+- **Deactivate:** type `DEACTIVATE`. The account is disabled and signed out;
+  courses, assignments, exams, availability, and study sessions are retained. An administrator must enable
+  the user's **Active** flag in Django admin before they can sign in again.
+  The password stays the same, but old sessions and reset links are invalidated.
+- **Delete:** type `DELETE`. The account and its courses, assignments, exams,
+  availability, and study sessions are permanently removed. Other students'
+  accounts, coursework, and study data are unaffected.
+
+Session-authenticated API endpoints are `POST /api/account/deactivate/` and
+`DELETE /api/account/`. Both require CSRF protection and a JSON body with
+`current_password` and `confirmation`. They always operate on the signed-in
+account; request data cannot select another user. No database migration is
+needed: deactivation uses Django's existing `is_active` flag.
+
 ## Database
 
 Defaults to SQLite, no setup required. To use Postgres instead (e.g. for AWS RDS), set these in `.env`:
@@ -300,3 +320,37 @@ eb init                       # once: Python 3.13 (Amazon Linux 2023), region us
 git checkout develop && eb deploy semesterpilot-staging
 git checkout main    && eb deploy semesterpilot-prod
 ```
+
+
+### Study session controls (#42, #43)
+
+On the study calendar, **Lock** preserves a session's time during future schedule
+regeneration; **Unlock** makes it replaceable again. Locked sessions have a badge
+and a distinct border. **Reschedule** opens start/end fields in Eastern time. Saving
+outside availability or over another session shows warnings first; **Move anyway**
+confirms that specific move, while **Cancel** leaves it unchanged. Editing either
+field clears the previous warning confirmation. A manual move keeps the lock state.
+
+Run `python manage.py migrate` after pulling to add `StudySession.is_locked`.
+`PATCH /api/study/sessions/<id>/` accepts `is_locked` or both `starts_at` and
+`ends_at`, with `confirm_warnings: true` to override current scheduling warnings.
+Only the signed-in owner's sessions can be changed; writes require CSRF protection.
+
+**Integration with #41:** automatic generation is a separate, still-open story.
+`apps.study.services.replace_unlocked_sessions(user, starts_at, ends_at, candidates)`
+is the tested persistence boundary for that generator. Plan around existing locked
+sessions and pass new, unsaved `StudySession` instances. The helper preserves locked
+sessions and other accounts' sessions, replaces only unlocked sessions fully inside
+the planning window, and rejects candidates that overlap preserved sessions or each
+other. Session edits, availability updates, and this helper serialize writes using
+the same account-row lock. Jane's generator must call this helper (or provide the
+same guarantees); end-to-end generation integration remains to be checked in #41.
+
+
+The generator can use `preserved_sessions(user, starts_at, ends_at)` from
+`apps.study.services` to obtain the exact queryset of sessions the replacement
+helper keeps: locked sessions, sessions crossing either window boundary, and
+sessions outside the window. Both helpers share that selection, so planning and
+replacement cannot drift. Hold `lock_study_account(user)` within one
+`transaction.atomic()` block while reading preserved sessions, planning, and
+calling `replace_unlocked_sessions` to serialize against availability/session edits.

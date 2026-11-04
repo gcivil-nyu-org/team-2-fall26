@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Plus, Trash2 } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, LockKeyhole, Plus, Trash2, UnlockKeyhole } from 'lucide-react'
 
-import { api } from './api'
+import { api, toEasternInput } from './api'
 import { AlbertImport } from './AlbertImport'
 import { availableHours, calendarDate, calendarMidnight, dateLabel, WEEKDAYS, weekDays } from './studyCalendar'
 
@@ -115,6 +115,50 @@ export function AvailabilityPage() {
   </>
 }
 
+function SessionEditor({ session, onSaved, onCancel }) {
+  const [values, setValues] = useState({ starts_at: toEasternInput(session.starts_at), ends_at: toEasternInput(session.ends_at) })
+  const [warnings, setWarnings] = useState([])
+  const [error, setError] = useState('')
+  const [errors, setErrors] = useState({})
+  const [saving, setSaving] = useState(false)
+
+  function change(event) {
+    setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
+    setWarnings([])
+    setErrors({})
+    setError('')
+  }
+
+  async function save(event) {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    setErrors({})
+    try {
+      await api(`/study/sessions/${session.id}/`, { method: 'PATCH', body: { ...values, confirm_warnings: warnings.length > 0 } })
+      onSaved()
+    } catch (err) {
+      setWarnings(err.warnings || [])
+      setErrors(err.errors || {})
+      setError(err.message)
+    } finally { setSaving(false) }
+  }
+
+  return <section className="panel session-editor" aria-labelledby="session-editor-title">
+    <h2 id="session-editor-title">Reschedule {session.assignment.title}</h2>
+    <p>All dates and times are in Eastern time. {session.is_locked && 'This session stays locked after you move it.'}</p>
+    {error && <div className="study-notice study-notice--error" role="alert">{error}</div>}
+    {warnings.length > 0 && <div className="study-notice" role="alert"><div><strong>Move this session anyway?</strong><ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>Confirming changes only this session.</p></div></div>}
+    <form onSubmit={save} className="form-stack">
+      <fieldset className="session-editor__fields" disabled={saving}>
+        <legend className="sr-only">New session times in Eastern time</legend>
+        {['starts_at', 'ends_at'].map((field) => <label className="field" key={field}><span className="field__label">{field === 'starts_at' ? 'Start' : 'End'} (Eastern)</span><input type="datetime-local" name={field} value={values[field]} onChange={change} onInput={change} required aria-invalid={Boolean(errors[field])} aria-describedby={errors[field] ? `session-${field}-error` : undefined} />{errors[field] && <span id={`session-${field}-error`} className="field__error">{errors[field].join(' ')}</span>}</label>)}
+      </fieldset>
+      <div className="form-actions"><button type="button" className="button button--secondary" disabled={saving} onClick={onCancel}>Cancel</button><button className="button button--primary" disabled={saving}>{saving ? 'Saving…' : warnings.length ? 'Move anyway' : 'Save new time'}</button></div>
+    </form>
+  </section>
+}
+
 export function CalendarPage() {
   const [params, setParams] = useSearchParams()
   const week = params.get('week') || ''
@@ -123,10 +167,28 @@ export function CalendarPage() {
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
 
+  const [editing, setEditing] = useState(null)
+  const [busy, setBusy] = useState(null)
+  const [actionError, setActionError] = useState('')
+  const [message, setMessage] = useState('')
+
+  async function toggleLock(session) {
+    setBusy(session.id)
+    setActionError('')
+    setMessage('')
+    try {
+      const result = await api(`/study/sessions/${session.id}/`, { method: 'PATCH', body: { is_locked: !session.is_locked } })
+      setData((current) => ({ ...current, sessions: current.sessions.map((item) => item.id === result.id ? { ...item, ...result } : item) }))
+      setMessage(result.is_locked ? 'Session locked. Schedule regeneration will preserve it.' : 'Session unlocked.')
+    } catch (err) { setActionError(err.message) }
+    finally { setBusy(null) }
+  }
+
   useEffect(() => {
     let active = true
     setLoading(true)
     setError('')
+    setEditing(null)
     api(`/study/calendar/${week ? `?week=${encodeURIComponent(week)}` : ''}`).then((result) => { if (active) setData(result) })
       .catch((err) => { if (active) setError(err.message) })
       .finally(() => { if (active) setLoading(false) })
@@ -152,6 +214,9 @@ export function CalendarPage() {
       <button className="button button--soft" onClick={() => setParams({})}>Return to this week</button>
     </> : data && <>
       {!data.availability_configured && <div className="study-notice"><Clock3 size={20} /><div><strong>Make room for your study plan</strong><p>Set your weekly availability before a study schedule can be generated. <NavLink to="/availability">Choose your available hours</NavLink></p></div></div>}
+      {actionError && <div className="study-notice study-notice--error" role="alert">{actionError}</div>}
+      {message && <div className="study-notice study-notice--success" role="status">{message}</div>}
+      {editing && <SessionEditor key={editing.id} session={editing} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); setMessage('Session rescheduled.'); setAttempt((value) => value + 1) }} />}
       <section className="panel calendar-panel" aria-label="Weekly study calendar">
         <div className="panel__header calendar-toolbar">
           <div><p className="kicker">Monday – Sunday · Eastern time</p><h2 aria-live="polite">{dateLabel(data.week_start)} – {dateLabel(days[6].date, { year: 'numeric' })}</h2></div>
@@ -165,12 +230,14 @@ export function CalendarPage() {
             {days.map((day) => <section key={day.date} className={`calendar-day ${day.date === today ? 'calendar-day--today' : ''}`} aria-label={`${day.name}, ${day.date}`}>
               <header className="calendar-day__header"><span>{day.name.slice(0, 3)}</span><time dateTime={day.date}>{new Date(`${day.date}T00:00:00Z`).getUTCDate()}</time>{day.date === today && <small>Today</small>}</header>
               <div className="calendar-day__sessions">
-                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={session.assignment ? 'calendar-session' : 'calendar-session calendar-session--class'}>
+                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={`calendar-session ${session.assignment ? (session.is_locked ? 'calendar-session--locked' : '') : 'calendar-session--class'}`}>
                   <div className="calendar-session__time"><Clock3 size={12} /><span>{session.time}</span></div>
+                  {session.is_locked && <span className="calendar-session__locked"><LockKeyhole size={12} /> Locked</span>}
                   <h3>{session.assignment?.title || 'Class meeting'}</h3>
                   <NavLink to={`/courses/${session.course.id}`}>{session.assignment ? session.course.code || session.course.name : session.course.name}</NavLink>
                   {session.assignment && session.course.code && <p>{session.course.name}</p>}
                   {session.location && <p>{session.location}</p>}
+                  {session.assignment && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${session.assignment.title}`} disabled={busy !== null || editing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${session.assignment.title}`} disabled={busy !== null || editing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button></div>}
                 </article>) : <p className="calendar-day__empty">No sessions</p>}
               </div>
             </section>)}
