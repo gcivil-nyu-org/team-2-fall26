@@ -253,6 +253,12 @@ describe('study session reminders on the dashboard', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('10:30 AM EST')
   })
 
+  test('exam prep sessions are named after the exam', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([{ ...reminder, assignment: null, exam: { id: 4, title: 'Midterm' } }]))
+    renderDashboard()
+    expect(await screen.findByRole('status')).toHaveTextContent('EXPOS 101 Writing · Midterm prep starts')
+  })
+
   test('dismissing one reminder leaves the others', async () => {
     const other = { ...reminder, id: 6, course: { id: 3, name: 'Algorithms', code: '' } }
     vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder, other]))

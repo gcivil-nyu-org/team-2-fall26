@@ -38,7 +38,7 @@ import {
 
 import { api, easternHour, formatDate, toEasternInput } from './api'
 import AccountSettings from './AccountSettings'
-import { AvailabilityPage, CalendarPage } from './StudyPages'
+import { AvailabilityPage, CalendarPage, sessionLabel } from './StudyPages'
 import { FriendProfilePage, FriendsPage } from './FriendsPage'
 import { ConversationPage, MessagesPage } from './MessagesPage'
 
@@ -445,7 +445,7 @@ function StudyReminders({ reminders }) {
       <Bell size={18} />
       <div>
         <strong>Study session soon</strong>
-        <p>{course} · {reminder.assignment.title} starts {formatDate(reminder.starts_at)}</p>
+        <p>{course} · {sessionLabel(reminder)} starts {formatDate(reminder.starts_at)}</p>
       </div>
       <button className="icon-button" onClick={() => dismiss(reminder)} aria-label={`Dismiss reminder for ${course}`}><X size={18} /></button>
     </div>

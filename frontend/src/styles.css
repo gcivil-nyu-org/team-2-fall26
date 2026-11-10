@@ -347,6 +347,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .study-notice--error { background: #fff5f2; border-color: #efd5d0; color: #9c4031; }
 .study-notice--error .button { margin-left: auto; }
 .study-notice--reminder .icon-button { margin-left: auto; color: inherit; }
+.study-notice--warning { background: #fff8eb; border-color: #f1dfb8; color: #7a5414; }
+.study-notice ul { margin: .35rem 0 .5rem; padding-left: 1.1rem; }
+.study-notice--confirm { flex-wrap: wrap; }
+.study-notice__actions { display: flex; gap: .5rem; margin-left: auto; align-self: center; }
 .availability-panel { max-width: 940px; }
 .availability-days { padding: 0; margin: 0; border: 0; min-width: 0; }
 .availability-day { display: grid; grid-template-columns: 165px 1fr; gap: 1rem; padding: 1.25rem 1.5rem; }

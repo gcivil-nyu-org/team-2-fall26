@@ -22,6 +22,7 @@ from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
 from apps.study.models import StudySession
+from apps.study.services import session_item_payload
 
 logger = logging.getLogger(__name__)
 
@@ -129,18 +130,16 @@ def _upcoming_payload(assignments, exams):
 
 
 def _study_reminder_payload(user, now):
-    sessions = StudySession.objects.filter(
-        assignment__course__owner=user,
+    sessions = StudySession.objects.owned_by(user).filter(
         starts_at__gt=now,
         starts_at__lte=now + STUDY_REMINDER_WINDOW,
-    ).select_related('assignment__course')
+    ).with_course()
     return [
         {
             'id': session.pk,
             'starts_at': timezone.localtime(session.starts_at).isoformat(),
             'ends_at': timezone.localtime(session.ends_at).isoformat(),
-            'assignment': {'id': session.assignment_id, 'title': session.assignment.title},
-            'course': {'id': session.assignment.course_id, 'name': session.assignment.course.name, 'code': session.assignment.course.code},
+            **session_item_payload(session),
         }
         for session in sessions
     ]
