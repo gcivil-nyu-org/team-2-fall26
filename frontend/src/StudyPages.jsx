@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, LockKeyhole, Plus, Sparkles, Trash2, UnlockKeyhole } from 'lucide-react'
+import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Circle, Clock3, LockKeyhole, Plus, Sparkles, Trash2, UnlockKeyhole } from 'lucide-react'
 
 import { api, formatDate, toEasternInput } from './api'
 import { AlbertImport } from './AlbertImport'
@@ -230,16 +230,26 @@ export function CalendarPage() {
     finally { setGenerating(false) }
   }
 
-  async function toggleLock(session) {
+  async function updateSession(session, body, describe) {
     setBusy(session.id)
     setActionError('')
     setMessage('')
     try {
-      const result = await api(`/study/sessions/${session.id}/`, { method: 'PATCH', body: { is_locked: !session.is_locked } })
+      const result = await api(`/study/sessions/${session.id}/`, { method: 'PATCH', body })
       setData((current) => ({ ...current, sessions: current.sessions.map((item) => item.id === result.id ? { ...item, ...result } : item) }))
-      setMessage(result.is_locked ? 'Session locked. Schedule regeneration will preserve it.' : 'Session unlocked.')
+      setMessage(describe(result))
     } catch (err) { setActionError(err.message) }
     finally { setBusy(null) }
+  }
+
+  function toggleLock(session) {
+    return updateSession(session, { is_locked: !session.is_locked },
+      (result) => result.is_locked ? 'Session locked. Schedule regeneration will preserve it.' : 'Session unlocked.')
+  }
+
+  function toggleComplete(session) {
+    return updateSession(session, { is_complete: !session.is_complete },
+      (result) => result.is_complete ? 'Session marked complete. Regenerating your plan will keep it.' : 'Session reopened.')
   }
 
   useEffect(() => {
@@ -255,11 +265,15 @@ export function CalendarPage() {
 
   const classes = data?.classes || []
   const days = data ? weekDays(data.week_start, [...data.sessions, ...classes]) : []
-  const totalHours = data ? data.sessions.reduce((total, session) => {
+  // Hours inside this week only, so a session crossing midnight Sunday isn't double counted.
+  const hoursThisWeek = (sessions) => sessions.reduce((total, session) => {
     const start = Math.max(Date.parse(session.starts_at), calendarMidnight(data.week_start))
     const end = Math.min(Date.parse(session.ends_at), calendarMidnight(data.week_end))
     return total + (end - start) / 3_600_000
-  }, 0) : 0
+  }, 0)
+  const totalHours = data ? hoursThisWeek(data.sessions) : 0
+  const completedHours = data ? hoursThisWeek(data.sessions.filter((session) => session.is_complete)) : 0
+  const hoursLabelOf = (value) => value.toLocaleString('en-US', { maximumFractionDigits: 2 })
   const today = calendarDate()
 
   return <>
@@ -298,7 +312,7 @@ export function CalendarPage() {
           <div><p className="kicker">Monday – Sunday · Eastern time</p><h2 aria-live="polite">{dateLabel(data.week_start)} – {dateLabel(days[6].date, { year: 'numeric' })}</h2></div>
           <div className="calendar-navigation"><button className="icon-button" aria-label="Previous week" onClick={() => setParams({ week: data.previous_week })}><ChevronLeft size={20} /></button><button className="button button--secondary button--small" onClick={() => setParams({})}>This week</button><button className="icon-button" aria-label="Next week" onClick={() => setParams({ week: data.next_week })}><ChevronRight size={20} /></button></div>
         </div>
-        <div className="calendar-summary"><span>{data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}</span><span>{totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 })} study hours</span><span>Time zone: New York</span></div>
+        <div className="calendar-summary"><span>{data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}</span><span>{totalHours ? `${hoursLabelOf(completedHours)} of ${hoursLabelOf(totalHours)} study hours completed` : '0 study hours'}</span><span>Time zone: New York</span></div>
         {!data.sessions.length && !classes.length && <div className="calendar-empty" role="status"><CalendarDays size={26} /><div><h3>No events this week</h3><p>Browse another week or import your class schedule.</p></div></div>}
         <p className="calendar-scroll-hint">Scroll horizontally to see all seven days.</p>
         <div className="calendar-scroll" tabIndex="0" role="region" aria-label="Days of the week; scroll horizontally on smaller screens">
@@ -306,14 +320,15 @@ export function CalendarPage() {
             {days.map((day) => <section key={day.date} className={`calendar-day ${day.date === today ? 'calendar-day--today' : ''}`} aria-label={`${day.name}, ${day.date}`}>
               <header className="calendar-day__header"><span>{day.name.slice(0, 3)}</span><time dateTime={day.date}>{new Date(`${day.date}T00:00:00Z`).getUTCDate()}</time>{day.date === today && <small>Today</small>}</header>
               <div className="calendar-day__sessions">
-                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={`calendar-session ${sessionLabel(session) ? (session.is_locked ? 'calendar-session--locked' : '') : 'calendar-session--class'}`}>
+                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={`calendar-session ${sessionLabel(session) ? `${session.is_locked ? 'calendar-session--locked' : ''} ${session.is_complete ? 'calendar-session--complete' : ''}` : 'calendar-session--class'}`}>
                   <div className="calendar-session__time"><Clock3 size={12} /><span>{session.time}</span></div>
+                  {session.is_complete && <span className="calendar-session__complete"><CheckCircle2 size={12} /> Completed</span>}
                   {session.is_locked && <span className="calendar-session__locked"><LockKeyhole size={12} /> Locked</span>}
                   <h3>{sessionLabel(session) || 'Class meeting'}</h3>
                   <NavLink to={`/courses/${session.course.id}`}>{sessionLabel(session) ? session.course.code || session.course.name : session.course.name}</NavLink>
                   {sessionLabel(session) && session.course.code && <p>{session.course.name}</p>}
                   {session.location && <p>{session.location}</p>}
-                  {sessionLabel(session) && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${sessionLabel(session)}`} disabled={busy !== null || editing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${sessionLabel(session)}`} disabled={busy !== null || editing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button></div>}
+                  {sessionLabel(session) && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={session.is_complete ? `Reopen ${sessionLabel(session)}` : `Mark ${sessionLabel(session)} complete`} disabled={busy !== null || editing !== null} onClick={() => toggleComplete(session)}>{session.is_complete ? <Circle size={13} /> : <CheckCircle2 size={13} />}{session.is_complete ? 'Reopen' : 'Complete'}</button><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${sessionLabel(session)}`} disabled={busy !== null || editing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${sessionLabel(session)}`} disabled={busy !== null || editing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button></div>}
                 </article>) : <p className="calendar-day__empty">No sessions</p>}
               </div>
             </section>)}

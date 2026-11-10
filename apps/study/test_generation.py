@@ -209,3 +209,12 @@ class GenerateStudyPlanTests(StudyTestCase):
         self.assertTrue(StudySession.objects.filter(pk=locked.pk, is_locked=True).exists())
         self.assertEqual(self.times(midterm), [('Mon 09:00', '10:00'), ('Mon 12:00', '13:00')])
 
+    def test_completed_sessions_are_kept_and_count_toward_the_workload(self):
+        essay = self.task('Essay', '2026-11-11T23:59', 3)
+        done = StudySession.objects.create(assignment=essay, is_complete=True,
+                                           starts_at=eastern('2026-11-09T09:00'), ends_at=eastern('2026-11-09T11:00'))
+        self.generate()
+        self.assertTrue(StudySession.objects.filter(pk=done.pk, is_complete=True).exists())
+        self.assertEqual(self.times(essay), [('Mon 09:00', '11:00'), ('Mon 11:00', '12:00')])
+        self.assertEqual(StudySession.objects.filter(assignment=essay, is_complete=False).count(), 1)
+

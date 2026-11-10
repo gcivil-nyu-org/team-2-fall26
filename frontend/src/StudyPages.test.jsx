@@ -172,3 +172,38 @@ test('exam prep sessions are labelled and can be locked like any session', async
   await userEvent.setup().click(screen.getByRole('button', { name: 'Lock Midterm prep' }))
   expect(api).toHaveBeenLastCalledWith('/study/sessions/8/', { method: 'PATCH', body: { is_locked: true } })
 })
+
+test('marking a session complete and reopening it sends the explicit state', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  vi.mocked(api).mockResolvedValueOnce({ ...session, is_complete: true })
+  await user.click(await screen.findByRole('button', { name: 'Mark Essay complete' }))
+  expect(api).toHaveBeenLastCalledWith('/study/sessions/7/', { method: 'PATCH', body: { is_complete: true } })
+  expect(await screen.findByText('Completed')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Essay' }).closest('article')).toHaveClass('calendar-session--complete')
+  expect(screen.getByText('1 of 1 study hours completed')).toBeInTheDocument()
+
+  vi.mocked(api).mockResolvedValueOnce({ ...session, is_complete: false })
+  await user.click(screen.getByRole('button', { name: 'Reopen Essay' }))
+  expect(api).toHaveBeenLastCalledWith('/study/sessions/7/', { method: 'PATCH', body: { is_complete: false } })
+  await waitFor(() => expect(screen.queryByText('Completed')).not.toBeInTheDocument())
+  expect(screen.getByText('0 of 1 study hours completed')).toBeInTheDocument()
+})
+
+test('completed sessions from the server stay marked after a reload', async () => {
+  const other = { ...session, id: 8, starts_at: '2026-11-03T14:00:00Z', ends_at: '2026-11-03T15:30:00Z', assignment: { title: 'Report' } }
+  vi.mocked(api).mockResolvedValue({ ...week, sessions: [{ ...session, is_complete: true }, other] })
+  render(<MemoryRouter initialEntries={['/calendar?week=2026-11-02']}><CalendarPage /></MemoryRouter>)
+  expect(await screen.findByRole('button', { name: 'Reopen Essay' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Mark Report complete' })).toBeInTheDocument()
+  expect(screen.getByText('1 of 2.5 study hours completed')).toBeInTheDocument()
+})
+
+test('a failed completion update leaves the session as it was', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  vi.mocked(api).mockRejectedValueOnce(new Error('Could not update the session.'))
+  await user.click(await screen.findByRole('button', { name: 'Mark Essay complete' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not update the session.')
+  expect(screen.queryByText('Completed')).not.toBeInTheDocument()
+})

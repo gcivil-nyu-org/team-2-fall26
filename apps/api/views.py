@@ -130,7 +130,9 @@ def _upcoming_payload(assignments, exams):
 
 
 def _study_reminder_payload(user, now):
+    # Nothing to remind about once a session is already marked complete.
     sessions = StudySession.objects.owned_by(user).filter(
+        is_complete=False,
         starts_at__gt=now,
         starts_at__lte=now + STUDY_REMINDER_WINDOW,
     ).with_course()

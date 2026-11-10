@@ -442,6 +442,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .calendar-session--locked { border: 1px solid #806198; background: #f0e6f6; }
+.calendar-session.calendar-session--complete { border-left-color: #2f8a57; background: #edf7f1; }
+.calendar-session--complete h3 { color: #5d6b63; text-decoration: line-through; }
+.calendar-session__complete { display: flex; align-items: center; gap: .3rem; font-size: .7rem; font-weight: 700; color: #276245; }
 .calendar-session__locked { display: flex; align-items: center; gap: .3rem; font-size: .7rem; font-weight: 700; color: #57356c; margin: .4rem 0; }
 .calendar-session__actions { display: flex; flex-wrap: wrap; gap: .2rem; margin-top: .65rem; }
 .calendar-session__actions .button { font-size: .68rem; padding: .35rem; white-space: nowrap; }
