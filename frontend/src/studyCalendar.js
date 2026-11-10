@@ -57,3 +57,24 @@ export function availableHours(blocks) {
     return total + Math.max(0, end - start) / 60
   }, 0)
 }
+
+const clockMinutes = (value) => {
+  const [hours, mins] = value.split(':').map(Number)
+  return hours * 60 + mins
+}
+const clockTime = (total) => `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+
+// A one-hour block for a day that doesn't overlap the blocks already on it:
+// the first free hour from 9:00 AM onward, then from midnight. Falls back to
+// 9:00–10:00 when the day is full, which the server will flag.
+export function nextAvailabilityBlock(blocks, weekday) {
+  const taken = blocks.filter((block) => block.weekday === weekday).map((block) => {
+    const start = clockMinutes(block.start_time)
+    return [start, block.end_time === '00:00' && start > 0 ? 1440 : clockMinutes(block.end_time)]
+  })
+  const starts = []
+  for (let start = 540; start <= 1380; start += 15) starts.push(start)
+  for (let start = 0; start < 540; start += 15) starts.push(start)
+  const start = starts.find((candidate) => taken.every(([from, to]) => candidate + 60 <= from || candidate >= to)) ?? 540
+  return { weekday, start_time: clockTime(start), end_time: clockTime(start + 60) }
+}

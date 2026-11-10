@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
 import { api } from './api'
-import { CalendarPage } from './StudyPages'
+import { AvailabilityPage, CalendarPage } from './StudyPages'
 
 vi.mock('./api', async (original) => ({ ...await original(), api: vi.fn() }))
 afterEach(() => { cleanup(); vi.mocked(api).mockReset() })
@@ -90,3 +90,18 @@ test('failed lock leaves the session unlocked and displays an error', async () =
   expect(screen.getByRole('button', { name: 'Lock Essay' })).toBeEnabled()
   expect(screen.queryByText('Locked')).not.toBeInTheDocument()
 })
+
+test('adding a second block on the same day saves without an overlap', async () => {
+  vi.mocked(api).mockResolvedValue({ timezone: 'America/New_York', configured: false, blocks: [] })
+  render(<MemoryRouter><AvailabilityPage /></MemoryRouter>)
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Add time on Tuesday' }))
+  await user.click(screen.getByRole('button', { name: 'Add time on Tuesday' }))
+  vi.mocked(api).mockImplementation(async (path, options) => ({ timezone: 'America/New_York', configured: true, blocks: options?.body?.blocks ?? [] }))
+  await user.click(screen.getByRole('button', { name: 'Save availability' }))
+  expect(api).toHaveBeenLastCalledWith('/study/availability/', { method: 'PUT', body: { blocks: [
+    { weekday: 1, start_time: '09:00', end_time: '10:00' },
+    { weekday: 1, start_time: '10:00', end_time: '11:00' },
+  ] } })
+})
+
