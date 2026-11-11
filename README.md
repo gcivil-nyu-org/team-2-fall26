@@ -158,6 +158,15 @@ buildable as those stories are worded unless the team adds real,
 user-chosen usernames as their own feature first; in the meantime, name and
 email are the only real identifiers these stories can use.
 
+## Notification settings (#37)
+
+Students choose which reminders they get from the **Notifications** section of **Account settings** (click **Edit notifications**): study-session reminders can be turned on or off, and the lead time can be 15 minutes, 30 minutes, 1 hour (the default, and how reminders worked before this existed), or 2 hours.
+
+- Stored on the user as `study_reminders_enabled` and `study_reminder_minutes` (migration `accounts/0004_user_notification_preferences`), read and saved with `GET`/`PUT /api/profile/notifications/` (both also return the allowed lead times as `options`, so the screen never hard-codes them). A setting left out of a `PUT` keeps its current value; anything that isn't a real boolean, or a lead time that isn't one of the four choices, is rejected with a 400.
+- The dashboard's `study_reminders` list follows the signed-in student's own settings: empty when reminders are off, otherwise sessions starting within their chosen lead time. One student's settings never change another student's reminders.
+- Reminders are the only notification the app has today, so that is all this controls. New kinds of notification should add their own setting here.
+- The dashboard refreshes every minute, so a change shows up there within a minute or on the next visit.
+
 ## Importing an Albert class schedule
 
 Download the Class Calendar (.ics) from Albert and use **Import from Albert**

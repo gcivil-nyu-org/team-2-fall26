@@ -17,15 +17,13 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import AccountActionForm, ProfileForm, ProfilePictureForm, SignUpForm
-from apps.accounts.models import User
+from apps.accounts.forms import AccountActionForm, NotificationPreferencesForm, ProfileForm, ProfilePictureForm, SignUpForm
+from apps.accounts.models import STUDY_REMINDER_MINUTE_CHOICES, User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
 from apps.study.models import StudySession
 
 logger = logging.getLogger(__name__)
-
-STUDY_REMINDER_WINDOW = timedelta(hours=1)
 
 
 def _json_body(request):
@@ -129,10 +127,13 @@ def _upcoming_payload(assignments, exams):
 
 
 def _study_reminder_payload(user, now):
+    # A student can turn reminders off, or change how far ahead they appear (#37).
+    if not user.study_reminders_enabled:
+        return []
     sessions = StudySession.objects.filter(
         assignment__course__owner=user,
         starts_at__gt=now,
-        starts_at__lte=now + STUDY_REMINDER_WINDOW,
+        starts_at__lte=now + timedelta(minutes=user.study_reminder_minutes),
     ).select_related('assignment__course')
     return [
         {
@@ -337,6 +338,53 @@ def profile_picture_view(request):
         # under its own (storage-assigned) name.
         request.user.profile_picture.storage.delete(old_name)
     return JsonResponse({'user': _user_payload(request.user)})
+
+
+def _notification_payload(user):
+    return {
+        'study_reminders_enabled': user.study_reminders_enabled,
+        'study_reminder_minutes': user.study_reminder_minutes,
+    }
+
+
+def _notification_response(user):
+    # The choices come from the server so the settings screen can't drift out
+    # of step with what the API accepts.
+    return JsonResponse({
+        'notifications': _notification_payload(user),
+        'options': {'study_reminder_minutes': list(STUDY_REMINDER_MINUTE_CHOICES)},
+    })
+
+
+@require_http_methods(['GET', 'PUT'])
+def profile_notifications_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    if request.method == 'GET':
+        return _notification_response(request.user)
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    # A setting left out keeps its current value. Check types ourselves: a
+    # BooleanField would read a missing key as False and "false" as True-ish
+    # junk, and a number field would accept "60" or 60.0 where we want a
+    # real choice from the list.
+    errors = {}
+    if 'study_reminders_enabled' in body and not isinstance(body['study_reminders_enabled'], bool):
+        errors['study_reminders_enabled'] = ['Choose on or off.']
+    if 'study_reminder_minutes' in body:
+        minutes = body['study_reminder_minutes']
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes not in STUDY_REMINDER_MINUTE_CHOICES:
+            errors['study_reminder_minutes'] = ['Choose how early to be reminded.']
+    if errors:
+        return JsonResponse({'errors': errors}, status=400)
+    data = _notification_payload(request.user)
+    data.update({key: body[key] for key in data if key in body})
+    form = NotificationPreferencesForm(data, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    form.save()
+    return _notification_response(request.user)
 
 
 @require_POST
