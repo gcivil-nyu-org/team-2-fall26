@@ -234,7 +234,10 @@ if AWS_STORAGE_BUCKET_NAME:
     AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
     AWS_S3_FILE_OVERWRITE = False  # keep Django's own unique-filename behavior
     AWS_DEFAULT_ACL = None  # bucket policy controls access, not per-object ACLs
-    AWS_QUERYSTRING_AUTH = False  # profile pictures aren't sensitive; plain URLs
+    # Keep the media bucket PRIVATE. Signed URLs let authorized API responses
+    # render images without granting anonymous s3:GetObject access.
+    AWS_QUERYSTRING_AUTH = True
+    AWS_QUERYSTRING_EXPIRE = 300  # five-minute download links
     STORAGES['default'] = {
         'BACKEND': 'storages.backends.s3.S3Storage',
     }
