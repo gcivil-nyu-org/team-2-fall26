@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ShieldCheck } from 'lucide-react'
 
 import { api } from './api'
@@ -23,8 +24,15 @@ export function privacySummary(settings) {
   return `Hidden from other students: ${joinList(hidden)}. Your name is always visible.`
 }
 
+// With no name, a student who hides their email would be a blank "?" to their
+// friends (and on friend requests), so nudge them to add one.
+function NameNote() {
+  return <p className="field__note" role="note">Add your name in <Link to="/profile">Edit profile</Link> so friends can recognise you while your email is hidden.</p>
+}
+
 export default function PrivacySettings() {
   const [saved, setSaved] = useState(null)
+  const [hasName, setHasName] = useState(true)
   const [draft, setDraft] = useState(null)
   const [open, setOpen] = useState(false)
   const [loadError, setLoadError] = useState('')
@@ -45,6 +53,7 @@ export default function PrivacySettings() {
       }
       setSaved(loaded)
       setDraft(loaded)
+      setHasName(Boolean(`${data.user.first_name || ''}${data.user.last_name || ''}`.trim()))
     }).catch((err) => {
       if (active) setLoadError(err.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load your privacy settings. Try again.')
     })
@@ -99,6 +108,7 @@ export default function PrivacySettings() {
             <input type="checkbox" role="switch" className="privacy-switch" name={option.name} checked={draft[option.name]} onChange={toggle} />
           </label>)}
         </div>
+        {!draft.show_email && !hasName && <NameNote />}
         <div className="form-actions">
           <button type="button" className="button button--secondary" onClick={cancel} disabled={saving}>Cancel</button>
           <button type="submit" className="button button--primary" disabled={saving}>{saving ? 'Saving…' : 'Save privacy settings'}</button>
@@ -106,6 +116,7 @@ export default function PrivacySettings() {
       </form> : <>
         {justSaved && <div className="form-alert form-alert--success" role="status">Your privacy settings have been saved.</div>}
         <p>{privacySummary(saved)}</p>
+        {!saved.show_email && !hasName && <NameNote />}
         <button className="button button--secondary" onClick={() => setOpen(true)}>Edit privacy</button>
       </>}
     </div>

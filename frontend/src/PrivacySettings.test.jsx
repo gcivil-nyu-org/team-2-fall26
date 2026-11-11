@@ -43,7 +43,7 @@ describe('privacy settings on the Account settings page', () => {
 
   test('starts collapsed with a one-line summary', async () => {
     mockProfile()
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     expect(await screen.findByText(/other students can see your name, email, bio and photo/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /edit privacy/i })).toBeInTheDocument()
     expect(screen.queryByRole('switch')).not.toBeInTheDocument()
@@ -51,7 +51,7 @@ describe('privacy settings on the Account settings page', () => {
 
   test('shows a loading message until the settings arrive', async () => {
     mockProfile()
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     expect(screen.getByRole('status')).toHaveTextContent(/loading your privacy settings/i)
     await screen.findByRole('button', { name: /edit privacy/i })
   })
@@ -59,7 +59,7 @@ describe('privacy settings on the Account settings page', () => {
   test('a failed load shows an error and a working Try again', async () => {
     const user = userEvent.setup()
     vi.mocked(realApi).mockRejectedValueOnce(new Error('Network down'))
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t load your privacy settings/i)
     mockProfile()
     await user.click(screen.getByRole('button', { name: /try again/i }))
@@ -70,19 +70,19 @@ describe('privacy settings on the Account settings page', () => {
     const error = new Error('Unauthorized')
     error.status = 401
     vi.mocked(realApi).mockRejectedValueOnce(error)
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     expect(await screen.findByRole('alert')).toHaveTextContent(/session expired/i)
   })
 
   test('the summary reflects what is already hidden', async () => {
     mockProfile({ show_email: false, show_profile_picture: false })
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     expect(await screen.findByText(/hidden from other students: email and photo/i)).toBeInTheDocument()
   })
 
   test('the summary says so when everything is hidden', async () => {
     mockProfile({ show_email: false, show_bio: false, show_profile_picture: false })
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     expect(await screen.findByText(/other students only see your name/i)).toBeInTheDocument()
   })
 
@@ -94,7 +94,7 @@ describe('privacy settings on the Account settings page', () => {
   test('Edit privacy opens one switch per detail, and the name is not a choice', async () => {
     const user = userEvent.setup()
     mockProfile({ show_bio: false })
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     await openPrivacy(user)
     expect(screen.getAllByRole('switch')).toHaveLength(3)
     expect(screen.getByRole('switch', { name: /show my email address/i })).toBeChecked()
@@ -107,7 +107,7 @@ describe('privacy settings on the Account settings page', () => {
     const user = userEvent.setup()
     const onPrivacy = vi.fn(async () => ({ user: profile }))
     mockProfile({}, onPrivacy)
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     await openPrivacy(user)
 
     await user.click(screen.getByRole('switch', { name: /show my bio/i }))
@@ -127,7 +127,7 @@ describe('privacy settings on the Account settings page', () => {
     const user = userEvent.setup()
     const onPrivacy = vi.fn(async () => ({ user: profile }))
     mockProfile({}, onPrivacy)
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     await openPrivacy(user)
     await user.click(screen.getByRole('switch', { name: /show my bio/i }))
     expect(onPrivacy).not.toHaveBeenCalled()
@@ -137,7 +137,7 @@ describe('privacy settings on the Account settings page', () => {
     const user = userEvent.setup()
     const onPrivacy = vi.fn(async () => ({ user: profile }))
     mockProfile({}, onPrivacy)
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     await openPrivacy(user)
     await user.click(screen.getByRole('switch', { name: /show my bio/i }))
     await user.click(screen.getByRole('button', { name: /^cancel$/i }))
@@ -152,7 +152,7 @@ describe('privacy settings on the Account settings page', () => {
   test('a failed save shows an error, stays open, keeps the choices, and does not claim success', async () => {
     const user = userEvent.setup()
     mockProfile({}, async () => { throw new Error('Something went wrong.') })
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     await openPrivacy(user)
 
     await user.click(screen.getByRole('switch', { name: /show my bio/i }))
@@ -166,7 +166,7 @@ describe('privacy settings on the Account settings page', () => {
   test('after a failed save, Cancel goes back to what was last saved', async () => {
     const user = userEvent.setup()
     mockProfile({}, async () => { throw new Error('Something went wrong.') })
-    render(<PrivacySettings />)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
     await openPrivacy(user)
     await user.click(screen.getByRole('switch', { name: /show my bio/i }))
     await user.click(screen.getByRole('button', { name: /save privacy settings/i }))
@@ -175,5 +175,63 @@ describe('privacy settings on the Account settings page', () => {
     await user.click(within(screen.getByRole('form', { name: 'Privacy' })).getByRole('button', { name: /^cancel$/i }))
     expect(screen.getByText(/other students can see your name, email, bio and photo/i)).toBeInTheDocument()
     expect(screen.queryByText('Something went wrong.')).not.toBeInTheDocument()
+  })
+})
+
+// A student with no name who hides their email would show up as a blank "?".
+describe('asking for a name when the email is hidden', () => {
+  const nameless = { first_name: '', last_name: '' }
+
+  test('no note when the email is shown, even without a name', async () => {
+    mockProfile(nameless)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
+    await screen.findByRole('button', { name: /edit privacy/i })
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  test('no note when the email is hidden but there is a name', async () => {
+    mockProfile({ show_email: false })
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
+    await screen.findByRole('button', { name: /edit privacy/i })
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  test('a saved hidden email with no name shows the note with a link to Edit profile', async () => {
+    mockProfile({ ...nameless, show_email: false })
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
+    const note = await screen.findByRole('note')
+    expect(note).toHaveTextContent(/add your name/i)
+    expect(within(note).getByRole('link', { name: /edit profile/i })).toHaveAttribute('href', '/profile')
+  })
+
+  test('turning the email switch off while nameless shows the note right away, and on hides it', async () => {
+    const user = userEvent.setup()
+    mockProfile(nameless)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
+    await openPrivacy(user)
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('switch', { name: /show my email address/i }))
+    expect(screen.getByRole('note')).toHaveTextContent(/add your name/i)
+    await user.click(screen.getByRole('switch', { name: /show my email address/i }))
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  test('with a name, hiding the email never shows the note, even while editing', async () => {
+    const user = userEvent.setup()
+    mockProfile()
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
+    await openPrivacy(user)
+    await user.click(screen.getByRole('switch', { name: /show my email address/i }))
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  test('hiding bio or photo without a name does not show the note', async () => {
+    const user = userEvent.setup()
+    mockProfile(nameless)
+    render(<MemoryRouter><PrivacySettings /></MemoryRouter>)
+    await openPrivacy(user)
+    await user.click(screen.getByRole('switch', { name: /show my bio/i }))
+    await user.click(screen.getByRole('switch', { name: /show my profile photo/i }))
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
   })
 })
