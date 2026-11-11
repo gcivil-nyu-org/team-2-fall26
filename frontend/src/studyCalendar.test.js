@@ -58,6 +58,10 @@ test('a new availability block starts after the ones already on that day', () =>
   // Late in the day it can end at midnight, then wraps to the early morning.
   assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '23:00')], 1), block(1, '23:00', '00:00'))
   assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '00:00')], 1), block(1, '00:00', '01:00'))
+  // A gap that doesn't start on a quarter hour is found from the previous block's end.
+  assert.deepEqual(nextAvailabilityBlock([block(1, '00:00', '10:05'), block(1, '11:05', '00:00')], 1), block(1, '10:05', '11:05'))
+  assert.deepEqual(nextAvailabilityBlock([block(1, '00:00', '14:40'), block(1, '15:40', '00:00')], 1), block(1, '14:40', '15:40'))
+  assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '09:20')], 1), block(1, '09:20', '10:20'))
   // A completely full day falls back to the old default for the server to flag.
   assert.deepEqual(nextAvailabilityBlock([block(1, '00:00', '12:00'), block(1, '12:00', '00:00')], 1), block(1, '09:00', '10:00'))
 })
