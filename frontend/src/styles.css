@@ -433,6 +433,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .friend-row__actions--confirm > span { width: 100%; }
 }
 
+.food-post-notice { margin: 1.25rem 0 0; }
+.food-post-list { display: flex; flex-direction: column; }
+.food-post { display: grid; gap: .7rem; padding: 1.15rem 1.4rem; }
+.food-post + .food-post { border-top: 1px solid #f0edf2; }
+.food-post__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.food-post__header h3 { margin: 0; font-size: .95rem; }
+.food-post__header .count-pill { gap: .25rem; }
+.food-post__meta { display: flex; flex-wrap: wrap; gap: .35rem .9rem; margin: .3rem 0 0; color: var(--muted); font-size: .74rem; }
+.food-post__meta span { display: inline-flex; align-items: center; gap: .25rem; }
+.food-post__description { margin: 0; font-size: .84rem; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.food-post__author { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .72rem; }
+.food-post__author .avatar { width: 26px; height: 26px; font-size: .66rem; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
