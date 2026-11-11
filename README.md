@@ -139,7 +139,7 @@ request to each other.
 ## Viewing a friend's profile (#18)
 
 Clicking a friend's name or photo in "Your friends" opens their profile —
-their name, email, and photo (falling back to an initial, same as
+their name, email, bio, and photo, minus anything they've hidden under Privacy (falling back to an initial, same as
 everywhere else). The link lives at `/friends/<friendshipId>`, keyed by the
 friendship itself rather than the other person's user id, so it only ever
 resolves for an actual, current friendship.
@@ -165,6 +165,7 @@ Students choose what other students can see about them from the **Privacy** sect
 - Settings are stored on the user (`show_email`, `show_bio`, `show_profile_picture`, migration `accounts/0004_user_privacy_settings`) and saved with `PUT /api/profile/privacy/`. A field left out of the request keeps its current value, and anything that isn't a real `true`/`false` is rejected with a 400 rather than guessed at.
 - The settings are applied on the server in `apps/social/views.py` (`_user_summary`), the one place that builds what another student sees: friends list, friend requests (sent and received), friend profile, and the chat header. A hidden email, bio or photo is never sent to the other student's browser, so it can't be seen by inspecting the response.
 - If a student has no name and hides their email, others see them as "SemesterPilot student" (also in message sender names) instead of falling back to the hidden email.
+- Because that would leave a nameless student unrecognizable, the Privacy section shows a note linking to Edit profile whenever the email is hidden and no name is set.
 - Hiding something only affects what *other* students see. The student still sees their own email, bio and photo everywhere, and the stored values are untouched, so switching a setting back on restores them.
 - Friend requests are still sent by typing an email address, so hiding your email does not stop someone who already knows it from finding you. This is about what the app *shows*, not about making an account unfindable.
 
