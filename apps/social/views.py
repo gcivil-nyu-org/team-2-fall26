@@ -29,18 +29,32 @@ def _errors(form):
     }
 
 
+ANONYMOUS_NAME = 'SemesterPilot student'
+
+
+def _display_name(user):
+    """A name to show other students: never falls back to a hidden email (#31)."""
+    name = ' '.join(filter(None, [user.first_name, user.last_name]))
+    return name or (user.email if user.show_email else ANONYMOUS_NAME)
+
+
 def _user_summary(user):
+    # Every caller passes someone *other than* the viewer (a friend, or the
+    # other side of a request), so this is where a student's privacy
+    # settings (#31) take effect. Hidden fields are blanked here rather than
+    # in the frontend so they never reach another student's browser at all.
+    # The name stays visible: friends need it to tell who is who.
     return {
         'id': user.pk,
-        'email': user.email,
+        'email': user.email if user.show_email else None,
         'first_name': user.first_name,
         'last_name': user.last_name,
-        'bio': user.bio,
+        'bio': user.bio if user.show_bio else '',
         # Lets the frontend show a real photo on friend requests and in the
-        # friends list (falling back to an initial when there isn't one) —
+        # friends list (falling back to an initial when there isn't one) -
         # same shape apps/api/views.py's _user_payload already uses for a
         # user's own profile.
-        'profile_picture': user.profile_picture.url if user.profile_picture else None,
+        'profile_picture': user.profile_picture.url if user.profile_picture and user.show_profile_picture else None,
     }
 
 
@@ -68,7 +82,7 @@ def friends_view(request):
             {**_user_summary(fr.other(request.user)), 'friendship_id': fr.pk}
             for fr in accepted
         ),
-        key=lambda item: (item['first_name'] or item['email'], item['last_name']),
+        key=lambda item: (item['first_name'] or item['email'] or '', item['last_name']),
     )
     return JsonResponse({
         'friends': friends,
@@ -202,7 +216,7 @@ def _message_payload(message, viewer):
     return {
         'id': message.pk,
         'sender_id': message.sender_id,
-        'sender_name': ' '.join(filter(None, [sender.first_name, sender.last_name])) or sender.email,
+        'sender_name': _display_name(sender),
         'body': message.body,
         'created_at': message.created_at.isoformat(),
         'is_mine': message.sender_id == viewer.pk,

@@ -4,7 +4,8 @@
 export function displayName(user) {
   if (!user) return ''
   const name = [user.first_name, user.last_name].filter(Boolean).join(' ')
-  return name || user.email
+  // A student can hide their email (#31), in which case the API sends null.
+  return name || user.email || 'SemesterPilot student'
 }
 
 export function initial(user) {
