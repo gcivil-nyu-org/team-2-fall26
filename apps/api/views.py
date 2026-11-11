@@ -17,7 +17,7 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import AccountActionForm, ProfileForm, ProfilePictureForm, SignUpForm
+from apps.accounts.forms import AccountActionForm, PrivacySettingsForm, ProfileForm, ProfilePictureForm, SignUpForm
 from apps.accounts.models import User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
@@ -54,6 +54,11 @@ def _user_payload(user):
         'last_name': user.last_name,
         'profile_picture': user.profile_picture.url if user.profile_picture else None,
         'bio': user.bio,
+        # Only ever sent to the user themselves (see _user_payload's callers);
+        # what other students actually see is built in apps/social/views.py.
+        'show_email': user.show_email,
+        'show_bio': user.show_bio,
+        'show_profile_picture': user.show_profile_picture,
     }
 
 
@@ -305,6 +310,36 @@ def profile_view(request):
         return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
     # A client that only sends the name fields shouldn't wipe an existing bio.
     form = ProfileForm({'bio': request.user.bio, **body}, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    user = form.save()
+    return JsonResponse({'user': _user_payload(user)})
+
+
+PRIVACY_FIELDS = ('show_email', 'show_bio', 'show_profile_picture')
+
+
+@require_http_methods(['PUT'])
+def profile_privacy_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    # A field left out keeps its current value, so a client can change one
+    # setting without resending the others. A BooleanField would read a
+    # missing key as False (and any non-empty junk as True), so insist on
+    # real booleans instead of letting a typo silently hide or show a field.
+    errors = {
+        field: ['Choose on or off.']
+        for field in PRIVACY_FIELDS
+        if field in body and not isinstance(body[field], bool)
+    }
+    if errors:
+        return JsonResponse({'errors': errors}, status=400)
+    data = {field: getattr(request.user, field) for field in PRIVACY_FIELDS}
+    data.update({field: body[field] for field in PRIVACY_FIELDS if field in body})
+    form = PrivacySettingsForm(data, instance=request.user)
     if not form.is_valid():
         return JsonResponse({'errors': _errors(form)}, status=400)
     user = form.save()

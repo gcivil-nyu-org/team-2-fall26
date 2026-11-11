@@ -158,6 +158,16 @@ buildable as those stories are worded unless the team adds real,
 user-chosen usernames as their own feature first; in the meantime, name and
 email are the only real identifiers these stories can use.
 
+## Privacy settings (#31)
+
+Students choose what other students can see about them from the **Privacy** section at the top of **Account settings** (click **Edit privacy** to open the switches). Three things can be hidden independently: **email address**, **bio**, and **profile photo**. Everything is visible by default, which is how the app behaved before this existed. A student's **name is always visible**, so friends and friend requests can still tell who is who.
+
+- Settings are stored on the user (`show_email`, `show_bio`, `show_profile_picture`, migration `accounts/0004_user_privacy_settings`) and saved with `PUT /api/profile/privacy/`. A field left out of the request keeps its current value, and anything that isn't a real `true`/`false` is rejected with a 400 rather than guessed at.
+- The settings are applied on the server in `apps/social/views.py` (`_user_summary`), the one place that builds what another student sees: friends list, friend requests (sent and received), friend profile, and the chat header. A hidden email, bio or photo is never sent to the other student's browser, so it can't be seen by inspecting the response.
+- If a student has no name and hides their email, others see them as "SemesterPilot student" (also in message sender names) instead of falling back to the hidden email.
+- Hiding something only affects what *other* students see. The student still sees their own email, bio and photo everywhere, and the stored values are untouched, so switching a setting back on restores them.
+- Friend requests are still sent by typing an email address, so hiding your email does not stop someone who already knows it from finding you. This is about what the app *shows*, not about making an account unfindable.
+
 ## Importing an Albert class schedule
 
 Download the Class Calendar (.ics) from Albert and use **Import from Albert**

@@ -37,7 +37,7 @@ export function MessagesPage() {
         {friends.length ? <div className="friend-list">
           {friends.map((friend) => <Link key={friend.id} className="friend-row friend-row--conversation" to={`/messages/${friend.id}`} aria-label={`Open conversation with ${displayName(friend)}`}>
             <span className="avatar">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</span>
-            <span className="friend-row__copy"><strong>{displayName(friend)}</strong><small>{friend.email}</small></span>
+            <span className="friend-row__copy"><strong>{displayName(friend)}</strong>{friend.email && <small>{friend.email}</small>}</span>
             <MessageCircle size={18} aria-hidden="true" />
           </Link>)}
         </div> : <div className="empty-state"><span><MessageCircle size={22} /></span><h3>No conversations yet</h3><p>Add a friend to start messaging.</p><Link className="button button--soft" to="/friends">Find friends</Link></div>}
@@ -92,7 +92,7 @@ export function ConversationPage() {
     {loading ? <p role="status">Loading conversation…</p>
       : error ? <ErrorNotice text={error} retry={() => setAttempt((n) => n + 1)} />
         : data && <>
-          <header className="page-header"><div><p className="kicker">Private conversation</p><h1>{displayName(data.friend)}</h1><p className="page-header__subtitle">{data.friend.email}</p></div></header>
+          <header className="page-header"><div><p className="kicker">Private conversation</p><h1>{displayName(data.friend)}</h1>{data.friend.email && <p className="page-header__subtitle">{data.friend.email}</p>}</div></header>
           <section className="panel conversation" aria-label={`Conversation with ${displayName(data.friend)}`}>
             <div className="conversation__history" role="log" aria-label="Message history" aria-live="polite">
               {data.messages.length ? data.messages.map((message) => <article key={message.id} className={`conversation__message ${message.is_mine ? 'conversation__message--mine' : ''}`}>

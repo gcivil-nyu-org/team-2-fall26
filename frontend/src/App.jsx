@@ -981,7 +981,7 @@ export function ProfilePage() {
         </Field>
         <Field label="Bio" hint={`${values.bio.length} / ${BIO_MAX_LENGTH}`} error={errors.bio?.[0]}>
           <textarea name="bio" rows="3" value={values.bio} onChange={update} placeholder="e.g. CS junior, into ML and climbing. Happy to study for algorithms together." aria-describedby="bio-visibility" />
-          <span id="bio-visibility" className="field__note">Your friends and anyone you have a pending friend request with can see this.</span>
+          <span id="bio-visibility" className="field__note">Your friends and anyone you have a pending friend request with can see this, unless you hide it under Privacy in Account settings.</span>
         </Field>
         <Field label="Email">
           <input value={email} disabled />

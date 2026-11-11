@@ -197,6 +197,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .field--error input, .field--error select, .field--error textarea { border-color: #c55742; background: #fffaf9; }
 .field__error { color: #b84936; font-size: .69rem; }
 .field__note { color: var(--muted); font-size: .69rem; }
+.privacy-options { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 12px; }
+.privacy-option { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; padding: .95rem 1.1rem; cursor: pointer; }
+.privacy-option + .privacy-option { border-top: 1px solid var(--line); }
+.privacy-option__copy { display: grid; gap: .15rem; }
+.privacy-option__copy strong { font-size: .85rem; }
+.privacy-option small { color: var(--muted); font-size: .72rem; line-height: 1.5; }
+.privacy-switch { appearance: none; position: relative; flex: none; width: 2.5rem; height: 1.45rem; margin: 0; border-radius: 999px; background: #d9d0e0; cursor: pointer; transition: background .15s ease; }
+.privacy-switch::after { content: ""; position: absolute; top: .2rem; left: .2rem; width: 1.05rem; height: 1.05rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .15s ease; }
+.privacy-switch:checked { background: var(--violet); }
+.privacy-switch:checked::after { transform: translateX(1.05rem); }
+.privacy-switch:focus-visible { outline: 3px solid rgba(87, 6, 140, .25); outline-offset: 2px; }
 .form-actions { display: flex; justify-content: flex-end; gap: .65rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 .form-alert { padding: .75rem .85rem; margin-bottom: 1rem; border: 1px solid #efd5d0; border-radius: 10px; background: #fff6f4; color: #9c4031; font-size: .75rem; }
 .form-alert a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
@@ -315,6 +326,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .account-option h2 { margin-bottom: .65rem; }
 .account-option p { max-width: 590px; color: var(--muted); font-size: .84rem; line-height: 1.7; margin-bottom: .75rem; }
 .account-option .button { margin-top: .3rem; }
+.account-option__body { flex: 1; min-width: 0; }
+.account-option__body .form-alert--success { margin-bottom: .85rem; }
+.account-option__body .form-actions .button { margin-top: 0; }
 .account-option--danger { border-color: #eed5d0; }
 .account-option--danger .account-option__icon { color: #a53e2e; background: #fff0ec; }
 .button--danger-outline { color: #a53e2e; border-color: #dcb3aa; background: #fff; }
