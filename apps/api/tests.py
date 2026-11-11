@@ -1,8 +1,13 @@
 import json
+import os
+import shutil
+import tempfile
 from datetime import timedelta
 from unittest import mock
 
+from django.conf import settings
 from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.templatetags.static import static
 from django.urls import reverse
@@ -10,6 +15,15 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.coursework.models import Assignment, Course, Exam
+from apps.study.models import StudySession
+
+# The smallest possible valid GIF (1x1, transparent) — enough for Pillow/
+# ImageField to accept it as a real image without shipping a binary fixture.
+SMALL_GIF = (
+    b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x00\x00\x00\x21\xf9\x04'
+    b'\x01\x0a\x00\x01\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02'
+    b'\x02\x4c\x01\x00\x3b'
+)
 
 
 class ApiTestCase(TestCase):
@@ -217,6 +231,7 @@ class ProfileApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['user'], {
             'id': self.user.pk, 'email': 'student@nyu.edu', 'first_name': 'Jane', 'last_name': 'Doe',
+            'profile_picture': None, 'bio': '',
         })
 
     def test_put_updates_the_name(self):
@@ -249,6 +264,50 @@ class ProfileApiTests(ApiTestCase):
 
         self.user.refresh_from_db()
         self.assertEqual(self.user.email, 'student@nyu.edu')
+
+    def test_put_saves_edits_and_clears_the_bio(self):
+        self.client.force_login(self.user)
+        url = reverse('api:profile')
+
+        response = self.json_put(url, {'first_name': 'Jane', 'last_name': 'Doe', 'bio': '  CS junior, into ML.  '})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['user']['bio'], 'CS junior, into ML.')
+
+        self.json_put(url, {'first_name': 'Jane', 'last_name': 'Doe', 'bio': 'Senior now.'})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.bio, 'Senior now.')
+
+        self.json_put(url, {'first_name': 'Jane', 'last_name': 'Doe', 'bio': ''})
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.bio, '')
+
+    def test_put_rejects_a_bio_over_300_characters(self):
+        self.user.bio = 'Original bio.'
+        self.user.save()
+        self.client.force_login(self.user)
+
+        response = self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe', 'bio': 'x' * 301})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['errors']['bio'], ['Bio must be 300 characters or fewer.'])
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.bio, 'Original bio.')
+        self.assertEqual(self.user.first_name, '')
+
+    def test_put_accepts_a_bio_of_exactly_300_characters(self):
+        self.client.force_login(self.user)
+        response = self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe', 'bio': 'x' * 300})
+        self.assertEqual(response.status_code, 200)
+
+    def test_put_without_a_bio_keeps_the_existing_one(self):
+        self.user.bio = 'Keep me.'
+        self.user.save()
+        self.client.force_login(self.user)
+
+        self.json_put(reverse('api:profile'), {'first_name': 'Jane', 'last_name': 'Doe'})
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.bio, 'Keep me.')
 
     def test_another_users_name_is_unaffected(self):
         other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='testpass123')
@@ -321,6 +380,122 @@ class ChangePasswordApiTests(ApiTestCase):
         self.assertIn('new_password', response.json()['errors'])
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password('testpass123'))
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class ProfilePictureApiTests(ApiTestCase):
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
+
+    def _gif(self, name='avatar.gif'):
+        return SimpleUploadedFile(name, SMALL_GIF, content_type='image/gif')
+
+    def test_requires_authentication(self):
+        self.assertEqual(self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif()}).status_code, 401)
+        self.assertEqual(self.client.delete(reverse('api:profile_picture')).status_code, 401)
+
+    def test_rejects_a_request_with_no_file(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('api:profile_picture'), {})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('profile_picture', response.json()['errors'])
+
+    def test_uploads_a_valid_image(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif()})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNotNone(response.json()['user']['profile_picture'])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.profile_picture)
+
+    def test_rejects_a_non_image_file(self):
+        self.client.force_login(self.user)
+        not_an_image = SimpleUploadedFile('notes.txt', b'just some text', content_type='text/plain')
+
+        response = self.client.post(reverse('api:profile_picture'), {'profile_picture': not_an_image})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('profile_picture', response.json()['errors'])
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.profile_picture)
+
+    @override_settings(MAX_PROFILE_PICTURE_SIZE=10)
+    def test_rejects_an_image_over_the_size_limit(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif()})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('profile_picture', response.json()['errors'])
+
+    def test_a_rejected_replacement_leaves_the_existing_picture_in_place(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif('first.gif')})
+        self.user.refresh_from_db()
+        existing_name = self.user.profile_picture.name
+        not_an_image = SimpleUploadedFile('notes.txt', b'just some text', content_type='text/plain')
+
+        response = self.client.post(reverse('api:profile_picture'), {'profile_picture': not_an_image})
+
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.profile_picture.name, existing_name)
+        self.assertTrue(os.path.exists(self.user.profile_picture.path))
+
+    def test_uploading_again_replaces_the_previous_picture(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif('first.gif')})
+        self.user.refresh_from_db()
+        first_name = self.user.profile_picture.name
+        first_path = self.user.profile_picture.path
+
+        response = self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif('second.gif')})
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertNotEqual(self.user.profile_picture.name, first_name)
+        # The response itself must reflect the new picture, not just the DB
+        # row: a prior bug cleared the in-memory (and therefore returned)
+        # value while the DB stayed correct, because deleting the old file
+        # via FieldFile.delete() also reset the field on the same instance.
+        self.assertEqual(response.json()['user']['profile_picture'], self.user.profile_picture.url)
+        # And the old file should actually be gone from storage, not just
+        # unlinked from the user record.
+        self.assertFalse(os.path.exists(first_path))
+
+    def test_delete_removes_the_picture(self):
+        self.client.force_login(self.user)
+        self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif()})
+
+        response = self.client.delete(reverse('api:profile_picture'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['user']['profile_picture'])
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.profile_picture)
+
+    def test_delete_with_no_existing_picture_is_a_safe_no_op(self):
+        self.client.force_login(self.user)
+
+        response = self.client.delete(reverse('api:profile_picture'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()['user']['profile_picture'])
+
+    def test_another_users_picture_is_unaffected(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='testpass123')
+        self.client.force_login(self.user)
+
+        self.client.post(reverse('api:profile_picture'), {'profile_picture': self._gif()})
+
+        other.refresh_from_db()
+        self.assertFalse(other.profile_picture)
 
 
 class CourseworkApiTests(ApiTestCase):
@@ -604,29 +779,78 @@ class CourseworkApiTests(ApiTestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(list(Exam.objects.values_list('title', flat=True)), ['Midterm'])
 
-    def test_description_edit_preserves_utc_deadline_and_completion_state(self):
-        response = self.json_post(reverse('api:course_assignments', args=[self.course.pk]), {
-            'title': 'Deadline regression', 'due_date': '2026-11-20T17:45', 'description': 'Original',
-        })
-        self.assertEqual(response.status_code, 201)
-        assignment_id = response.json()['assignment']['id']
+    def test_description_edit_preserves_existing_deadline_and_completion_state(self):
+        # 1:30 occurs twice in New York on this date. Preserve the stored instant.
+        assignment_id = Assignment.objects.create(
+            course=self.course, title='Deadline regression', due_date='2026-11-01T06:30:42Z',
+            description='Original',
+        ).pk
         url = reverse('api:assignment', args=[assignment_id])
         self.json_patch(url, {'status': 'complete'})
         before = self.client.get(url).json()['assignment']
         response = self.json_put(url, {
             'title': before['title'], 'description': 'Updated description',
-            'due_date': '2026-11-20T17:45',
+            'due_date': '2026-11-01T01:30',
             'priority': 'high', 'estimated_workload': '3.0',
         })
         self.assertEqual(response.status_code, 200)
         after = self.client.get(url).json()['assignment']
-        self.assertEqual(after['due_date'], '2026-11-20T17:45:00+00:00')
+        self.assertEqual(after['due_date'], '2026-11-01T01:30:42-05:00')
         self.assertEqual(after['due_date'], before['due_date'])
         self.assertEqual(after['description'], 'Updated description')
         self.assertEqual(after['priority'], 'high')
         self.assertEqual(after['estimated_workload'], 3.0)
         self.assertEqual(after['status'], before['status'])
         self.assertEqual(after['completed_at'], before['completed_at'])
+
+
+class StudyReminderApiTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.now = timezone.now()
+        self.course = Course.objects.create(owner=self.user, name='Software Engineering', code='CS-GY 6063', semester='Fall 2026')
+        self.assignment = Assignment.objects.create(course=self.course, title='Sprint review')
+
+    def session(self, starts_in, assignment=None):
+        starts_at = self.now + starts_in
+        return StudySession.objects.create(
+            assignment=assignment or self.assignment, starts_at=starts_at, ends_at=starts_at + timedelta(hours=1),
+        )
+
+    def reminders(self):
+        with mock.patch('apps.api.views.timezone.now', return_value=self.now):
+            return self.client.get(reverse('api:dashboard')).json()['study_reminders']
+
+    def test_only_sessions_starting_within_the_next_hour_are_included(self):
+        soon = self.session(timedelta(minutes=30))
+        on_the_hour = self.session(timedelta(hours=1))
+        self.session(timedelta(hours=1, seconds=1))
+        self.session(timedelta(seconds=-1))
+        self.session(timedelta(days=-1))
+        self.assertEqual([item['id'] for item in self.reminders()], [soon.pk, on_the_hour.pk])
+
+    def test_a_session_starting_right_now_has_already_started(self):
+        self.session(timedelta(0))
+        self.assertEqual(self.reminders(), [])
+
+    def test_reminder_names_the_course_and_session_time(self):
+        session = self.session(timedelta(minutes=30))
+        reminder = self.reminders()[0]
+        self.assertEqual(reminder['course'], {'id': self.course.pk, 'name': 'Software Engineering', 'code': 'CS-GY 6063'})
+        self.assertEqual(reminder['assignment'], {'id': self.assignment.pk, 'title': 'Sprint review'})
+        self.assertEqual(reminder['starts_at'], timezone.localtime(session.starts_at).isoformat())
+
+    def test_soonest_session_comes_first(self):
+        later = self.session(timedelta(minutes=50))
+        sooner = self.session(timedelta(minutes=10))
+        self.assertEqual([item['id'] for item in self.reminders()], [sooner.pk, later.pk])
+
+    def test_other_students_sessions_are_never_included(self):
+        other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='pass12345')
+        course = Course.objects.create(owner=other, name='Algorithms', code='', semester='Fall 2026')
+        self.session(timedelta(minutes=30), Assignment.objects.create(course=course, title='Theirs'))
+        self.assertEqual(self.reminders(), [])
 
 
 @override_settings(STORAGES={
