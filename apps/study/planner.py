@@ -149,7 +149,10 @@ def generate_study_plan(user, now=None):
 
         planned = []
         for item in items:
-            already = sum((session.ends_at - session.starts_at for session in kept if session.item == item), timedelta(0))
+            # Only kept time before the deadline helps; later sessions stay on the calendar but don't count.
+            deadline = _deadline(item)
+            already = sum((max(min(session.ends_at, deadline) - session.starts_at, timedelta(0))
+                           for session in kept if session.item == item), timedelta(0))
             needed = timedelta(hours=float(item.estimated_workload)) - already
             # Plan in whole 15-minute steps so sessions line up on the calendar.
             needed = -(-needed // STEP) * STEP if needed > timedelta(0) else timedelta(0)

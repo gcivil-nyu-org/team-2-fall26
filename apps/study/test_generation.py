@@ -218,3 +218,28 @@ class GenerateStudyPlanTests(StudyTestCase):
         self.assertEqual(self.times(essay), [('Mon 09:00', '11:00'), ('Mon 11:00', '12:00')])
         self.assertEqual(StudySession.objects.filter(assignment=essay, is_complete=False).count(), 1)
 
+    def test_kept_sessions_after_the_deadline_do_not_count_toward_the_workload(self):
+        midterm = self.exam('Midterm', '2026-11-09T11:00', 1)
+        late = StudySession.objects.create(exam=midterm, is_locked=True,
+                                           starts_at=eastern('2026-11-09T12:00'), ends_at=eastern('2026-11-09T13:00'))
+        response = self.generate().json()
+        self.assertTrue(StudySession.objects.filter(pk=late.pk, is_locked=True).exists())
+        self.assertEqual(self.times(midterm), [('Mon 09:00', '10:00'), ('Mon 12:00', '13:00')])
+        self.assertEqual(response['shortfalls'], [])
+
+    def test_a_kept_session_crossing_the_deadline_counts_only_the_time_before_it(self):
+        midterm = self.exam('Midterm', '2026-11-09T11:00', 1)
+        StudySession.objects.create(exam=midterm, is_locked=True,
+                                    starts_at=eastern('2026-11-09T10:30'), ends_at=eastern('2026-11-09T11:30'))
+        self.generate()
+        self.assertEqual(self.times(midterm), [('Mon 09:00', '09:30'), ('Mon 10:30', '11:30')])
+
+    def test_late_kept_time_with_no_room_left_is_reported_as_a_shortfall(self):
+        AvailabilityBlock.objects.filter(owner=self.user).delete()
+        AvailabilityBlock.objects.create(owner=self.user, weekday=0, start_time=time(12), end_time=time(13))
+        midterm = self.exam('Midterm', '2026-11-09T11:00', 1)
+        StudySession.objects.create(exam=midterm, is_locked=True,
+                                    starts_at=eastern('2026-11-09T12:00'), ends_at=eastern('2026-11-09T13:00'))
+        response = self.generate().json()
+        self.assertEqual([(item['title'], item['hours_short']) for item in response['shortfalls']], [('Midterm', 1.0)])
+
