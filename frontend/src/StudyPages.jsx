@@ -4,7 +4,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Clock3, LockKeyhole, Plus, Spa
 
 import { api, formatDate, toEasternInput } from './api'
 import { AlbertImport } from './AlbertImport'
-import { availableHours, calendarDate, calendarMidnight, dateLabel, WEEKDAYS, weekDays } from './studyCalendar'
+import { availableHours, calendarDate, calendarMidnight, dateLabel, nextAvailabilityBlock, WEEKDAYS, weekDays } from './studyCalendar'
 
 function StudyHeader({ title, subtitle, children }) {
   return <header className="page-header">
@@ -50,7 +50,7 @@ export function AvailabilityPage() {
   }
 
   function add(weekday) {
-    change([...blocks, { weekday, start_time: '09:00', end_time: '10:00' }])
+    change([...blocks, nextAvailabilityBlock(blocks, weekday)])
   }
 
   function update(index, field, value) {
