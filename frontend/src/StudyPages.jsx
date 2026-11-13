@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, LockKeyhole, Plus, Trash2, UnlockKeyhole } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, LockKeyhole, Plus, Sparkles, Trash2, UnlockKeyhole } from 'lucide-react'
 
-import { api, toEasternInput } from './api'
+import { api, formatDate, toEasternInput } from './api'
 import { AlbertImport } from './AlbertImport'
 import { availableHours, calendarDate, calendarMidnight, dateLabel, nextAvailabilityBlock, WEEKDAYS, weekDays } from './studyCalendar'
 
@@ -115,6 +115,11 @@ export function AvailabilityPage() {
   </>
 }
 
+// Study sessions prepare for an assignment or an exam; class meetings have neither.
+export function sessionLabel(session) {
+  return session.assignment?.title ?? (session.exam ? `${session.exam.title} prep` : null)
+}
+
 function SessionEditor({ session, onSaved, onCancel }) {
   const [values, setValues] = useState({ starts_at: toEasternInput(session.starts_at), ends_at: toEasternInput(session.ends_at) })
   const [warnings, setWarnings] = useState([])
@@ -145,7 +150,7 @@ function SessionEditor({ session, onSaved, onCancel }) {
   }
 
   return <section className="panel session-editor" aria-labelledby="session-editor-title">
-    <h2 id="session-editor-title">Reschedule {session.assignment.title}</h2>
+    <h2 id="session-editor-title">Reschedule {sessionLabel(session)}</h2>
     <p>All dates and times are in Eastern time. {session.is_locked && 'This session stays locked after you move it.'}</p>
     {error && <div className="study-notice study-notice--error" role="alert">{error}</div>}
     {warnings.length > 0 && <div className="study-notice" role="alert"><div><strong>Move this session anyway?</strong><ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>Confirming changes only this session.</p></div></div>}
@@ -157,6 +162,44 @@ function SessionEditor({ session, onSaved, onCancel }) {
       <div className="form-actions"><button type="button" className="button button--secondary" disabled={saving} onClick={onCancel}>Cancel</button><button className="button button--primary" disabled={saving}>{saving ? 'Saving…' : warnings.length ? 'Move anyway' : 'Save new time'}</button></div>
     </form>
   </section>
+}
+
+function hoursLabel(hours) {
+  const value = hours.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  return `${value} more hour${hours === 1 ? '' : 's'}`
+}
+
+function courseLabel(course) {
+  return course.code || course.name
+}
+
+function PlanSummary({ plan }) {
+  const count = plan.sessions.length
+  const last = plan.sessions.reduce((latest, session) => (latest && latest.ends_at > session.ends_at ? latest : session), null)
+  return <>
+    <div className="study-notice study-notice--success" role="status">
+      <Sparkles size={20} />
+      <div>
+        <strong>{count ? `Created ${count} study session${count === 1 ? '' : 's'}` : 'No new sessions were needed'}</strong>
+        <p>{count ? `Your plan runs through ${formatDate(last.ends_at)}. Use the week arrows to see later weeks.` : 'Everything with a deadline and workload is already covered, or there was nothing to plan.'}</p>
+      </div>
+    </div>
+    {plan.shortfalls.length > 0 && <div className="study-notice study-notice--warning" role="alert">
+      <Clock3 size={20} />
+      <div>
+        <strong>Not enough free time for everything</strong>
+        <ul>{plan.shortfalls.map((item) => <li key={item.id}>{item.title} ({courseLabel(item.course)}) needs {hoursLabel(item.hours_short)} before {formatDate(item.due_date)}</li>)}</ul>
+        <p>Add more availability or adjust the estimate, then generate again. <NavLink to="/availability">Edit availability</NavLink></p>
+      </div>
+    </div>}
+    {plan.skipped.length > 0 && <div className="study-notice">
+      <CalendarDays size={20} />
+      <div>
+        <strong>Not included in this plan</strong>
+        <ul>{plan.skipped.map((item) => <li key={item.id}>{item.title} ({courseLabel(item.course)}): {item.reason}</li>)}</ul>
+      </div>
+    </div>}
+  </>
 }
 
 export function CalendarPage() {
@@ -171,6 +214,21 @@ export function CalendarPage() {
   const [busy, setBusy] = useState(null)
   const [actionError, setActionError] = useState('')
   const [message, setMessage] = useState('')
+  const [confirmingPlan, setConfirmingPlan] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [plan, setPlan] = useState(null)
+
+  async function generatePlan() {
+    setGenerating(true)
+    setActionError('')
+    setMessage('')
+    try {
+      setPlan(await api('/study/generate/', { method: 'POST' }))
+      setConfirmingPlan(false)
+      setAttempt((value) => value + 1)
+    } catch (err) { setActionError(err.message) }
+    finally { setGenerating(false) }
+  }
 
   async function toggleLock(session) {
     setBusy(session.id)
@@ -207,7 +265,25 @@ export function CalendarPage() {
   return <>
     <StudyHeader title="Your study calendar" subtitle="Class meetings and study sessions, shown in Eastern time.">
       <NavLink className="button button--secondary" to="/availability"><Clock3 size={17} /> Set availability</NavLink>
+      <button className="button button--primary" disabled={!data || generating || confirmingPlan} onClick={() => {
+        setPlan(null)
+        setMessage('')
+        setActionError(data.availability_configured ? '' : 'Set your weekly availability before generating a study plan.')
+        setConfirmingPlan(data.availability_configured)
+      }}><Sparkles size={17} /> Generate study plan</button>
     </StudyHeader>
+    {confirmingPlan && <div className="study-notice study-notice--confirm" role="group" aria-label="Confirm study plan">
+      <Sparkles size={20} />
+      <div>
+        <strong>Generate a new study plan?</strong>
+        <p>This replaces your unlocked upcoming study sessions, including ones you moved by hand. Locked sessions and past sessions stay as they are.</p>
+      </div>
+      <div className="study-notice__actions">
+        <button className="button button--primary button--small" onClick={generatePlan} disabled={generating}>{generating ? 'Generating…' : 'Generate'}</button>
+        <button className="button button--secondary button--small" onClick={() => setConfirmingPlan(false)} disabled={generating}>Cancel</button>
+      </div>
+    </div>}
+    {plan && <PlanSummary plan={plan} />}
     <AlbertImport open={params.get('import') === 'albert'} onImported={() => setAttempt((value) => value + 1)} />
     {loading ? <p role="status">Loading your week…</p> : error ? <>
       <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
@@ -230,14 +306,14 @@ export function CalendarPage() {
             {days.map((day) => <section key={day.date} className={`calendar-day ${day.date === today ? 'calendar-day--today' : ''}`} aria-label={`${day.name}, ${day.date}`}>
               <header className="calendar-day__header"><span>{day.name.slice(0, 3)}</span><time dateTime={day.date}>{new Date(`${day.date}T00:00:00Z`).getUTCDate()}</time>{day.date === today && <small>Today</small>}</header>
               <div className="calendar-day__sessions">
-                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={`calendar-session ${session.assignment ? (session.is_locked ? 'calendar-session--locked' : '') : 'calendar-session--class'}`}>
+                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={`calendar-session ${sessionLabel(session) ? (session.is_locked ? 'calendar-session--locked' : '') : 'calendar-session--class'}`}>
                   <div className="calendar-session__time"><Clock3 size={12} /><span>{session.time}</span></div>
                   {session.is_locked && <span className="calendar-session__locked"><LockKeyhole size={12} /> Locked</span>}
-                  <h3>{session.assignment?.title || 'Class meeting'}</h3>
-                  <NavLink to={`/courses/${session.course.id}`}>{session.assignment ? session.course.code || session.course.name : session.course.name}</NavLink>
-                  {session.assignment && session.course.code && <p>{session.course.name}</p>}
+                  <h3>{sessionLabel(session) || 'Class meeting'}</h3>
+                  <NavLink to={`/courses/${session.course.id}`}>{sessionLabel(session) ? session.course.code || session.course.name : session.course.name}</NavLink>
+                  {sessionLabel(session) && session.course.code && <p>{session.course.name}</p>}
                   {session.location && <p>{session.location}</p>}
-                  {session.assignment && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${session.assignment.title}`} disabled={busy !== null || editing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${session.assignment.title}`} disabled={busy !== null || editing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button></div>}
+                  {sessionLabel(session) && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${sessionLabel(session)}`} disabled={busy !== null || editing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${sessionLabel(session)}`} disabled={busy !== null || editing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button></div>}
                 </article>) : <p className="calendar-day__empty">No sessions</p>}
               </div>
             </section>)}

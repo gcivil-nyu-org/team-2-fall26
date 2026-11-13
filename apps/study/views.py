@@ -9,12 +9,13 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.coursework.models import Course
+from apps.coursework.models import Course, Exam
 
 from .albert import parse_calendar
 from .forms import AvailabilityBlockForm
 from .models import AvailabilityBlock, ClassMeeting, StudySession
-from .services import NYU_TIME, lock_study_account, reschedule_warnings
+from .planner import NoAvailability, generate_study_plan
+from .services import NYU_TIME, lock_study_account, reschedule_warnings, session_item_payload
 
 
 @require_POST
@@ -149,9 +150,9 @@ def calendar_view(request):
     end = monday + timedelta(days=7)
     start_at = datetime.combine(monday, time.min, tzinfo=NYU_TIME)
     end_at = datetime.combine(end, time.min, tzinfo=NYU_TIME)
-    sessions = StudySession.objects.filter(
-        assignment__course__owner=request.user, starts_at__lt=end_at, ends_at__gt=start_at,
-    ).select_related('assignment__course')
+    sessions = StudySession.objects.owned_by(request.user).filter(
+        starts_at__lt=end_at, ends_at__gt=start_at,
+    ).with_course()
     classes = ClassMeeting.objects.filter(
         course__owner=request.user, starts_at__lt=end_at, ends_at__gt=start_at,
     ).select_related('course')
@@ -168,17 +169,46 @@ def calendar_view(request):
              'course': {'id': meeting.course_id, 'name': meeting.course.name, 'code': meeting.course.code}}
             for meeting in classes
         ],
-        'sessions': [
-            {
-                'id': session.pk,
-                'is_locked': session.is_locked,
-                'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
-                'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat(),
-                'assignment': {'id': session.assignment_id, 'title': session.assignment.title},
-                'course': {'id': session.assignment.course_id, 'name': session.assignment.course.name, 'code': session.assignment.course.code},
-            }
-            for session in sessions
+        'sessions': [_session_payload(session) for session in sessions],
+    })
+
+
+def _session_payload(session):
+    return {
+        'id': session.pk,
+        'is_locked': session.is_locked,
+        'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
+        'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat(),
+        **session_item_payload(session),
+    }
+
+
+def _item_summary(item):
+    due = item.starts_at if isinstance(item, Exam) else item.due_date
+    return {
+        'id': item.pk,
+        'kind': 'exam' if isinstance(item, Exam) else 'assignment',
+        'title': item.title,
+        'due_date': due.isoformat() if due else None,
+        'course': {'id': item.course_id, 'name': item.course.name, 'code': item.course.code},
+    }
+
+
+@require_POST
+def generate_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'detail': 'Authentication required.'}, status=401)
+    try:
+        plan = generate_study_plan(request.user)
+    except NoAvailability:
+        return JsonResponse({'detail': 'Set your weekly availability before generating a study plan.'}, status=400)
+    return JsonResponse({
+        'sessions': [_session_payload(session) for session in plan.sessions],
+        'shortfalls': [
+            {**_item_summary(item), 'hours_short': missing.total_seconds() / 3600}
+            for item, missing in plan.shortfalls
         ],
+        'skipped': [{**_item_summary(item), 'reason': reason} for item, reason in plan.skipped],
     })
 
 
@@ -224,8 +254,7 @@ def session_view(request, session_id):
                 return JsonResponse({'errors': {key: list(value) for key, value in form.errors.items()}}, status=400)
     with transaction.atomic():
         lock_study_account(request.user)
-        session = get_object_or_404(StudySession.objects.select_for_update(), pk=session_id,
-                                    assignment__course__owner=request.user)
+        session = get_object_or_404(StudySession.objects.owned_by(request.user).select_for_update(of=('self',)), pk=session_id)
         if moving:
             start, end = form.cleaned_data['starts_at'], form.cleaned_data['ends_at']
             warnings = reschedule_warnings(request.user, session, start, end)
