@@ -448,6 +448,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .calendar-session__locked { display: flex; align-items: center; gap: .3rem; font-size: .7rem; font-weight: 700; color: #57356c; margin: .4rem 0; }
 .calendar-session__actions { display: flex; flex-wrap: wrap; gap: .2rem; margin-top: .65rem; }
 .calendar-session__actions .button { font-size: .68rem; padding: .35rem; white-space: nowrap; }
+.session-remove-confirm { display: grid; gap: .45rem; margin-top: .55rem; padding: .55rem; border: 1px solid #f3d2c2; border-radius: 8px; background: #fff7f2; }
+.session-remove-confirm p { margin: 0; color: #6b4a3b; font-size: .72rem; }
+.session-remove-confirm > div { display: flex; flex-wrap: wrap; gap: .3rem; }
+.session-remove-confirm .button { font-size: .68rem; padding: .35rem .5rem; }
 .session-editor { padding: 1.5rem; margin-bottom: 1.25rem; }
 .session-editor > p { color: var(--muted); font-size: .85rem; margin: .75rem 0 1rem; }
 .session-editor__fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; border: 0; padding: 0; margin: 0; min-width: 0; }

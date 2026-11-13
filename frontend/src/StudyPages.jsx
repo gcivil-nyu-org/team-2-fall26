@@ -215,6 +215,7 @@ export function CalendarPage() {
   const [actionError, setActionError] = useState('')
   const [message, setMessage] = useState('')
   const [confirmingPlan, setConfirmingPlan] = useState(false)
+  const [removing, setRemoving] = useState(null)
   const [generating, setGenerating] = useState(false)
   const [plan, setPlan] = useState(null)
 
@@ -245,6 +246,19 @@ export function CalendarPage() {
   function toggleLock(session) {
     return updateSession(session, { is_locked: !session.is_locked },
       (result) => result.is_locked ? 'Session locked. Schedule regeneration will preserve it.' : 'Session unlocked.')
+  }
+
+  async function removeSession(session) {
+    setBusy(session.id)
+    setActionError('')
+    setMessage('')
+    try {
+      await api(`/study/sessions/${session.id}/`, { method: 'DELETE' })
+      setData((current) => ({ ...current, sessions: current.sessions.filter((item) => item.id !== session.id) }))
+      setRemoving(null)
+      setMessage('Study session removed.')
+    } catch (err) { setActionError(err.message) }
+    finally { setBusy(null) }
   }
 
   function toggleComplete(session) {
@@ -328,7 +342,14 @@ export function CalendarPage() {
                   <NavLink to={`/courses/${session.course.id}`}>{sessionLabel(session) ? session.course.code || session.course.name : session.course.name}</NavLink>
                   {sessionLabel(session) && session.course.code && <p>{session.course.name}</p>}
                   {session.location && <p>{session.location}</p>}
-                  {sessionLabel(session) && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={session.is_complete ? `Reopen ${sessionLabel(session)}` : `Mark ${sessionLabel(session)} complete`} disabled={busy !== null || editing !== null} onClick={() => toggleComplete(session)}>{session.is_complete ? <Circle size={13} /> : <CheckCircle2 size={13} />}{session.is_complete ? 'Reopen' : 'Complete'}</button><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${sessionLabel(session)}`} disabled={busy !== null || editing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${sessionLabel(session)}`} disabled={busy !== null || editing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button></div>}
+                  {sessionLabel(session) && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={session.is_complete ? `Reopen ${sessionLabel(session)}` : `Mark ${sessionLabel(session)} complete`} disabled={busy !== null || editing !== null || removing !== null} onClick={() => toggleComplete(session)}>{session.is_complete ? <Circle size={13} /> : <CheckCircle2 size={13} />}{session.is_complete ? 'Reopen' : 'Complete'}</button><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${sessionLabel(session)}`} disabled={busy !== null || editing !== null || removing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${sessionLabel(session)}`} disabled={busy !== null || editing !== null || removing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button><button className="button button--ghost button--small" aria-label={`Remove ${sessionLabel(session)}`} disabled={busy !== null || editing !== null || removing !== null} onClick={() => { setRemoving(session.id); setMessage(''); setActionError('') }}><Trash2 size={13} />Remove</button></div>}
+                  {removing === session.id && <div className="session-remove-confirm" role="group" aria-label={`Confirm removing ${sessionLabel(session)}`}>
+                    <p>{session.is_locked ? 'This session is locked. Remove it anyway?' : 'Remove this study session?'}</p>
+                    <div>
+                      <button className="button button--danger button--small" onClick={() => removeSession(session)} disabled={busy !== null}>Remove</button>
+                      <button className="button button--secondary button--small" onClick={() => setRemoving(null)} disabled={busy !== null} autoFocus>Cancel</button>
+                    </div>
+                  </div>}
                 </article>) : <p className="calendar-day__empty">No sessions</p>}
               </div>
             </section>)}
