@@ -249,3 +249,60 @@ class ExamSessionTests(StudyTestCase):
         self.exam.delete()
         self.assertFalse(StudySession.objects.filter(pk=self.entry.pk).exists())
 
+
+class SessionCompletionTests(StudyTestCase):
+    def setUp(self):
+        super().setUp()
+        self.entry = self.session('2026-11-02T14:00', '2026-11-02T15:00')
+        self.url = reverse('study:session', args=[self.entry.pk])
+
+    def update(self, body):
+        return self.client.patch(self.url, json.dumps(body), content_type='application/json')
+
+    def calendar_entry(self):
+        return self.client.get(reverse('study:calendar'), {'week': '2026-11-02'}).json()['sessions'][0]
+
+    def test_complete_and_reopen_persist_on_the_calendar(self):
+        self.assertFalse(self.calendar_entry()['is_complete'])
+        for complete in [True, False]:
+            response = self.update({'is_complete': complete})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['is_complete'], complete)
+            self.entry.refresh_from_db()
+            self.assertEqual(self.entry.is_complete, complete)
+            self.assertEqual(self.calendar_entry()['is_complete'], complete)
+
+    def test_completion_leaves_time_and_lock_alone(self):
+        self.entry.is_locked = True
+        self.entry.save()
+        self.update({'is_complete': True})
+        self.entry.refresh_from_db()
+        self.assertTrue(self.entry.is_locked)
+        self.assertEqual((self.entry.starts_at, self.entry.ends_at), (instant('2026-11-02T14:00'), instant('2026-11-02T15:00')))
+
+    def test_invalid_completion_values_are_rejected(self):
+        for value in ['yes', 1, None]:
+            response = self.update({'is_complete': value})
+            self.assertEqual(response.status_code, 400)
+            self.assertIn('is_complete', response.json()['errors'])
+        self.entry.refresh_from_db()
+        self.assertFalse(self.entry.is_complete)
+
+    def test_other_students_cannot_complete_my_session(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.update({'is_complete': True}).status_code, 404)
+        self.entry.refresh_from_db()
+        self.assertFalse(self.entry.is_complete)
+
+    def test_completed_sessions_are_never_replaced_by_regeneration(self):
+        done = StudySession.objects.create(assignment=self.assignment, is_complete=True,
+                                           starts_at=instant('2026-11-03T14:00'), ends_at=instant('2026-11-03T15:00'))
+        window = (instant('2026-11-03T00:00'), instant('2026-11-04T00:00'))
+        self.assertIn(done, preserved_sessions(self.user, *window))
+        replace_unlocked_sessions(self.user, *window, [])
+        self.assertTrue(StudySession.objects.filter(pk=done.pk).exists())
+        candidate = StudySession(assignment=self.assignment, is_complete=True,
+                                 starts_at=instant('2026-11-03T16:00'), ends_at=instant('2026-11-03T17:00'))
+        with self.assertRaises(ValidationError):
+            replace_unlocked_sessions(self.user, *window, [candidate])
+

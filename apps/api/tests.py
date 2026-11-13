@@ -855,6 +855,12 @@ class StudyReminderApiTests(ApiTestCase):
         self.assertEqual(reminder['exam'], {'id': exam.pk, 'title': 'Midterm'})
         self.assertIsNone(reminder['assignment'])
 
+    def test_completed_sessions_do_not_remind(self):
+        session = self.session(timedelta(minutes=30))
+        session.is_complete = True
+        session.save()
+        self.assertEqual(self.reminders(), [])
+
     def test_other_students_sessions_are_never_included(self):
         other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='pass12345')
         course = Course.objects.create(owner=other, name='Algorithms', code='', semester='Fall 2026')

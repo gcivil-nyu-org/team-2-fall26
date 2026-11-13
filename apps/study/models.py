@@ -58,6 +58,7 @@ class StudySession(models.Model):
     assignment = models.ForeignKey('coursework.Assignment', on_delete=models.CASCADE, related_name='study_sessions', null=True, blank=True)
     exam = models.ForeignKey('coursework.Exam', on_delete=models.CASCADE, related_name='study_sessions', null=True, blank=True)
     is_locked = models.BooleanField(default=False)
+    is_complete = models.BooleanField(default=False)
     starts_at = models.DateTimeField()
     ends_at = models.DateTimeField()
 

@@ -56,15 +56,16 @@ def session_item_payload(session):
 def preserved_sessions(user, starts_at, ends_at):
     """Return the owner's sessions that regeneration must keep unchanged.
 
-    Only unlocked sessions wholly inside the window can be replaced. Locked
-    sessions, sessions crossing either edge, and sessions outside are preserved.
+    Only unlocked, incomplete sessions wholly inside the window can be replaced.
+    Locked or completed sessions, sessions crossing either edge, and sessions
+    outside are preserved.
     A generator should read this queryset under lock_study_account() inside the
     same transaction as planning and replacement to avoid concurrent edits.
     """
     if ends_at <= starts_at:
         raise ValidationError('The planning window must have a positive duration.')
     return StudySession.objects.owned_by(user).exclude(
-        is_locked=False, starts_at__gte=starts_at, ends_at__lte=ends_at,
+        is_locked=False, is_complete=False, starts_at__gte=starts_at, ends_at__lte=ends_at,
     ).with_course()
 
 
@@ -84,8 +85,8 @@ def replace_unlocked_sessions(user, starts_at, ends_at, candidates):
     )
     planned = []
     for session in candidates:
-        if session.pk or session.is_locked or session.course.owner_id != user.pk:
-            raise ValidationError('Generated sessions must be new, unlocked, and owned by this account.')
+        if session.pk or session.is_locked or session.is_complete or session.course.owner_id != user.pk:
+            raise ValidationError('Generated sessions must be new, unlocked, incomplete, and owned by this account.')
         session.full_clean()
         if session.starts_at < starts_at or session.ends_at > ends_at:
             raise ValidationError('Generated sessions must fit inside the planning window.')

@@ -177,6 +177,7 @@ def _session_payload(session):
     return {
         'id': session.pk,
         'is_locked': session.is_locked,
+        'is_complete': session.is_complete,
         'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
         'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat(),
         **session_item_payload(session),
@@ -235,14 +236,14 @@ def session_view(request, session_id):
         body = json.loads(request.body)
     except (ValueError, UnicodeDecodeError):
         return JsonResponse({'detail': 'Send a JSON object.'}, status=400)
-    if not isinstance(body, dict) or not body or set(body) - {'is_locked', 'starts_at', 'ends_at', 'confirm_warnings'}:
-        return JsonResponse({'detail': 'Send only lock or reschedule fields.'}, status=400)
-    for field in ('is_locked', 'confirm_warnings'):
+    if not isinstance(body, dict) or not body or set(body) - {'is_locked', 'is_complete', 'starts_at', 'ends_at', 'confirm_warnings'}:
+        return JsonResponse({'detail': 'Send only lock, completion, or reschedule fields.'}, status=400)
+    for field in ('is_locked', 'is_complete', 'confirm_warnings'):
         if field in body and type(body[field]) is not bool:
             return JsonResponse({'errors': {field: ['Enter true or false.']}}, status=400)
     moving = 'starts_at' in body or 'ends_at' in body
-    if not moving and 'is_locked' not in body:
-        return JsonResponse({'detail': 'Choose a lock state or a new time.'}, status=400)
+    if not moving and 'is_locked' not in body and 'is_complete' not in body:
+        return JsonResponse({'detail': 'Choose a lock state, a completion state, or a new time.'}, status=400)
     form = None
     if moving:
         for field in ('starts_at', 'ends_at'):
@@ -263,7 +264,9 @@ def session_view(request, session_id):
             session.starts_at, session.ends_at = start, end
         if 'is_locked' in body:
             session.is_locked = body['is_locked']
-        session.save(update_fields=['starts_at', 'ends_at', 'is_locked'])
-    return JsonResponse({'id': session.pk, 'is_locked': session.is_locked,
+        if 'is_complete' in body:
+            session.is_complete = body['is_complete']
+        session.save(update_fields=['starts_at', 'ends_at', 'is_locked', 'is_complete'])
+    return JsonResponse({'id': session.pk, 'is_locked': session.is_locked, 'is_complete': session.is_complete,
                          'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
                          'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat()})

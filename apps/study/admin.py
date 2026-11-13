@@ -11,5 +11,5 @@ class AvailabilityBlockAdmin(admin.ModelAdmin):
 
 @admin.register(StudySession)
 class StudySessionAdmin(admin.ModelAdmin):
-    list_display = ['assignment', 'exam', 'starts_at', 'ends_at', 'is_locked']
+    list_display = ['assignment', 'exam', 'starts_at', 'ends_at', 'is_locked', 'is_complete']
     list_select_related = ['assignment', 'exam']
