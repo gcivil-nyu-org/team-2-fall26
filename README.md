@@ -262,6 +262,7 @@ server when `DEBUG=True`. This is also what the test suite uses — nothing abou
 testing or local dev changes with the S3 support described below.
 
 **Staging/prod: S3-ready, but still needs real infrastructure set up.**
+Use the [private S3 deployment checklist](docs/s3-media-deployment.md) to configure buckets, EB instance-role IAM permissions, and acceptance tests. Keep the bucket private: the S3-backed storage emits time-limited signed URLs rather than publicly readable object URLs.
 Elastic Beanstalk's app servers have ephemeral, non-shared local disks, so local
 storage would lose every uploaded picture on the next deploy, or not show it on
 a different instance behind the load balancer. The app code now supports S3 via
