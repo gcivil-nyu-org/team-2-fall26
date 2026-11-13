@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import DirectMessage, FriendRequest
+from .models import DirectMessage, FoodPost, FriendRequest
 
 
 @admin.register(FriendRequest)
@@ -22,3 +22,10 @@ class DirectMessageAdmin(admin.ModelAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+
+
+@admin.register(FoodPost)
+class FoodPostAdmin(admin.ModelAdmin):
+    list_display = ['place_name', 'author', 'rating', 'created_at']
+    list_select_related = ['author']
+    search_fields = ['place_name', 'cuisine', 'location']

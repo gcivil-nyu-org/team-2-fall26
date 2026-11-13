@@ -166,6 +166,28 @@ calendar. If Albert abbreviates a course name, choose its existing course or
 add a new one. Upload a fresh full-term export to refresh imported meetings.
 Existing courses, coursework, availability, and study sessions are preserved.
 
+## Food posts (#46)
+
+The React sidebar links to **Community** (`/app/community`), the start of the
+community food feed (E5). Share a restaurant or food place with a required name
+and description, plus an optional cuisine, location, and 1–5 rating. A new post
+appears at the top of the feed as soon as it's submitted. Every post belongs to
+the account that created it: the API always takes the author from the session,
+never from the request body. Photos on posts will reuse the profile-picture
+upload setup in a follow-up; browsing and filtering the feed is #47.
+
+API endpoints (session authentication and CSRF protection apply):
+
+- `GET /api/social/posts/`: every student's posts, newest first, each with its
+  author's name, email, and `profile_picture`.
+- `POST /api/social/posts/`: create a post; body:
+  `{"place_name": "Joe's Pizza", "description": "Grab a plain slice.",
+  "location": "7 Carmine St", "cuisine": "Pizza", "rating": 5}`. Only
+  `place_name` and `description` are required; `rating` may be `null`. Returns
+  the new post (201), or field errors (400).
+
+Run `python manage.py migrate` to create the food post table.
+
 ## Assignment deadlines
 
 Assignments require a title and deadline date and time; descriptions are optional.
@@ -274,7 +296,7 @@ apps/
   api/           # session-authenticated JSON endpoints
   coursework/    # course and assignment domain logic
   study/         # availability and study-session scheduling
-  social/        # friend requests and the friends list
+  social/        # friend requests, the friends list, and food posts
 config/          # project settings, root URLs
 templates/       # minimal Django shell that mounts React
 frontend/        # React single-page app
