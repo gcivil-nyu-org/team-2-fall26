@@ -90,3 +90,85 @@ test('failed lock leaves the session unlocked and displays an error', async () =
   expect(screen.getByRole('button', { name: 'Lock Essay' })).toBeEnabled()
   expect(screen.queryByText('Locked')).not.toBeInTheDocument()
 })
+
+const generated = { id: 9, starts_at: '2026-11-03T14:00:00Z', ends_at: '2026-11-03T16:00:00Z', is_locked: false, assignment: { id: 2, title: 'Report' }, course: { id: 1, code: 'SWE', name: 'Software' } }
+function mockGenerate(result) {
+  vi.mocked(api).mockImplementation(async (path, options) => {
+    if (path === '/study/generate/') {
+      if (result instanceof Error) throw result
+      return result
+    }
+    return path.startsWith('/study/calendar/') && !options ? week : undefined
+  })
+}
+
+test('generating asks first, then posts once and refreshes the calendar', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Generate study plan' }))
+  expect(screen.getByRole('group', { name: 'Confirm study plan' })).toHaveTextContent(/locked sessions and past sessions stay/i)
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path === '/study/generate/')).toHaveLength(0)
+
+  mockGenerate({ sessions: [generated], shortfalls: [], skipped: [] })
+  const calendarLoads = vi.mocked(api).mock.calls.length
+  await user.click(screen.getByRole('button', { name: 'Generate' }))
+  expect(api).toHaveBeenCalledWith('/study/generate/', { method: 'POST' })
+  expect(await screen.findByText('Created 1 study session')).toBeInTheDocument()
+  expect(screen.getByText(/runs through Nov 3, 11:00 AM EST/)).toBeInTheDocument()
+  await waitFor(() => expect(vi.mocked(api).mock.calls.slice(calendarLoads).some(([path]) => path.startsWith('/study/calendar/'))).toBe(true))
+  expect(screen.queryByRole('group', { name: 'Confirm study plan' })).not.toBeInTheDocument()
+})
+
+test('cancelling the plan sends nothing', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Generate study plan' }))
+  await user.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('group', { name: 'Confirm study plan' })).not.toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path === '/study/generate/')).toHaveLength(0)
+})
+
+test('shortfalls and skipped assignments are explained instead of dropped', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Generate study plan' }))
+  mockGenerate({
+    sessions: [generated],
+    shortfalls: [{ id: 2, title: 'Report', due_date: '2026-11-04T04:59:00+00:00', course: { id: 1, code: 'SWE', name: 'Software' }, hours_short: 1.25 }],
+    skipped: [{ id: 3, title: 'Reading', due_date: null, course: { id: 1, code: '', name: 'Software' }, reason: 'Add a deadline to include this in your plan.' }],
+  })
+  await user.click(screen.getByRole('button', { name: 'Generate' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Report (SWE) needs 1.25 more hours before Nov 3, 11:59 PM EST')
+  expect(screen.getByText('Reading (Software): Add a deadline to include this in your plan.')).toBeInTheDocument()
+})
+
+test('a failed generation shows the error and keeps the confirm open to retry', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Generate study plan' }))
+  mockGenerate(new Error('Set your weekly availability before generating a study plan.'))
+  await user.click(screen.getByRole('button', { name: 'Generate' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Set your weekly availability')
+  expect(screen.getByRole('group', { name: 'Confirm study plan' })).toBeInTheDocument()
+})
+
+test('without availability, generating explains what to do instead of doing nothing', async () => {
+  vi.mocked(api).mockResolvedValue({ ...week, availability_configured: false })
+  render(<MemoryRouter initialEntries={['/calendar?week=2026-11-02']}><CalendarPage /></MemoryRouter>)
+  const button = await screen.findByRole('button', { name: 'Generate study plan' })
+  expect(button).toBeEnabled()
+  await userEvent.setup().click(button)
+  expect(screen.getByRole('alert')).toHaveTextContent('Set your weekly availability before generating a study plan.')
+  expect(screen.queryByRole('group', { name: 'Confirm study plan' })).not.toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path === '/study/generate/')).toHaveLength(0)
+})
+
+test('exam prep sessions are labelled and can be locked like any session', async () => {
+  const prep = { ...session, id: 8, assignment: null, exam: { id: 4, title: 'Midterm' } }
+  vi.mocked(api).mockResolvedValue({ ...week, sessions: [prep] })
+  render(<MemoryRouter initialEntries={['/calendar?week=2026-11-02']}><CalendarPage /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: 'Midterm prep' })).toBeInTheDocument()
+  vi.mocked(api).mockResolvedValueOnce({ ...prep, is_locked: true })
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Lock Midterm prep' }))
+  expect(api).toHaveBeenLastCalledWith('/study/sessions/8/', { method: 'PATCH', body: { is_locked: true } })
+})

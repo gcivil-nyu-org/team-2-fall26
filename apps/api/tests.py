@@ -839,12 +839,21 @@ class StudyReminderApiTests(ApiTestCase):
         reminder = self.reminders()[0]
         self.assertEqual(reminder['course'], {'id': self.course.pk, 'name': 'Software Engineering', 'code': 'CS-GY 6063'})
         self.assertEqual(reminder['assignment'], {'id': self.assignment.pk, 'title': 'Sprint review'})
+        self.assertIsNone(reminder['exam'])
         self.assertEqual(reminder['starts_at'], timezone.localtime(session.starts_at).isoformat())
 
     def test_soonest_session_comes_first(self):
         later = self.session(timedelta(minutes=50))
         sooner = self.session(timedelta(minutes=10))
         self.assertEqual([item['id'] for item in self.reminders()], [sooner.pk, later.pk])
+
+    def test_exam_prep_sessions_get_reminders_too(self):
+        exam = Exam.objects.create(course=self.course, title='Midterm', starts_at=self.now + timedelta(days=2))
+        starts_at = self.now + timedelta(minutes=20)
+        StudySession.objects.create(exam=exam, starts_at=starts_at, ends_at=starts_at + timedelta(hours=1))
+        reminder = self.reminders()[0]
+        self.assertEqual(reminder['exam'], {'id': exam.pk, 'title': 'Midterm'})
+        self.assertIsNone(reminder['assignment'])
 
     def test_other_students_sessions_are_never_included(self):
         other = User.objects.create_user(username='other@nyu.edu', email='other@nyu.edu', password='pass12345')
