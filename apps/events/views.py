@@ -31,7 +31,8 @@ def payload(event, detail=False):
 def events_view(request):
     if not request.user.is_authenticated:
         return JsonResponse({'detail': 'Authentication required.'}, status=401)
-    events = Event.objects.filter(status='confirmed', ends_at__gt=timezone.now())
+    now = timezone.now()
+    events = Event.objects.filter(status='confirmed', starts_at__gt=now)
     dates = {}
     for key in ('date_from', 'date_to'):
         value = request.GET.get(key, '')
@@ -44,9 +45,9 @@ def events_view(request):
                 return JsonResponse({'detail': 'Enter valid dates in YYYY-MM-DD format.'}, status=400)
     if dates.get('date_from') and dates.get('date_to') and dates['date_from'] > dates['date_to']:
         return JsonResponse({'detail': 'End date must be on or after start date.'}, status=400)
-    # Include events overlapping any part of the selected Eastern dates.
+    # Filter future starts by the selected Eastern dates.
     if 'date_from' in dates:
-        events = events.filter(ends_at__gt=datetime.combine(dates['date_from'], time.min, EASTERN))
+        events = events.filter(starts_at__gte=datetime.combine(dates['date_from'], time.min, EASTERN))
     if 'date_to' in dates:
         events = events.filter(starts_at__lt=datetime.combine(dates['date_to'] + timedelta(days=1), time.min, EASTERN))
     query = request.GET.get('q', '').strip()[:200]
@@ -70,7 +71,7 @@ def events_view(request):
     return JsonResponse({
         'events': [payload(event) for event in page],
         'count': pages.count, 'page': page.number, 'pages': pages.num_pages,
-        'categories': list(EventCategory.objects.filter(event__status='confirmed', event__ends_at__gt=timezone.now())
+        'categories': list(EventCategory.objects.filter(event__status='confirmed', event__starts_at__gt=now)
                            .values_list('name', flat=True).distinct()),
         'last_synced_at': synced.isoformat() if synced else None,
         'stale': not synced or timezone.now() - synced > timedelta(days=1),

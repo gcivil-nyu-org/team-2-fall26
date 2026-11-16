@@ -15,6 +15,15 @@ export function EventsPage() {
   const [attempt, setAttempt] = useState(0)
   const query = params.toString()
   useEffect(() => {
+    const refresh = () => setAttempt((value) => value + 1)
+    const timer = window.setInterval(refresh, 60_000)
+    window.addEventListener('focus', refresh)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', refresh)
+    }
+  }, [])
+  useEffect(() => {
     let active = true
     setLoading(true)
     setError('')
@@ -52,6 +61,7 @@ export function EventsPage() {
       <p className="event-feed-note">{data.last_synced_at ? `Last refreshed ${formatDate(data.last_synced_at, true)}. ` : 'Events have not been imported yet. '}{data.stale && data.last_synced_at && 'This list may be out of date. '}The public feed covers a limited date range; check Engage for more events.</p>
       {params.get('career') === 'true' && <p className="event-feed-note">Showing events tagged Professional &amp; Career Development on Engage. Other career events may appear under different categories.</p>}
       <p role="status">{data.count} {data.count === 1 ? 'event' : 'events'} found</p>
+      <p className="event-feed-note">Only events that haven’t started yet are shown, soonest first.</p>
       {!data.events.length && <div className="empty-state panel"><h3>No upcoming events found</h3><p>Try different filters or check NYU Engage.</p></div>}
       <section className="event-grid" aria-label="NYU events">{data.events.map((event) => <article className="panel event-card" key={event.id}>
         <p className="kicker">{formatDate(event.starts_at, true)}</p>

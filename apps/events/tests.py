@@ -117,6 +117,28 @@ class EventAPITests(TestCase):
         self.assertEqual(set(data['categories']), {'Arts', CAREER_CATEGORY})
         self.assertNotIn('description', data['events'][0])
 
+    def test_old_and_already_started_events_do_not_appear_even_if_they_end_later(self, now):
+        sync_feed(feed(
+            item('111', title='October series', start='Thu, 01 Oct 2026 12:00:00 GMT',
+                 end='Tue, 01 Dec 2026 12:00:00 GMT', category='Old series'),
+            item('222', title='Started earlier today', start='Mon, 16 Nov 2026 11:00:00 GMT',
+                 end='Mon, 16 Nov 2026 17:00:00 GMT', category='In progress'),
+            item('333', title='Starting now', start='Mon, 16 Nov 2026 12:00:00 GMT',
+                 end='Mon, 16 Nov 2026 17:00:00 GMT'),
+        ))
+        data = self.client.get('/api/events/').json()
+        self.assertEqual(data['count'], 2)
+        self.assertNotIn('Old series', data['categories'])
+        self.assertNotIn('In progress', data['categories'])
+        # Selecting historical dates cannot reintroduce events we can no longer attend.
+        old = self.client.get('/api/events/', {'date_from': '2026-10-01', 'date_to': '2026-10-31'}).json()
+        self.assertEqual(old['events'], [])
+
+    def test_discovery_removes_event_once_its_start_passes(self, now):
+        self.assertEqual(self.client.get('/api/events/').json()['count'], 2)
+        now.return_value = datetime(2026, 11, 16, 23, 1, tzinfo=dt_timezone.utc)
+        self.assertEqual(self.client.get('/api/events/').json()['count'], 0)
+
     def test_career_category_and_text_search(self, now):
         for params in ({'career': 'true'}, {'category': CAREER_CATEGORY}, {'q': 'workshop'}):
             data = self.client.get('/api/events/', params).json()

@@ -68,3 +68,12 @@ test('cancelled detail is readable and descriptions render as text', async () =>
   expect(container.querySelector('script')).toBeNull()
   expect(screen.getByRole('link', { name: 'View on NYU Engage' })).toHaveAttribute('href', event.source_url)
 })
+
+
+test('refreshes future events when returning to the page', async () => {
+  vi.mocked(api).mockResolvedValueOnce(result).mockResolvedValue({ ...result, events: [], count: 0 })
+  renderList()
+  await screen.findByText('1 event found')
+  window.dispatchEvent(new Event('focus'))
+  expect(await screen.findByText('No upcoming events found')).toBeInTheDocument()
+})
