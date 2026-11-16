@@ -36,7 +36,7 @@ export function EventsPage() {
   }
 
   return <>
-    <header className="page-header"><div><p className="kicker">Around NYU</p><h1>Discover events</h1><p className="page-header__subtitle">Find something worth making time for. Public events from <a href="https://engage.nyu.edu/events" target="_blank" rel="noreferrer">NYU Engage</a>; times shown in New York time.</p></div></header>
+    <header className="page-header"><div><p className="kicker">Around NYU</p><h1>Discover events</h1><p className="page-header__subtitle">Find something worth making time for.</p></div></header>
     <form className="event-filters panel" onSubmit={filter} key={query} aria-label="Filter events">
       <label className="field"><span className="field__label">Search events</span><input name="q" defaultValue={params.get('q') || ''} maxLength={200} placeholder="Title, host, or location" /></label>
       <label className="field"><span className="field__label">From date</span><input name="date_from" type="date" defaultValue={params.get('date_from') || ''} /></label>
