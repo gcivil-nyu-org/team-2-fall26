@@ -76,12 +76,84 @@ function FoodPostCard({ post, full = false, onChange }) {
         <div className="avatar">{post.author.profile_picture ? <img src={post.author.profile_picture} alt="" /> : initial(post.author)}</div>
         <span>{displayName(post.author)} · {formatDate(post.created_at, true)}</span>
       </div>
-      {onChange && <SaveButton post={post} onChange={onChange} />}
+      <div className="food-post__actions">
+        {!full && <Link className="food-post__comments-link" to={`/community/posts/${post.id}`} aria-label={`${commentCountLabel(post.comment_count)} on ${post.place_name}`}><MessageSquare size={14} /> {commentCountLabel(post.comment_count)}</Link>}
+        {onChange && <SaveButton post={post} onChange={onChange} />}
+      </div>
     </footer>
   </article>
 }
 
-// #47: one post on its own page, with room for comments (#49 adds them).
+export function commentCountLabel(count) {
+  if (!count) return 'No comments yet'
+  return count === 1 ? '1 comment' : `${count} comments`
+}
+
+// #49: a post's comments, oldest first, with a box for adding one.
+function PostComments({ postId, onCountChange }) {
+  const [comments, setComments] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState('')
+  const [posting, setPosting] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError('')
+    api(`/social/posts/${postId}/comments/`).then((result) => { if (active) setComments(result.comments) })
+      .catch((err) => { if (active) setLoadError(err.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [postId, attempt])
+
+  async function submit(event) {
+    event.preventDefault()
+    if (!draft.trim()) return
+    setPosting(true)
+    setError('')
+    try {
+      const result = await api(`/social/posts/${postId}/comments/`, { method: 'POST', body: { body: draft } })
+      const next = [...comments, result.comment]
+      setComments(next)
+      onCountChange(next.length)
+      setDraft('')
+    } catch (err) {
+      setError(err.errors?.body?.[0] || err.message)
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  return <section className="panel panel--stacked food-post-comments" aria-labelledby="comments-heading">
+    <div className="panel__header"><div><h2 id="comments-heading">Comments</h2></div>{comments && <span className="count-pill">{comments.length}</span>}</div>
+    {loading ? <p className="food-comments__status" role="status">Loading comments…</p>
+      : loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} />
+        : comments && (comments.length ? <ol className="food-comments" aria-label="Comments on this post">
+          {comments.map((comment) => <li className="food-comment" key={comment.id}>
+            <div className="avatar">{comment.author.profile_picture ? <img src={comment.author.profile_picture} alt="" /> : initial(comment.author)}</div>
+            <div className="food-comment__body">
+              <p className="food-comment__meta"><strong>{displayName(comment.author)}</strong> · {formatDate(comment.created_at, true)}</p>
+              <p className="food-comment__text">{comment.body}</p>
+            </div>
+          </li>)}
+        </ol> : <div className="empty-state"><span><MessageSquare size={22} /></span><h3>No comments yet</h3><p>Be the first to share your thoughts.</p></div>)}
+    {comments && <form className="food-comment-form" onSubmit={submit} aria-label="Write a comment">
+      <div className={`field ${error ? 'field--error' : ''}`}>
+        <label className="field__label" htmlFor={`comment-${postId}`}>Add a comment</label>
+        <textarea id={`comment-${postId}`} name="body" rows={3} maxLength={1000} value={draft} placeholder="What did you think?" aria-describedby={error ? `comment-${postId}-error` : undefined} aria-invalid={Boolean(error)} onChange={(event) => { setDraft(event.target.value); setError('') }} />
+        {error && <span className="field__error" id={`comment-${postId}-error`} role="alert">{error}</span>}
+      </div>
+      <div className="form-actions">
+        <button className="button button--primary" disabled={posting || !draft.trim()}><Send size={16} /> {posting ? 'Posting…' : 'Post comment'}</button>
+      </div>
+    </form>}
+  </section>
+}
+
+// #47: one post on its own page, with its comments (#49).
 export function FoodPostPage() {
   const { postId } = useParams()
   const [post, setPost] = useState(null)
@@ -112,10 +184,7 @@ export function FoodPostPage() {
         : error ? <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
           : post && <>
             <section className="panel" aria-label="Post"><FoodPostCard post={post} full onChange={setPost} /></section>
-            <section className="panel panel--stacked food-post-comments" aria-labelledby="comments-heading">
-              <div className="panel__header"><div><h2 id="comments-heading">Comments</h2></div></div>
-              <div className="empty-state"><span><MessageSquare size={22} /></span><h3>No comments yet</h3></div>
-            </section>
+            <PostComments postId={post.id} onCountChange={(count) => setPost((current) => ({ ...current, comment_count: count }))} />
           </>}
   </>
 }

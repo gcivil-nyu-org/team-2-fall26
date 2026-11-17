@@ -38,6 +38,18 @@ class SendDirectMessageForm(forms.Form):
     )
 
 
+class PostCommentForm(forms.Form):
+    # #49: the author and post come from the request, never the client.
+    body = forms.CharField(
+        max_length=1000,
+        strip=True,
+        error_messages={
+            'required': 'Write a comment before posting.',
+            'max_length': 'Comments must be 1000 characters or fewer.',
+        },
+    )
+
+
 class FoodPostForm(forms.ModelForm):
     # The author is deliberately not a form field: the view always sets it
     # from request.user, so a client can never post as someone else.

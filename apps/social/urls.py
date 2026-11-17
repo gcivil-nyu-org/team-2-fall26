@@ -13,5 +13,6 @@ urlpatterns = [
     path('posts/', views.food_posts_view, name='posts'),
     path('posts/<int:pk>/', views.food_post_view, name='post'),
     path('posts/<int:pk>/save/', views.food_post_save_view, name='post_save'),
+    path('posts/<int:pk>/comments/', views.food_post_comments_view, name='post_comments'),
     path('posts/saved/', views.saved_food_posts_view, name='saved_posts'),
 ]
