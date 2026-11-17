@@ -9,7 +9,7 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 
-from .models import FriendRequest
+from .models import FoodPost, FriendRequest
 
 # Smallest valid GIF, same fixture apps/api/tests.py uses for uploads.
 SMALL_GIF = (
@@ -198,3 +198,91 @@ class FriendRequestResponseTests(TestCase):
         self.assertEqual(user['email'], 'kim@nyu.edu')
         self.assertEqual(user['bio'], 'Hello')
         self.assertFalse(user['show_email'])
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp())
+class CommunityFeedPrivacyTests(TestCase):
+    """#31 with #46: a post's author never exposes details they have hidden."""
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(settings.MEDIA_ROOT, ignore_errors=True)
+
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username='sam@nyu.edu', email='sam@nyu.edu', first_name='Sam', last_name='Lee',
+            bio='CS junior', password='test123',
+        )
+        self.author.profile_picture.save('sam.gif', SimpleUploadedFile('sam.gif', SMALL_GIF), save=True)
+        self.viewer = User.objects.create_user(username='viewer@nyu.edu', email='viewer@nyu.edu', password='test123')
+        self.url = reverse('social:posts')
+        FoodPost.objects.create(author=self.author, place_name='Joe\'s Pizza', description='Plain slice.')
+
+    def hide(self, **fields):
+        for name, value in fields.items():
+            setattr(self.author, name, value)
+        self.author.save()
+
+    def feed_author(self):
+        self.client.force_login(self.viewer)
+        return self.client.get(self.url).json()['posts'][0]['author']
+
+    def test_the_feed_shows_the_authors_email_and_photo_by_default_but_never_the_bio(self):
+        author = self.feed_author()
+        self.assertEqual(author['email'], 'sam@nyu.edu')
+        self.assertTrue(author['profile_picture'])
+        self.assertNotIn('bio', author)
+
+    def test_a_hidden_email_is_not_in_the_feed(self):
+        self.hide(show_email=False)
+        author = self.feed_author()
+        self.assertIsNone(author['email'])
+        self.client.force_login(self.viewer)
+        self.assertNotIn('sam@nyu.edu', self.client.get(self.url).content.decode())
+
+    def test_a_hidden_photo_is_not_in_the_feed(self):
+        self.hide(show_profile_picture=False)
+        author = self.feed_author()
+        self.assertIsNone(author['profile_picture'])
+        self.client.force_login(self.viewer)
+        self.assertNotIn('profile-pictures', self.client.get(self.url).content.decode())
+
+    def test_hiding_email_and_photo_still_leaves_the_name(self):
+        self.hide(show_email=False, show_profile_picture=False)
+        author = self.feed_author()
+        self.assertEqual((author['first_name'], author['last_name']), ('Sam', 'Lee'))
+        self.assertIsNone(author['email'])
+        self.assertIsNone(author['profile_picture'])
+        self.assertNotIn('bio', author)
+
+    def test_the_bio_never_appears_in_the_feed_whatever_the_setting(self):
+        self.client.force_login(self.viewer)
+        self.assertNotIn('CS junior', self.client.get(self.url).content.decode())
+        self.hide(show_bio=False)
+        self.assertNotIn('CS junior', self.client.get(self.url).content.decode())
+
+    def test_creating_a_post_does_not_echo_hidden_details_back(self):
+        self.hide(show_email=False, show_profile_picture=False)
+        self.client.force_login(self.author)
+        response = self.client.post(
+            self.url, json.dumps({'place_name': 'Mamoun\'s', 'description': 'Best falafel.'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        author = response.json()['post']['author']
+        self.assertEqual(author['first_name'], 'Sam')
+        self.assertIsNone(author['email'])
+        self.assertIsNone(author['profile_picture'])
+        self.assertNotIn('bio', author)
+        self.assertNotIn('sam@nyu.edu', response.content.decode())
+
+    def test_one_authors_settings_do_not_change_another_authors_posts(self):
+        other = User.objects.create_user(
+            username='kim@nyu.edu', email='kim@nyu.edu', first_name='Kim', password='test123',
+        )
+        FoodPost.objects.create(author=other, place_name='Katz\'s', description='Pastrami.')
+        self.hide(show_email=False)
+        self.client.force_login(self.viewer)
+        by_email = {post['author']['first_name']: post['author']['email'] for post in self.client.get(self.url).json()['posts']}
+        self.assertEqual(by_email, {'Sam': None, 'Kim': 'kim@nyu.edu'})
