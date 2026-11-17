@@ -18,7 +18,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from apps.accounts.forms import AccountActionForm, NotificationPreferencesForm, ProfileForm, ProfilePictureForm, SignUpForm
-from apps.accounts.models import STUDY_REMINDER_MINUTE_CHOICES, User
+from apps.accounts.models import DEADLINE_REMINDER_HOUR_CHOICES, STUDY_REMINDER_MINUTE_CHOICES, User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
 from apps.study.models import StudySession
@@ -146,6 +146,39 @@ def _study_reminder_payload(user, now):
         }
         for session in sessions
     ]
+
+
+def _deadline_reminder_payload(user, now):
+    # Assignments and exams coming up within the student's chosen window (#37).
+    # Overdue work isn't a reminder: the dashboard already counts it.
+    if not user.deadline_reminders_enabled:
+        return []
+    until = now + timedelta(hours=user.deadline_reminder_hours)
+    assignments = (
+        Assignment.objects.owned_by(user).outstanding()
+        .filter(due_date__gt=now, due_date__lte=until).select_related('course')
+    )
+    exams = Exam.objects.owned_by(user).upcoming().filter(starts_at__gt=now, starts_at__lte=until).select_related('course')
+    items = [
+        {
+            'id': item.pk,
+            'kind': 'assignment',
+            'title': item.title,
+            'when': timezone.localtime(item.due_date).isoformat(),
+            'course': {'id': item.course_id, 'name': item.course.name, 'code': item.course.code},
+        }
+        for item in assignments
+    ] + [
+        {
+            'id': item.pk,
+            'kind': 'exam',
+            'title': item.title,
+            'when': timezone.localtime(item.starts_at).isoformat(),
+            'course': {'id': item.course_id, 'name': item.course.name, 'code': item.course.code},
+        }
+        for item in exams
+    ]
+    return sorted(items, key=lambda item: (item['when'], item['title']))
 
 
 def _semester_payload(instance=None):
@@ -341,10 +374,24 @@ def profile_picture_view(request):
     return JsonResponse({'user': _user_payload(request.user)})
 
 
+# Every notification setting, with the kind of value it takes. Booleans are
+# on/off switches; the others take one of a fixed list of choices (#37).
+NOTIFICATION_SWITCHES = (
+    'study_reminders_enabled',
+    'deadline_reminders_enabled',
+    'friend_request_alerts_enabled',
+    'message_alerts_enabled',
+)
+NOTIFICATION_CHOICES = {
+    'study_reminder_minutes': (STUDY_REMINDER_MINUTE_CHOICES, 'Choose how early to be reminded.'),
+    'deadline_reminder_hours': (DEADLINE_REMINDER_HOUR_CHOICES, 'Choose how early to be reminded.'),
+}
+
+
 def _notification_payload(user):
     return {
-        'study_reminders_enabled': user.study_reminders_enabled,
-        'study_reminder_minutes': user.study_reminder_minutes,
+        key: getattr(user, key)
+        for key in (*NOTIFICATION_SWITCHES, *NOTIFICATION_CHOICES)
     }
 
 
@@ -353,7 +400,7 @@ def _notification_response(user):
     # of step with what the API accepts.
     return JsonResponse({
         'notifications': _notification_payload(user),
-        'options': {'study_reminder_minutes': list(STUDY_REMINDER_MINUTE_CHOICES)},
+        'options': {key: list(choices) for key, (choices, _) in NOTIFICATION_CHOICES.items()},
     })
 
 
@@ -371,12 +418,14 @@ def profile_notifications_view(request):
     # junk, and a number field would accept "60" or 60.0 where we want a
     # real choice from the list.
     errors = {}
-    if 'study_reminders_enabled' in body and not isinstance(body['study_reminders_enabled'], bool):
-        errors['study_reminders_enabled'] = ['Choose on or off.']
-    if 'study_reminder_minutes' in body:
-        minutes = body['study_reminder_minutes']
-        if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes not in STUDY_REMINDER_MINUTE_CHOICES:
-            errors['study_reminder_minutes'] = ['Choose how early to be reminded.']
+    for key in NOTIFICATION_SWITCHES:
+        if key in body and not isinstance(body[key], bool):
+            errors[key] = ['Choose on or off.']
+    for key, (choices, message) in NOTIFICATION_CHOICES.items():
+        if key in body:
+            value = body[key]
+            if isinstance(value, bool) or not isinstance(value, int) or value not in choices:
+                errors[key] = [message]
     if errors:
         return JsonResponse({'errors': errors}, status=400)
     data = _notification_payload(request.user)
@@ -439,6 +488,7 @@ def dashboard_view(request):
         'assignments': [_assignment_payload(item) for item in outstanding],
         'upcoming': _upcoming_payload(outstanding, exams),
         'study_reminders': _study_reminder_payload(request.user, now),
+        'deadline_reminders': _deadline_reminder_payload(request.user, now),
     })
 
 

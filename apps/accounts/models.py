@@ -4,6 +4,8 @@ from django.db import models
 
 # How early a study-session reminder appears on the dashboard (#37).
 STUDY_REMINDER_MINUTE_CHOICES = (15, 30, 60, 120)
+# How far ahead an assignment or exam shows up as "due soon" on the dashboard.
+DEADLINE_REMINDER_HOUR_CHOICES = (6, 24, 48, 72)
 
 
 class User(AbstractUser):
@@ -16,6 +18,13 @@ class User(AbstractUser):
     study_reminder_minutes = models.PositiveSmallIntegerField(
         default=60, choices=[(minutes, f'{minutes} minutes') for minutes in STUDY_REMINDER_MINUTE_CHOICES],
     )
+    deadline_reminders_enabled = models.BooleanField(default=True)
+    deadline_reminder_hours = models.PositiveSmallIntegerField(
+        default=24, choices=[(hours, f'{hours} hours') for hours in DEADLINE_REMINDER_HOUR_CHOICES],
+    )
+    # Badges in the sidebar for pending friend requests and unread messages.
+    friend_request_alerts_enabled = models.BooleanField(default=True)
+    message_alerts_enabled = models.BooleanField(default=True)
 
     def __str__(self):
         return self.email

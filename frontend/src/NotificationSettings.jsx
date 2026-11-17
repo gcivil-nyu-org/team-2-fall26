@@ -7,18 +7,42 @@ import { api } from './api'
 export function leadTimeLabel(minutes) {
   if (minutes === 60) return '1 hour'
   if (minutes === 120) return '2 hours'
+  if (minutes > 120 && minutes % 60 === 0) return `${minutes / 60} hours`
   return `${minutes} minutes`
 }
 
+export function deadlineLeadLabel(hours) {
+  return hours === 1 ? '1 hour' : `${hours} hours`
+}
+
+// One line per kind of alert, so the collapsed view shows exactly what is on.
 export function notificationSummary(settings) {
-  if (!settings.study_reminders_enabled) return 'Study session reminders are off. Nothing will appear on your dashboard before a session.'
-  return `Your dashboard reminds you ${leadTimeLabel(settings.study_reminder_minutes)} before a study session starts.`
+  return [
+    settings.study_reminders_enabled
+      ? `Study sessions: reminded ${leadTimeLabel(settings.study_reminder_minutes)} before they start`
+      : 'Study sessions: off',
+    settings.deadline_reminders_enabled
+      ? `Assignments and exams: reminded ${deadlineLeadLabel(settings.deadline_reminder_hours)} before they’re due`
+      : 'Assignments and exams: off',
+    settings.friend_request_alerts_enabled ? 'Friend requests: on' : 'Friend requests: off',
+    settings.message_alerts_enabled ? 'New messages: on' : 'New messages: off',
+  ]
+}
+
+function Switch({ name, title, hint, draft, change }) {
+  return <label className="notification-option">
+    <span className="notification-option__copy">
+      <strong>{title}</strong>
+      <small>{hint}</small>
+    </span>
+    <input type="checkbox" role="switch" className="notification-switch" name={name} checked={draft[name]} onChange={(event) => change({ [name]: event.target.checked })} />
+  </label>
 }
 
 export default function NotificationSettings() {
   const [saved, setSaved] = useState(null)
   const [draft, setDraft] = useState(null)
-  const [leadTimes, setLeadTimes] = useState([])
+  const [options, setOptions] = useState({ study_reminder_minutes: [], deadline_reminder_hours: [] })
   const [open, setOpen] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -33,7 +57,7 @@ export default function NotificationSettings() {
       if (!active) return
       setSaved(data.notifications)
       setDraft(data.notifications)
-      setLeadTimes(data.options.study_reminder_minutes)
+      setOptions(data.options)
     }).catch((err) => {
       if (active) setLoadError(err.status === 401 ? 'Your session expired. Please sign in again.' : 'We couldn’t load your notification settings. Try again.')
     })
@@ -65,7 +89,7 @@ export default function NotificationSettings() {
       setOpen(false)
       setJustSaved(true)
     } catch (err) {
-      setError(err.errors?.study_reminder_minutes?.[0] || err.message || 'We couldn’t save your notification settings. Try again.')
+      setError(Object.values(err.errors || {})[0]?.[0] || err.message || 'We couldn’t save your notification settings. Try again.')
     } finally { setSaving(false) }
   }
 
@@ -77,25 +101,31 @@ export default function NotificationSettings() {
         <p role="alert">{loadError}</p>
         <button className="button button--secondary" onClick={() => setAttempt((value) => value + 1)}>Try again</button>
       </> : !saved ? <p role="status">Loading your notification settings…</p> : open ? <form onSubmit={submit} className="form-stack" aria-labelledby="notifications-heading">
-        <p>Choose which reminders you get and how early they show up. Reminders appear in SemesterPilot on your dashboard. SemesterPilot doesn’t send emails or phone notifications.</p>
+        <p>Choose which reminders and alerts you get, and how early reminders show up. Everything appears inside SemesterPilot, on your dashboard and in the sidebar. SemesterPilot doesn’t send emails or phone notifications.</p>
         {error && <div className="form-alert" role="alert">{error}</div>}
         <div className="notification-options">
-          <label className="notification-option">
-            <span className="notification-option__copy">
-              <strong>Study session reminders</strong>
-              <small>Show a reminder on your dashboard shortly before a study session starts.</small>
-            </span>
-            <input type="checkbox" role="switch" className="notification-switch" name="study_reminders_enabled" checked={draft.study_reminders_enabled} onChange={(event) => change({ study_reminders_enabled: event.target.checked })} />
-          </label>
+          <Switch name="study_reminders_enabled" title="Study session reminders" hint="Show a reminder on your dashboard shortly before a study session starts." draft={draft} change={change} />
           <label className="notification-option notification-option--select">
             <span className="notification-option__copy">
-              <strong>Remind me</strong>
+              <strong>Study reminder timing</strong>
               <small>How long before a session starts.</small>
             </span>
             <select name="study_reminder_minutes" className="notification-select" value={draft.study_reminder_minutes} disabled={!draft.study_reminders_enabled} onChange={(event) => change({ study_reminder_minutes: Number(event.target.value) })}>
-              {leadTimes.map((minutes) => <option key={minutes} value={minutes}>{leadTimeLabel(minutes)} before</option>)}
+              {options.study_reminder_minutes.map((minutes) => <option key={minutes} value={minutes}>{leadTimeLabel(minutes)} before</option>)}
             </select>
           </label>
+          <Switch name="deadline_reminders_enabled" title="Assignment and exam reminders" hint="Show a reminder on your dashboard when something is due soon." draft={draft} change={change} />
+          <label className="notification-option notification-option--select">
+            <span className="notification-option__copy">
+              <strong>Due-date reminder timing</strong>
+              <small>How long before an assignment is due or an exam starts.</small>
+            </span>
+            <select name="deadline_reminder_hours" className="notification-select" value={draft.deadline_reminder_hours} disabled={!draft.deadline_reminders_enabled} onChange={(event) => change({ deadline_reminder_hours: Number(event.target.value) })}>
+              {options.deadline_reminder_hours.map((hours) => <option key={hours} value={hours}>{deadlineLeadLabel(hours)} before</option>)}
+            </select>
+          </label>
+          <Switch name="friend_request_alerts_enabled" title="Friend request alerts" hint="Show a count on Friends in the sidebar when someone sends you a request or accepts yours." draft={draft} change={change} />
+          <Switch name="message_alerts_enabled" title="New message alerts" hint="Show a count on Messages in the sidebar, and next to each friend who has written to you." draft={draft} change={change} />
         </div>
         <div className="form-actions">
           <button type="button" className="button button--secondary" onClick={cancel} disabled={saving}>Cancel</button>
@@ -103,7 +133,7 @@ export default function NotificationSettings() {
         </div>
       </form> : <>
         {justSaved && <div className="form-alert form-alert--success" role="status">Your notification settings have been saved.</div>}
-        <p>{notificationSummary(saved)}</p>
+        <ul className="notification-summary">{notificationSummary(saved).map((line) => <li key={line}>{line}</li>)}</ul>
         <button className="button button--secondary" onClick={() => setOpen(true)}>Edit notifications</button>
       </>}
     </div>

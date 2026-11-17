@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Check, MessageCircle, UserPlus, UserX, X } from 'lucide-react'
 
 import { api } from './api'
+import { refreshAlerts } from './alerts'
 import { displayName, initial } from './friends'
 
 function FriendsHeader({ title, subtitle }) {
@@ -55,6 +56,7 @@ function FriendRow({ friend, onRemoved }) {
       <div className="avatar">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</div>
       <div className="friend-row__copy">
         <strong>{displayName(friend)}</strong>
+        {friend.is_new && <span className="new-pill">Accepted your request</span>}
         <small>{friend.email}</small>
         {friend.bio && <p className="friend-row__bio">{friend.bio}</p>}
       </div>
@@ -89,7 +91,15 @@ export function FriendsPage() {
     let active = true
     setLoading(true)
     setLoadError('')
-    api('/social/friends/').then((result) => { if (active) setData(result) })
+    api('/social/friends/').then((result) => {
+      if (!active) return
+      setData(result)
+      // Showing newly accepted requests is what makes them "seen", so the
+      // sidebar count drops. A failure here only means the count stays a bit longer.
+      if (result.friends?.some((friend) => friend.is_new)) {
+        Promise.resolve(api('/social/friends/seen/', { method: 'POST', body: {} })).then(refreshAlerts).catch(() => {})
+      }
+    })
       .catch((err) => { if (active) setLoadError(err.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -121,6 +131,7 @@ export function FriendsPage() {
     try {
       await api(`/social/friends/requests/${id}/`, { method: 'PATCH', body: { status } })
       setAttempt((value) => value + 1)
+      refreshAlerts()
     } catch (err) {
       setSendError(err.message)
     } finally {

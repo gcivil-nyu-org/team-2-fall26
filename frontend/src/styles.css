@@ -490,6 +490,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .notification-settings { flex: 1; min-width: 0; }
 .notification-settings .form-alert--success { margin-bottom: .85rem; }
 .notification-settings .form-actions .button { margin-top: 0; }
+.notification-summary { display: grid; gap: .3rem; margin: 0 0 1rem; padding: 0; list-style: none; color: var(--muted); font-size: .85rem; }
 .notification-options { display: grid; border: 1px solid var(--line); border-radius: 12px; }
 .notification-option { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; padding: .95rem 1.1rem; cursor: pointer; }
 .notification-option + .notification-option { border-top: 1px solid var(--line); }
@@ -508,3 +509,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .notification-option--select { align-items: flex-start; flex-direction: column; }
   .notification-select { width: 100%; }
 }
+
+/* Sidebar and conversation-list badges for pending requests and unread messages (#37). */
+.nav-badge { margin-left: auto; min-width: 1.25rem; padding: .05rem .4rem; border-radius: 999px; background: var(--violet); color: #fff; font-size: .68rem; font-weight: 700; line-height: 1.2rem; text-align: center; }
+.unread-pill { min-width: 1.35rem; padding: .05rem .45rem; border-radius: 999px; background: var(--violet); color: #fff; font-size: .7rem; font-weight: 700; line-height: 1.3rem; text-align: center; }
+.new-pill { justify-self: start; padding: .05rem .5rem; border-radius: 999px; background: var(--violet-soft); color: var(--violet); font-size: .68rem; font-weight: 700; }

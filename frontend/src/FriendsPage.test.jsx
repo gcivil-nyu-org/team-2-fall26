@@ -337,3 +337,97 @@ describe('bios on the Friends page', () => {
     expect(document.querySelector('.friend-profile__bio')).toBeNull()
   })
 })
+
+describe('answering a friend request updates the sidebar count (#37)', () => {
+  const request = { id: 7, status: 'pending', direction: 'received', user: { id: 3, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu' } }
+
+  function mockAnswer(patch) {
+    vi.mocked(realApi).mockImplementation(async (path, options) => {
+      if (path === '/social/friends/') return friendsPayload({ received_requests: [request] })
+      if (path === '/social/friends/requests/7/' && options?.method === 'PATCH') return patch(options)
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test.each([['accept', 'accepted'], ['decline', 'declined']])('%s announces the change', async (verb, status) => {
+    const heard = vi.fn()
+    window.addEventListener('semesterpilot:alerts-changed', heard)
+    const patch = vi.fn(async () => ({}))
+    mockAnswer(patch)
+    renderFriendsPage()
+    await userEvent.click(await screen.findByRole('button', { name: new RegExp(`${verb} friend request from jordan`, 'i') }))
+    await waitFor(() => expect(heard).toHaveBeenCalledTimes(1))
+    window.removeEventListener('semesterpilot:alerts-changed', heard)
+    expect(patch).toHaveBeenCalledWith(expect.objectContaining({ body: { status } }))
+  })
+
+  test('a request that fails does not announce a change', async () => {
+    const heard = vi.fn()
+    window.addEventListener('semesterpilot:alerts-changed', heard)
+    mockAnswer(async () => { throw new Error('Could not respond.') })
+    renderFriendsPage()
+    await userEvent.click(await screen.findByRole('button', { name: /accept friend request from jordan/i }))
+    expect(await screen.findByText('Could not respond.')).toBeInTheDocument()
+    window.removeEventListener('semesterpilot:alerts-changed', heard)
+    expect(heard).not.toHaveBeenCalled()
+  })
+})
+
+describe('newly accepted requests (#37)', () => {
+  const sam = { id: 1, friendship_id: 42, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu' }
+  const kim = { id: 2, friendship_id: 43, first_name: 'Kim', last_name: 'Park', email: 'kim@nyu.edu' }
+
+  function mockList(friends, onSeen = async () => ({ ok: true })) {
+    vi.mocked(realApi).mockImplementation(async (path, options) => {
+      if (path === '/social/friends/') return friendsPayload({ friends })
+      if (path === '/social/friends/seen/' && options?.method === 'POST') return onSeen(options)
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('a friend who accepted your request is marked, and the others are not', async () => {
+    mockList([{ ...sam, is_new: true }, { ...kim, is_new: false }])
+    renderFriendsPage()
+    await screen.findByText('Sam Lee')
+    expect(screen.getAllByText('Accepted your request')).toHaveLength(1)
+    expect(rowFor('Sam Lee')).toHaveTextContent('Accepted your request')
+    expect(rowFor('Kim Park')).not.toHaveTextContent('Accepted your request')
+  })
+
+  test('showing them tells the server they have been seen and refreshes the sidebar', async () => {
+    const heard = vi.fn()
+    window.addEventListener('semesterpilot:alerts-changed', heard)
+    const onSeen = vi.fn(async () => ({ ok: true }))
+    mockList([{ ...sam, is_new: true }], onSeen)
+    renderFriendsPage()
+    await waitFor(() => expect(heard).toHaveBeenCalledTimes(1))
+    window.removeEventListener('semesterpilot:alerts-changed', heard)
+    expect(onSeen).toHaveBeenCalledTimes(1)
+  })
+
+  test('nothing new means no extra request and no pill', async () => {
+    mockList([{ ...sam, is_new: false }, kim])
+    renderFriendsPage()
+    await screen.findByText('Sam Lee')
+    expect(vi.mocked(realApi)).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Accepted your request')).toBeNull()
+  })
+
+  test('the pill stays on screen for this visit', async () => {
+    mockList([{ ...sam, is_new: true }])
+    renderFriendsPage()
+    await waitFor(() => expect(vi.mocked(realApi)).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('Accepted your request')).toBeInTheDocument()
+  })
+
+  test('a failure marking them seen does not break the page or announce a change', async () => {
+    const heard = vi.fn()
+    window.addEventListener('semesterpilot:alerts-changed', heard)
+    mockList([{ ...sam, is_new: true }], async () => { throw new Error('Network down') })
+    renderFriendsPage()
+    await waitFor(() => expect(vi.mocked(realApi)).toHaveBeenCalledTimes(2))
+    window.removeEventListener('semesterpilot:alerts-changed', heard)
+    expect(screen.getByText('Sam Lee')).toBeInTheDocument()
+    expect(heard).not.toHaveBeenCalled()
+  })
+})

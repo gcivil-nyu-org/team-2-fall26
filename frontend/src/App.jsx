@@ -37,6 +37,7 @@ import {
   X,
 } from 'lucide-react'
 
+import { badgeText, useAlerts } from './alerts'
 import { api, easternHour, formatDate, toEasternInput } from './api'
 import AccountSettings from './AccountSettings'
 import { AvailabilityPage, CalendarPage, sessionLabel } from './StudyPages'
@@ -107,8 +108,8 @@ const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { to: '/calendar', label: 'Study calendar', icon: CalendarDays },
   { to: '/availability', label: 'Availability', icon: Clock3 },
-  { to: '/friends', label: 'Friends', icon: Users },
-  { to: '/messages', label: 'Messages', icon: MessageCircle },
+  { to: '/friends', label: 'Friends', icon: Users, alert: 'friend_requests', alertNoun: 'pending friend requests' },
+  { to: '/messages', label: 'Messages', icon: MessageCircle, alert: 'unread_messages', alertNoun: 'unread messages' },
   { to: '/community', label: 'Community', icon: Utensils },
   { to: '/completed', label: 'Completed', icon: CheckCircle2 },
   { to: '/settings/account', label: 'Account settings', icon: Settings },
@@ -117,6 +118,8 @@ const navItems = [
 export function AppShell({ children }) {
   const { session, setSession } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const alerts = useAlerts(location.pathname)
   const [mobileOpen, setMobileOpen] = useState(false)
 
   async function logout() {
@@ -134,10 +137,11 @@ export function AppShell({ children }) {
         </div>
         <p className="sidebar__label">Workspace</p>
         <nav className="sidebar__nav">
-          {navItems.map(({ to, label, icon: Icon }) => (
+          {navItems.map(({ to, label, icon: Icon, alert, alertNoun }) => (
             <NavLink key={to} to={to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item ${isActive ? 'nav-item--active' : ''}`}>
               <Icon size={18} />
               <span>{label}</span>
+              {alert && alerts[alert] > 0 && <span className="nav-badge" aria-label={`${alerts[alert]} ${alertNoun}`}>{badgeText(alerts[alert])}</span>}
             </NavLink>
           ))}
         </nav>
@@ -455,6 +459,49 @@ function StudyReminders({ reminders }) {
   })
 }
 
+const DISMISSED_DEADLINES_KEY = 'dismissed-deadline-reminders'
+
+// The due time is part of the key so an item moved to a new time reminds the
+// student again.
+function deadlineKey(reminder) {
+  return `${reminder.kind}-${reminder.id}@${reminder.when}`
+}
+
+function readDismissedDeadlines() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DISMISSED_DEADLINES_KEY))
+    return Array.isArray(stored) ? stored : []
+  } catch {
+    return []
+  }
+}
+
+// #37: assignments and exams coming up within the student's chosen window.
+// Dismissing is local to this browser and never touches the assignment.
+function DeadlineReminders({ reminders = [] }) {
+  const [dismissed, setDismissed] = useState(readDismissedDeadlines)
+
+  function dismiss(reminder) {
+    const current = reminders.map(deadlineKey)
+    const next = [...dismissed.filter((key) => current.includes(key)), deadlineKey(reminder)]
+    setDismissed(next)
+    try { localStorage.setItem(DISMISSED_DEADLINES_KEY, JSON.stringify(next)) } catch { /* still hidden until reload */ }
+  }
+
+  return reminders.filter((reminder) => !dismissed.includes(deadlineKey(reminder))).map((reminder) => {
+    const course = [reminder.course.code, reminder.course.name].filter(Boolean).join(' ')
+    const isExam = reminder.kind === 'exam'
+    return <div className="study-notice study-notice--reminder" role="status" key={deadlineKey(reminder)}>
+      <CalendarDays size={18} />
+      <div>
+        <strong>{isExam ? 'Exam soon' : 'Due soon'}</strong>
+        <p>{course} · {reminder.title} {isExam ? 'starts' : 'is due'} {formatDate(reminder.when)}</p>
+      </div>
+      <button className="icon-button" onClick={() => dismiss(reminder)} aria-label={`Dismiss reminder for ${reminder.title}`}><X size={18} /></button>
+    </div>
+  })
+}
+
 export function Dashboard() {
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
@@ -489,6 +536,7 @@ export function Dashboard() {
         actions={<NavLink className="button button--primary" to="/courses/new"><Plus size={17} /> Add course</NavLink>}
       />
       <StudyReminders reminders={data.study_reminders} />
+      <DeadlineReminders reminders={data.deadline_reminders} />
       <div className="study-notice">
         <CalendarDays size={20} />
         <div><strong>Bring your class schedule into SemesterPilot</strong>
