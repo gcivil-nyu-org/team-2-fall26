@@ -452,6 +452,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .food-post__footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; }
 .food-post__save { display: flex; flex-direction: column; align-items: flex-end; gap: .3rem; }
 .food-post__save .button { padding: .4rem .7rem; font-size: .74rem; }
+.food-post__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .9rem; }
+.food-post__comments-link { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); font-size: .74rem; font-weight: 600; text-decoration: none; }
+.food-post__comments-link:hover, .food-post__comments-link:focus-visible { color: var(--violet); }
+.food-comments { list-style: none; margin: 0; padding: 0; }
+.food-comment { display: flex; gap: .75rem; padding: 1rem 1.4rem; }
+.food-comment + .food-comment { border-top: 1px solid #f0edf2; }
+.food-comment .avatar { flex: 0 0 auto; width: 30px; height: 30px; font-size: .7rem; }
+.food-comment__body { min-width: 0; }
+.food-comment__meta { margin: 0; color: var(--muted); font-size: .72rem; }
+.food-comment__meta strong { color: var(--ink); }
+.food-comment__text { margin: .3rem 0 0; font-size: .86rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.food-comments__status { padding: 0 1.4rem; }
+.food-comment-form { display: grid; gap: .6rem; padding: 1.1rem 1.4rem 1.4rem; border-top: 1px solid #f0edf2; }
 .food-post__header h3 a { color: inherit; text-decoration: none; }
 .food-post__header h3 a:hover, .food-post__header h3 a:focus-visible { color: var(--violet); text-decoration: underline; }
 .food-post__more { justify-self: start; color: var(--violet); font-size: .78rem; font-weight: 600; }
