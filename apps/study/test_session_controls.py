@@ -306,3 +306,48 @@ class SessionCompletionTests(StudyTestCase):
         with self.assertRaises(ValidationError):
             replace_unlocked_sessions(self.user, *window, [candidate])
 
+
+
+class RemoveSessionTests(StudyTestCase):
+    def setUp(self):
+        super().setUp()
+        self.entry = self.session('2026-11-02T14:00', '2026-11-02T15:00')
+        self.neighbour = self.session('2026-11-02T16:00', '2026-11-02T17:00')
+        self.url = reverse('study:session', args=[self.entry.pk])
+
+    def calendar_ids(self):
+        return [item['id'] for item in self.client.get(reverse('study:calendar'), {'week': '2026-11-02'}).json()['sessions']]
+
+    def test_removing_a_session_keeps_everything_else(self):
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(StudySession.objects.filter(pk=self.entry.pk).exists())
+        self.assertEqual(self.calendar_ids(), [self.neighbour.pk])
+        self.assertTrue(Assignment.objects.filter(pk=self.assignment.pk).exists())
+
+    def test_locked_and_exam_sessions_can_be_removed(self):
+        self.entry.is_locked = True
+        self.entry.save()
+        exam = Exam.objects.create(course=self.course, title='Midterm', starts_at=instant('2026-11-12T19:00'))
+        prep = StudySession.objects.create(exam=exam, starts_at=instant('2026-11-03T14:00'), ends_at=instant('2026-11-03T15:00'))
+        self.assertEqual(self.client.delete(self.url).status_code, 200)
+        self.assertEqual(self.client.delete(reverse('study:session', args=[prep.pk])).status_code, 200)
+        self.assertTrue(Exam.objects.filter(pk=exam.pk).exists())
+        self.assertEqual(self.calendar_ids(), [self.neighbour.pk])
+
+    def test_other_students_cannot_remove_my_session(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.delete(self.url).status_code, 404)
+        self.assertTrue(StudySession.objects.filter(pk=self.entry.pk).exists())
+
+    def test_removing_needs_login_and_csrf(self):
+        self.client.logout()
+        self.assertEqual(self.client.delete(self.url).status_code, 401)
+        strict = Client(enforce_csrf_checks=True)
+        strict.force_login(self.user)
+        self.assertEqual(strict.delete(self.url).status_code, 403)
+        self.assertTrue(StudySession.objects.filter(pk=self.entry.pk).exists())
+
+    def test_a_removed_session_is_gone_for_good(self):
+        self.client.delete(self.url)
+        self.assertEqual(self.client.delete(self.url).status_code, 404)
