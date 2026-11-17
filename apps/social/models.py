@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -129,3 +130,40 @@ class DirectMessage(models.Model):
 
     def __str__(self):
         return f'Message {self.pk} from {self.sender_id} to {self.recipient_id}'
+
+
+class FoodPost(models.Model):
+    # #46: a student's recommendation for a place to eat, shown in the
+    # community feed (E5). Photos are a follow-up that will reuse the
+    # profile-picture upload setup from #84.
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='food_posts',
+    )
+    place_name = models.CharField(max_length=200)
+    description = models.TextField()
+    location = models.CharField(max_length=200, blank=True)
+    cuisine = models.CharField(max_length=100, blank=True)
+    rating = models.PositiveSmallIntegerField(
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # -id breaks ties between posts created in the same instant, so the
+        # feed's newest-first order is always stable.
+        ordering = ['-created_at', '-id']
+        constraints = [
+            # The form already limits ratings to 1–5; this keeps the admin or
+            # any future caller from saving something the feed can't display.
+            models.CheckConstraint(
+                condition=models.Q(rating__isnull=True) | models.Q(rating__gte=1, rating__lte=5),
+                name='food_post_rating_1_to_5',
+            ),
+        ]
+
+    def __str__(self):
+        return self.place_name

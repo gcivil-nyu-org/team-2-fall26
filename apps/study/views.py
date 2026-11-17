@@ -9,12 +9,13 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.coursework.models import Course
+from apps.coursework.models import Course, Exam
 
 from .albert import parse_calendar
 from .forms import AvailabilityBlockForm
 from .models import AvailabilityBlock, ClassMeeting, StudySession
-from .services import NYU_TIME, lock_study_account, reschedule_warnings
+from .planner import NoAvailability, generate_study_plan
+from .services import NYU_TIME, lock_study_account, reschedule_warnings, session_item_payload
 
 
 @require_POST
@@ -149,9 +150,9 @@ def calendar_view(request):
     end = monday + timedelta(days=7)
     start_at = datetime.combine(monday, time.min, tzinfo=NYU_TIME)
     end_at = datetime.combine(end, time.min, tzinfo=NYU_TIME)
-    sessions = StudySession.objects.filter(
-        assignment__course__owner=request.user, starts_at__lt=end_at, ends_at__gt=start_at,
-    ).select_related('assignment__course')
+    sessions = StudySession.objects.owned_by(request.user).filter(
+        starts_at__lt=end_at, ends_at__gt=start_at,
+    ).with_course()
     classes = ClassMeeting.objects.filter(
         course__owner=request.user, starts_at__lt=end_at, ends_at__gt=start_at,
     ).select_related('course')
@@ -168,17 +169,47 @@ def calendar_view(request):
              'course': {'id': meeting.course_id, 'name': meeting.course.name, 'code': meeting.course.code}}
             for meeting in classes
         ],
-        'sessions': [
-            {
-                'id': session.pk,
-                'is_locked': session.is_locked,
-                'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
-                'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat(),
-                'assignment': {'id': session.assignment_id, 'title': session.assignment.title},
-                'course': {'id': session.assignment.course_id, 'name': session.assignment.course.name, 'code': session.assignment.course.code},
-            }
-            for session in sessions
+        'sessions': [_session_payload(session) for session in sessions],
+    })
+
+
+def _session_payload(session):
+    return {
+        'id': session.pk,
+        'is_locked': session.is_locked,
+        'is_complete': session.is_complete,
+        'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
+        'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat(),
+        **session_item_payload(session),
+    }
+
+
+def _item_summary(item):
+    due = item.starts_at if isinstance(item, Exam) else item.due_date
+    return {
+        'id': item.pk,
+        'kind': 'exam' if isinstance(item, Exam) else 'assignment',
+        'title': item.title,
+        'due_date': due.isoformat() if due else None,
+        'course': {'id': item.course_id, 'name': item.course.name, 'code': item.course.code},
+    }
+
+
+@require_POST
+def generate_view(request):
+    if not request.user.is_authenticated:
+        return JsonResponse({'detail': 'Authentication required.'}, status=401)
+    try:
+        plan = generate_study_plan(request.user)
+    except NoAvailability:
+        return JsonResponse({'detail': 'Set your weekly availability before generating a study plan.'}, status=400)
+    return JsonResponse({
+        'sessions': [_session_payload(session) for session in plan.sessions],
+        'shortfalls': [
+            {**_item_summary(item), 'hours_short': missing.total_seconds() / 3600}
+            for item, missing in plan.shortfalls
         ],
+        'skipped': [{**_item_summary(item), 'reason': reason} for item, reason in plan.skipped],
     })
 
 
@@ -205,14 +236,14 @@ def session_view(request, session_id):
         body = json.loads(request.body)
     except (ValueError, UnicodeDecodeError):
         return JsonResponse({'detail': 'Send a JSON object.'}, status=400)
-    if not isinstance(body, dict) or not body or set(body) - {'is_locked', 'starts_at', 'ends_at', 'confirm_warnings'}:
-        return JsonResponse({'detail': 'Send only lock or reschedule fields.'}, status=400)
-    for field in ('is_locked', 'confirm_warnings'):
+    if not isinstance(body, dict) or not body or set(body) - {'is_locked', 'is_complete', 'starts_at', 'ends_at', 'confirm_warnings'}:
+        return JsonResponse({'detail': 'Send only lock, completion, or reschedule fields.'}, status=400)
+    for field in ('is_locked', 'is_complete', 'confirm_warnings'):
         if field in body and type(body[field]) is not bool:
             return JsonResponse({'errors': {field: ['Enter true or false.']}}, status=400)
     moving = 'starts_at' in body or 'ends_at' in body
-    if not moving and 'is_locked' not in body:
-        return JsonResponse({'detail': 'Choose a lock state or a new time.'}, status=400)
+    if not moving and 'is_locked' not in body and 'is_complete' not in body:
+        return JsonResponse({'detail': 'Choose a lock state, a completion state, or a new time.'}, status=400)
     form = None
     if moving:
         for field in ('starts_at', 'ends_at'):
@@ -224,8 +255,7 @@ def session_view(request, session_id):
                 return JsonResponse({'errors': {key: list(value) for key, value in form.errors.items()}}, status=400)
     with transaction.atomic():
         lock_study_account(request.user)
-        session = get_object_or_404(StudySession.objects.select_for_update(), pk=session_id,
-                                    assignment__course__owner=request.user)
+        session = get_object_or_404(StudySession.objects.owned_by(request.user).select_for_update(of=('self',)), pk=session_id)
         if moving:
             start, end = form.cleaned_data['starts_at'], form.cleaned_data['ends_at']
             warnings = reschedule_warnings(request.user, session, start, end)
@@ -234,7 +264,9 @@ def session_view(request, session_id):
             session.starts_at, session.ends_at = start, end
         if 'is_locked' in body:
             session.is_locked = body['is_locked']
-        session.save(update_fields=['starts_at', 'ends_at', 'is_locked'])
-    return JsonResponse({'id': session.pk, 'is_locked': session.is_locked,
+        if 'is_complete' in body:
+            session.is_complete = body['is_complete']
+        session.save(update_fields=['starts_at', 'ends_at', 'is_locked', 'is_complete'])
+    return JsonResponse({'id': session.pk, 'is_locked': session.is_locked, 'is_complete': session.is_complete,
                          'starts_at': session.starts_at.astimezone(dt_timezone.utc).isoformat(),
                          'ends_at': session.ends_at.astimezone(dt_timezone.utc).isoformat()})
