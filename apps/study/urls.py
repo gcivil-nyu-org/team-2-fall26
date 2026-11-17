@@ -9,4 +9,5 @@ urlpatterns = [
     path('availability/', views.availability_view, name='availability'),
     path('sessions/<int:session_id>/', views.session_view, name='session'),
     path('calendar/', views.calendar_view, name='calendar'),
+    path('generate/', views.generate_view, name='generate'),
 ]

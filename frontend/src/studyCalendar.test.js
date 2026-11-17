@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { availableHours, calendarMidnight, dateLabel, shiftDate, weekDays } from './studyCalendar.js'
+import { availableHours, calendarMidnight, dateLabel, nextAvailabilityBlock, shiftDate, weekDays } from './studyCalendar.js'
 
 test('week navigation crosses month/year boundaries without local timezone shifts', () => {
   assert.equal(shiftDate('2026-12-28', 7), '2027-01-04')
@@ -45,4 +45,23 @@ test('fall daylight-saving change keeps an Albert evening class in one day', () 
 test('availability totals support multiple blocks and an empty week', () => {
   assert.equal(availableHours([]), 0)
   assert.equal(availableHours([{ start_time: '09:00', end_time: '10:30' }, { start_time: '14:00', end_time: '16:00' }]), 3.5)
+})
+
+test('a new availability block starts after the ones already on that day', () => {
+  const block = (weekday, start_time, end_time) => ({ weekday, start_time, end_time })
+  assert.deepEqual(nextAvailabilityBlock([], 1), block(1, '09:00', '10:00'))
+  assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '10:00')], 1), block(1, '10:00', '11:00'))
+  assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '13:30')], 1), block(1, '13:30', '14:30'))
+  // Other days don't matter, and a gap between blocks is used when it fits.
+  assert.deepEqual(nextAvailabilityBlock([block(2, '09:00', '10:00')], 1), block(1, '09:00', '10:00'))
+  assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '10:00'), block(1, '11:00', '12:00')], 1), block(1, '10:00', '11:00'))
+  // Late in the day it can end at midnight, then wraps to the early morning.
+  assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '23:00')], 1), block(1, '23:00', '00:00'))
+  assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '00:00')], 1), block(1, '00:00', '01:00'))
+  // A gap that doesn't start on a quarter hour is found from the previous block's end.
+  assert.deepEqual(nextAvailabilityBlock([block(1, '00:00', '10:05'), block(1, '11:05', '00:00')], 1), block(1, '10:05', '11:05'))
+  assert.deepEqual(nextAvailabilityBlock([block(1, '00:00', '14:40'), block(1, '15:40', '00:00')], 1), block(1, '14:40', '15:40'))
+  assert.deepEqual(nextAvailabilityBlock([block(1, '09:00', '09:20')], 1), block(1, '09:20', '10:20'))
+  // A completely full day falls back to the old default for the server to flag.
+  assert.deepEqual(nextAvailabilityBlock([block(1, '00:00', '12:00'), block(1, '12:00', '00:00')], 1), block(1, '09:00', '10:00'))
 })
