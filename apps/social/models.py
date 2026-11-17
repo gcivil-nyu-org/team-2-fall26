@@ -132,6 +132,14 @@ class DirectMessage(models.Model):
         return f'Message {self.pk} from {self.sender_id} to {self.recipient_id}'
 
 
+class FoodPostQuerySet(models.QuerySet):
+    def community(self):
+        # #47: the posts other students can browse. Posts by a deactivated
+        # account stay hidden (and come back if it's reactivated); a deleted
+        # account's posts are already gone with it.
+        return self.filter(author__is_active=True)
+
+
 class FoodPost(models.Model):
     # #46: a student's recommendation for a place to eat, shown in the
     # community feed (E5). Photos are a follow-up that will reuse the
@@ -151,6 +159,8 @@ class FoodPost(models.Model):
         validators=[MinValueValidator(1), MaxValueValidator(5)],
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = FoodPostQuerySet.as_manager()
 
     class Meta:
         # -id breaks ties between posts created in the same instant, so the

@@ -11,4 +11,5 @@ urlpatterns = [
     path('friends/requests/<int:pk>/', views.friend_request_view, name='friend_request'),
     path('friends/<int:pk>/', views.friend_profile_view, name='friend_profile'),
     path('posts/', views.food_posts_view, name='posts'),
+    path('posts/<int:pk>/', views.food_post_view, name='post'),
 ]
