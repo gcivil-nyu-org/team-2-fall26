@@ -218,6 +218,22 @@ Session-authenticated API endpoints are `POST /api/account/deactivate/` and
 account; request data cannot select another user. No database migration is
 needed: deactivation uses Django's existing `is_active` flag.
 
+## Managing student accounts (#54)
+
+Administrators manage accounts from Django admin at `/admin/` (sign in with an
+administrator account; create the first one with `python manage.py createsuperuser`).
+Open **Accounts → Users**.
+
+- **Find accounts:** the list shows email, name, role, status, number of courses, join date and last sign-in, newest first. Search by email, first name or last name. Filter by active/deactivated, role, last sign-in (never, within 30 days, over 30 days ago) and join date.
+- **Correct details:** an administrator can edit a student's email, name and bio. An email follows the same rules as sign-up (NYU address, not already used, stored in lower case), and the student's username moves with it so they can sign in with the corrected address.
+- **Deactivate or reactivate:** untick or tick **Active** on the account, or select several in the list and use the bulk actions. Deactivating blocks sign-in and signs the student out but keeps all of their data; reactivating restores access with the same password. This is also how students who chose **Deactivate account** (#36) get back in.
+- **Reset a password:** passwords are never shown or set by an administrator. Use **Send password reset email**; the student gets the usual reset link and chooses their own password. Deactivated accounts are skipped (reactivate first), and a mail failure shows a warning instead of an error page.
+- **Delete:** deleting an account shows everything that will be removed with it and asks for confirmation. It removes the student's courses, assignments, exams, study sessions and messages.
+- **Safety rules:** an administrator cannot deactivate or delete the account they are signed in with. Staff who are not superusers only see and manage students, never other administrators. Accounts cannot be created here (students sign up themselves), and role and permission settings are not editable here.
+- **Audit trail:** every edit, deactivation, reactivation, reset email and deletion is recorded in the account's **History** (who, what, when).
+
+No database migration is needed. Who counts as an administrator, and how administrator access is granted, is a separate story (#60).
+
 ## Database
 
 Defaults to SQLite, no setup required. To use Postgres instead (e.g. for AWS RDS), set these in `.env`:
