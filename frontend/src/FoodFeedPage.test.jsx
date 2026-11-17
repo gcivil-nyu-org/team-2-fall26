@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 import { api as realApi } from './api'
-import { FoodFeedPage, FoodPostPage, PREVIEW_LENGTH, previewText } from './FoodFeedPage'
+import { FoodFeedPage, FoodPostPage, PREVIEW_LENGTH, previewText, SavedPostsPage } from './FoodFeedPage'
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal()
@@ -29,6 +29,7 @@ function post(overrides = {}) {
     rating: 5,
     author: sam,
     created_at: '2026-11-03T18:00:00+00:00',
+    is_saved: false,
     ...overrides,
   }
 }
@@ -50,6 +51,7 @@ function renderApp(path) {
     <Routes>
       <Route path="/community" element={<FoodFeedPage />} />
       <Route path="/community/posts/:postId" element={<FoodPostPage />} />
+      <Route path="/community/saved" element={<SavedPostsPage />} />
     </Routes>
   </MemoryRouter>)
 }
@@ -262,5 +264,97 @@ describe('opening a food post', () => {
     mockPost(post({ id: 7 }))
     await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
+  })
+})
+
+describe('saving food recommendations', () => {
+  function mockSaving({ posts = [], saved = [], detail = null, failSave = false } = {}) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/' && !options.method) return { posts }
+      if (path === '/social/posts/saved/' && !options.method) return { posts: saved }
+      if (detail && path === `/social/posts/${detail.id}/` && !options.method) return { post: detail }
+      const match = path.match(/^\/social\/posts\/(\d+)\/save\/$/)
+      if (match && ['PUT', 'DELETE'].includes(options.method)) {
+        if (failSave) throw new Error('Could not save that post.')
+        return { saved: options.method === 'PUT' }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('saving a post from the feed marks it saved, and saving again unsaves it', async () => {
+    mockSaving({ posts: [post({ id: 7 })] })
+    renderFeed()
+    const user = userEvent.setup()
+    const save = await screen.findByRole('button', { name: "Save Joe's Pizza" })
+    expect(save).toHaveAttribute('aria-pressed', 'false')
+    await user.click(save)
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/save/', { method: 'PUT' })
+    const unsave = await screen.findByRole('button', { name: "Unsave Joe's Pizza" })
+    expect(unsave).toHaveAttribute('aria-pressed', 'true')
+    expect(unsave).toHaveTextContent('Saved')
+    await user.click(unsave)
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/save/', { method: 'DELETE' })
+    expect(await screen.findByRole('button', { name: "Save Joe's Pizza" })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('a post you already saved shows as saved', async () => {
+    mockSaving({ posts: [post({ is_saved: true })] })
+    renderFeed()
+    expect(await screen.findByRole('button', { name: "Unsave Joe's Pizza" })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('a failed save shows an error and leaves the button as it was', async () => {
+    mockSaving({ posts: [post({ id: 7 })], failSave: true })
+    renderFeed()
+    await userEvent.setup().click(await screen.findByRole('button', { name: "Save Joe's Pizza" }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save that post.')
+    expect(screen.getByRole('button', { name: "Save Joe's Pizza" })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('a post can be saved from its own page', async () => {
+    mockSaving({ detail: post({ id: 7 }) })
+    renderApp('/community/posts/7')
+    await userEvent.setup().click(await screen.findByRole('button', { name: "Save Joe's Pizza" }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/save/', { method: 'PUT' })
+    expect(await screen.findByRole('button', { name: "Unsave Joe's Pizza" })).toBeInTheDocument()
+  })
+
+  test('the feed links to your saved recommendations', async () => {
+    mockSaving({ posts: [], saved: [post({ id: 7, is_saved: true })] })
+    renderApp('/community')
+    await userEvent.setup().click(await screen.findByRole('link', { name: /Saved recommendations/ }))
+    const list = await screen.findByRole('region', { name: 'Saved recommendations' })
+    expect(within(list).getByRole('article', { name: "Joe's Pizza" })).toBeInTheDocument()
+  })
+
+  test('the saved page lists your saved posts and unsaving one removes it', async () => {
+    const pizza = post({ id: 7, is_saved: true })
+    const falafel = post({ id: 8, place_name: "Mamoun's Falafel", is_saved: true })
+    mockSaving({ saved: [pizza, falafel] })
+    renderApp('/community/saved')
+    const list = await screen.findByRole('region', { name: 'Saved recommendations' })
+    expect(within(list).getAllByRole('article').map((card) => card.getAttribute('aria-label'))).toEqual(["Joe's Pizza", "Mamoun's Falafel"])
+    expect(within(list).getByText('2')).toBeInTheDocument()
+    await userEvent.setup().click(within(list).getByRole('button', { name: "Unsave Joe's Pizza" }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/save/', { method: 'DELETE' })
+    await waitFor(() => expect(within(list).queryByRole('article', { name: "Joe's Pizza" })).not.toBeInTheDocument())
+    expect(within(list).getByRole('article', { name: "Mamoun's Falafel" })).toBeInTheDocument()
+  })
+
+  test('the saved page says when nothing is saved yet', async () => {
+    mockSaving({ saved: [] })
+    renderApp('/community/saved')
+    expect(await screen.findByText('No saved recommendations yet')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Browse the food feed' })).toHaveAttribute('href', '/community')
+  })
+
+  test('the saved page offers a working retry when it fails to load', async () => {
+    vi.mocked(realApi).mockRejectedValueOnce(new Error('Network down.'))
+    renderApp('/community/saved')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network down.')
+    mockSaving({ saved: [post({ is_saved: true })] })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('article', { name: "Joe's Pizza" })).toBeInTheDocument()
   })
 })
