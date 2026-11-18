@@ -84,17 +84,20 @@ Attach an approved IAM policy to the actual EB **instance role**, scoped to the 
       "Resource": "arn:aws:s3:::REPLACE_WITH_APPROVED_UNIQUE_STAGING_BUCKET/profile-pictures/*"
     },
     {
-      "Sid": "ListProfilePictures",
+      "Sid": "MediaBucketExistenceChecks",
       "Effect": "Allow",
       "Action": ["s3:ListBucket"],
-      "Resource": "arn:aws:s3:::REPLACE_WITH_APPROVED_UNIQUE_STAGING_BUCKET",
-      "Condition": {"StringLike": {"s3:prefix": ["profile-pictures/*"]}}
+      "Resource": "arn:aws:s3:::REPLACE_WITH_APPROVED_UNIQUE_STAGING_BUCKET"
     }
   ]
 }
 ```
 
-**Important for this staging rollout:** Verify the actual inline policy `SemesterPilotStagingMedia` includes the `ListProfilePictures` statement above. The originally reported staging policy covered only object actions, not `s3:ListBucket`. Without `ListBucket`, an S3 `HeadObject` for an object that does not exist can return `403` instead of `404`, potentially interfering with Django storage's existence/name checks. Grant bucket-level listing only for `profile-pictures/*` and test a first-time upload rather than granting broad list access. The `s3:prefix` condition limits S3 ListBucket requests; verify the effective policy in staging with a real upload.
+**Important for this staging rollout:** Verify the actual inline policy `SemesterPilotStagingMedia` includes the `MediaBucketExistenceChecks` statement above. The originally reported staging policy covered only object actions, not `s3:ListBucket`. Django checks new filenames using `HeadObject`; for a missing object, S3 returns `404` when the caller has bucket-list permission and `403` without it. The storage backend treats only `404` as an available filename.
+
+Grant `s3:ListBucket` on this dedicated media bucket without an `s3:prefix` condition. `HeadObject` has no Prefix parameter, so a prefix-conditioned allow does not cover its missing-object check. Object read/write/delete permissions remain restricted to `profile-pictures/*`. This bucket-level permission also permits listing other key names within the dedicated bucket; it does not grant their contents or public access. Review that scope before applying the policy, especially while staging and production share an instance role. Verify a first-time upload with the final effective permissions on staging.
+
+AWS references: [HeadObject permissions and missing-object responses](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html), [IAM behavior when a condition key is absent](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_condition_operators.html), and [prefix conditions for listing requests](https://docs.aws.amazon.com/AmazonS3/latest/userguide/amazon-s3-policy-keys.html#example-bucket-policies-condition-keys-2).
 
 **Shared-role caution:** At the time of the staging setup, staging and production used the shared `aws-elasticbeanstalk-ec2-role`. A policy added to that role is available to both environments using it. The bucket remains private, but IAM permissions are not inherently environment-isolated. Coordinate with the team before broadening this shared role, and consider separate instance roles before production rollout.
 
