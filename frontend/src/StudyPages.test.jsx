@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
@@ -206,6 +206,52 @@ test('a failed completion update leaves the session as it was', async () => {
   await user.click(await screen.findByRole('button', { name: 'Mark Essay complete' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not update the session.')
   expect(screen.queryByText('Completed')).not.toBeInTheDocument()
+})
+
+test('removing a session asks first, then takes it off the calendar', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Remove Essay' }))
+  const confirm = screen.getByRole('group', { name: 'Confirm removing Essay' })
+  expect(confirm).toHaveTextContent('Remove this study session?')
+  expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'DELETE')).toHaveLength(0)
+
+  vi.mocked(api).mockResolvedValueOnce({ ok: true })
+  await user.click(within(confirm).getByRole('button', { name: 'Remove' }))
+  expect(api).toHaveBeenLastCalledWith('/study/sessions/7/', { method: 'DELETE' })
+  await waitFor(() => expect(screen.queryByRole('heading', { name: 'Essay' })).not.toBeInTheDocument())
+  expect(screen.getByText('Study session removed.')).toBeInTheDocument()
+  expect(screen.getByText('No events this week')).toBeInTheDocument()
+})
+
+test('cancelling a removal leaves the session and sends nothing', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Remove Essay' }))
+  await user.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('group', { name: 'Confirm removing Essay' })).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Essay' })).toBeInTheDocument()
+  expect(vi.mocked(api).mock.calls.filter(([, options]) => options?.method === 'DELETE')).toHaveLength(0)
+})
+
+test('a failed removal keeps the session and shows the error', async () => {
+  openCalendar()
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Remove Essay' }))
+  vi.mocked(api).mockRejectedValueOnce(new Error('Could not remove the session.'))
+  await user.click(within(screen.getByRole('group', { name: 'Confirm removing Essay' })).getByRole('button', { name: 'Remove' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not remove the session.')
+  expect(screen.getByRole('heading', { name: 'Essay' })).toBeInTheDocument()
+})
+
+test('locked sessions warn before removal, and class meetings have no remove button', async () => {
+  const meeting = { id: 'class-1', starts_at: '2026-11-03T14:00:00Z', ends_at: '2026-11-03T15:00:00Z', location: 'Room 1', course: { id: 1, code: 'SWE', name: 'Software' } }
+  vi.mocked(api).mockResolvedValue({ ...week, sessions: [{ ...session, is_locked: true }], classes: [meeting] })
+  render(<MemoryRouter initialEntries={['/calendar?week=2026-11-02']}><CalendarPage /></MemoryRouter>)
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: 'Remove Essay' }))
+  expect(screen.getByRole('group', { name: 'Confirm removing Essay' })).toHaveTextContent('This session is locked. Remove it anyway?')
+  expect(screen.getAllByRole('button', { name: /^Remove / })).toHaveLength(1)
 })
 
 test('adding a second block on the same day saves without an overlap', async () => {
