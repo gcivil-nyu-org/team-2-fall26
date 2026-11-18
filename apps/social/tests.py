@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 
-from .models import FoodPost, FriendRequest, PostComment, SavedPost
+from .models import FoodPost, FriendRequest, PostComment, PostLike, SavedPost
 
 # A 1x1 GIF — just enough bytes to be a valid image for ImageField to accept.
 SMALL_GIF = (
@@ -1135,3 +1135,111 @@ class FoodPostModelTests(SocialTestCase):
         FoodPost.objects.create(author=self.other, place_name='X', description='Y')
         self.other.delete()
         self.assertFalse(FoodPost.objects.exists())
+
+
+class PostLikeTests(SocialTestCase):
+    # #50: liking and unliking is per-account, idempotent, and visible in the
+    # feed and on the post's detail page.
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(author=self.other, place_name='Joe\'s Pizza', description='Slices')
+        self.url = reverse('social:post_like', args=[self.post.pk])
+
+    def likes_in_feed(self):
+        return self.client.get(reverse('social:posts')).json()['posts'][0]
+
+    def test_liking_post_updates_the_count_and_persists_across_requests(self):
+        response = self.client.put(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'is_liked': True, 'like_count': 1})
+        self.assertTrue(PostLike.objects.filter(user=self.user, post=self.post).exists())
+        self.assertTrue(self.likes_in_feed()['is_liked'])
+        self.assertEqual(self.likes_in_feed()['like_count'], 1)
+        self.client.logout()
+        self.client.force_login(self.user)
+        detail = self.client.get(reverse('social:post', args=[self.post.pk])).json()['post']
+        self.assertEqual((detail['is_liked'], detail['like_count']), (True, 1))
+
+    def test_same_account_cannot_like_twice(self):
+        self.client.put(self.url)
+        repeated = self.client.put(self.url)
+        self.assertEqual(repeated.json(), {'is_liked': True, 'like_count': 1})
+        self.assertEqual(PostLike.objects.count(), 1)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            PostLike.objects.create(user=self.user, post=self.post)
+
+    def test_multiple_students_have_independent_like_state(self):
+        self.client.put(self.url)
+        self.client.force_login(self.third)
+        mine = self.likes_in_feed()
+        self.assertFalse(mine['is_liked'])
+        self.assertEqual(mine['like_count'], 1)
+        self.assertEqual(self.client.put(self.url).json()['like_count'], 2)
+        self.client.force_login(self.user)
+        self.assertEqual((self.likes_in_feed()['is_liked'], self.likes_in_feed()['like_count']), (True, 2))
+
+    def test_unlike_is_idempotent_and_does_not_remove_another_students_like(self):
+        self.client.put(self.url)
+        self.client.force_login(self.third)
+        self.client.put(self.url)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.delete(self.url).json(), {'is_liked': False, 'like_count': 1})
+        self.assertEqual(self.client.delete(self.url).json(), {'is_liked': False, 'like_count': 1})
+        self.assertFalse(self.likes_in_feed()['is_liked'])
+        self.assertEqual(PostLike.objects.count(), 1)
+
+    def test_new_posts_start_with_no_likes(self):
+        response = self.client.post(
+            reverse('social:posts'), json.dumps({'place_name': 'New place', 'description': 'Great'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['post']['like_count'], 0)
+        self.assertFalse(response.json()['post']['is_liked'])
+
+    def test_comment_and_save_joins_do_not_inflate_likes(self):
+        PostLike.objects.create(user=self.user, post=self.post)
+        PostLike.objects.create(user=self.third, post=self.post)
+        PostComment.objects.create(post=self.post, author=self.user, body='First')
+        PostComment.objects.create(post=self.post, author=self.third, body='Second')
+        SavedPost.objects.create(user=self.user, post=self.post)
+        SavedPost.objects.create(user=self.third, post=self.post)
+        feed_post = self.likes_in_feed()
+        self.assertEqual(feed_post['like_count'], 2)
+        self.assertEqual(feed_post['comment_count'], 2)
+        self.assertTrue(feed_post['is_liked'])
+        saved = self.client.get(reverse('social:saved_posts')).json()['posts'][0]
+        self.assertEqual((saved['like_count'], saved['comment_count']), (2, 2))
+
+    def test_deactivated_authors_posts_cannot_be_liked(self):
+        self.client.put(self.url)
+        User.objects.filter(pk=self.other.pk).update(is_active=False)
+        self.assertEqual(self.client.put(self.url).status_code, 404)
+        self.assertEqual(self.client.delete(self.url).status_code, 404)
+        self.assertFalse(self.client.get(reverse('social:posts')).json()['posts'])
+        User.objects.filter(pk=self.other.pk).update(is_active=True)
+        self.assertEqual((self.likes_in_feed()['is_liked'], self.likes_in_feed()['like_count']), (True, 1))
+
+    def test_unavailable_post_returns_404(self):
+        url = reverse('social:post_like', args=[999999])
+        self.assertEqual(self.client.put(url).status_code, 404)
+        self.assertEqual(self.client.delete(url).status_code, 404)
+
+    def test_logged_out_cannot_like_or_unlike(self):
+        self.client.logout()
+        self.assertEqual(self.client.put(self.url).status_code, 401)
+        self.assertEqual(self.client.delete(self.url).status_code, 401)
+        self.assertFalse(PostLike.objects.exists())
+
+    def test_only_put_and_delete_are_allowed(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        self.assertEqual(self.client.post(self.url, json.dumps({}), content_type='application/json').status_code, 405)
+
+    def test_likes_are_deleted_with_the_post_or_user(self):
+        PostLike.objects.create(user=self.user, post=self.post)
+        self.post.delete()
+        self.assertFalse(PostLike.objects.exists())
+        second = FoodPost.objects.create(author=self.other, place_name='Another', description='Good')
+        PostLike.objects.create(user=self.user, post=second)
+        self.user.delete()
+        self.assertFalse(PostLike.objects.exists())
