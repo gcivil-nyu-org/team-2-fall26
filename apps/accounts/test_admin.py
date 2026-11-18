@@ -6,7 +6,7 @@ from django.contrib.admin.models import LogEntry
 from django.contrib.auth.models import Permission
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -23,6 +23,13 @@ def make_user(email, **fields):
     return User.objects.create_user(username=email, email=email, **fields)
 
 
+# Admin pages link to Django's admin CSS. Where WhiteNoise is installed (CI,
+# deployed environments) the project uses a manifest static-file storage that
+# needs `collectstatic` first, so tests use the plain storage instead.
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
 class AdminTestCase(TestCase):
     """#54: administrators manage student accounts from /admin/."""
 
