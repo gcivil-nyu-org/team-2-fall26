@@ -126,3 +126,22 @@ describe('conversation history and sending (#20, #21)', () => {
     expect(screen.queryByLabelText('Your message')).not.toBeInTheDocument()
   })
 })
+
+// #31: a friend who hides their email must not have it shown in chat screens.
+describe('friends who hide their email (#31)', () => {
+  const hiddenSam = { ...sam, email: null }
+
+  test('the conversation list shows the name without an email line', async () => {
+    vi.mocked(realApi).mockResolvedValue({ friends: [hiddenSam], received_requests: [], sent_requests: [] })
+    renderInbox()
+    const link = await screen.findByRole('link', { name: /open conversation with sam lee/i })
+    expect(link.querySelector('small')).toBeNull()
+  })
+
+  test('the conversation header shows the name without an email subtitle', async () => {
+    vi.mocked(realApi).mockResolvedValue({ friend: hiddenSam, messages: [] })
+    renderThread()
+    expect(await screen.findByRole('heading', { name: 'Sam Lee' })).toBeInTheDocument()
+    expect(document.querySelector('.page-header__subtitle')).toBeNull()
+  })
+})

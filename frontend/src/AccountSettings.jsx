@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, PauseCircle, Trash2 } from 'lucide-react'
 
 import { api } from './api'
+import PrivacySettings from './PrivacySettings'
 
 export default function AccountSettings({ onAccountClosed }) {
   const navigate = useNavigate()
@@ -46,7 +47,8 @@ export default function AccountSettings({ onAccountClosed }) {
   }
 
   return <div className="account-settings">
-    <header className="page-header"><div><p className="kicker">Your account</p><h1>Account settings</h1><p className="page-header__subtitle">Choose what happens to your account and its data.</p></div></header>
+    <header className="page-header"><div><p className="kicker">Your account</p><h1>Account settings</h1><p className="page-header__subtitle">Control what other students can see, and what happens to your account and its data.</p></div></header>
+    <PrivacySettings />
     <section className="panel account-option" aria-labelledby="deactivate-heading">
       <div className="account-option__icon"><PauseCircle size={23} /></div>
       <div><h2 id="deactivate-heading">Take a break</h2><p>Deactivating signs you out and disables access to your account. Your courses, assignments, and exams stay saved.</p><p>You’ll need an administrator to reactivate your account before you can sign in again.</p><button className="button button--secondary" disabled={saving} aria-expanded={action === 'deactivate'} aria-controls="account-confirmation" onClick={() => selectAction('deactivate')}>Deactivate account</button></div>

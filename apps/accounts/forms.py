@@ -68,6 +68,12 @@ class ProfileForm(forms.ModelForm):
         self.fields['last_name'].error_messages['required'] = 'Last name is required.'
 
 
+class PrivacySettingsForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ['show_email', 'show_bio', 'show_profile_picture']
+
+
 class ProfilePictureForm(forms.ModelForm):
     class Meta:
         model = User
