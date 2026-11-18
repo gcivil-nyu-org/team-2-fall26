@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react'
-import { MapPin, Send, Star, Utensils } from 'lucide-react'
+import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, MapPin, MessageSquare, Send, Star, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
 
 const EMPTY_POST = { place_name: '', description: '', location: '', cuisine: '', rating: '' }
+// #47: long recommendations are shortened in the feed so it stays easy to
+// scan; the post's own page shows the whole thing.
+export const PREVIEW_LENGTH = 280
+
+export function previewText(text) {
+  if (text.length <= PREVIEW_LENGTH) return text
+  return `${text.slice(0, PREVIEW_LENGTH).trimEnd()}…`
+}
 
 function FeedField({ label, hint, error, children }) {
   return <label className={`field ${error ? 'field--error' : ''}`}>
@@ -18,11 +27,13 @@ function LoadError({ message, retry }) {
   return <div className="study-notice study-notice--error" role="alert"><p>{message}</p><button className="button button--secondary" onClick={retry}>Try again</button></div>
 }
 
-function FoodPostCard({ post }) {
-  return <article className="food-post" aria-label={post.place_name}>
+function FoodPostCard({ post, full = false }) {
+  const shortened = !full && post.description.length > PREVIEW_LENGTH
+  const Heading = full ? 'h1' : 'h3'
+  return <article className={`food-post ${full ? 'food-post--full' : ''}`} aria-label={post.place_name}>
     <div className="food-post__header">
       <div>
-        <h3>{post.place_name}</h3>
+        <Heading>{full ? post.place_name : <Link to={`/community/posts/${post.id}`}>{post.place_name}</Link>}</Heading>
         {(post.cuisine || post.location) && <p className="food-post__meta">
           {post.cuisine && <span>{post.cuisine}</span>}
           {post.location && <span><MapPin size={13} /> {post.location}</span>}
@@ -30,12 +41,52 @@ function FoodPostCard({ post }) {
       </div>
       {post.rating && <span className="count-pill" aria-label={`Rated ${post.rating} out of 5`}><Star size={12} /> {post.rating}/5</span>}
     </div>
-    <p className="food-post__description">{post.description}</p>
+    <p className="food-post__description">{full ? post.description : previewText(post.description)}</p>
+    {shortened && <Link className="food-post__more" to={`/community/posts/${post.id}`} aria-label={`Read more about ${post.place_name}`}>Read more</Link>}
     <footer className="food-post__author">
       <div className="avatar">{post.author.profile_picture ? <img src={post.author.profile_picture} alt="" /> : initial(post.author)}</div>
       <span>{displayName(post.author)} · {formatDate(post.created_at, true)}</span>
     </footer>
   </article>
+}
+
+// #47: one post on its own page, with room for comments (#49 adds them).
+export function FoodPostPage() {
+  const { postId } = useParams()
+  const [post, setPost] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [missing, setMissing] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    setMissing(false)
+    api(`/social/posts/${postId}/`).then((result) => { if (active) setPost(result.post) })
+      .catch((err) => {
+        if (!active) return
+        if (err.status === 404) setMissing(true)
+        else setError(err.message)
+      })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [postId, attempt])
+
+  return <>
+    <Link className="back-link" to="/community"><ArrowLeft size={16} /> Back to food feed</Link>
+    {loading ? <p role="status">Loading the post…</p>
+      : missing ? <div className="empty-state"><span><Utensils size={22} /></span><h3>This post isn’t available</h3><p>It may have been removed.</p><Link className="button button--soft" to="/community">Browse the food feed</Link></div>
+        : error ? <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
+          : post && <>
+            <section className="panel" aria-label="Post"><FoodPostCard post={post} full /></section>
+            <section className="panel panel--stacked food-post-comments" aria-labelledby="comments-heading">
+              <div className="panel__header"><div><h2 id="comments-heading">Comments</h2></div></div>
+              <div className="empty-state"><span><MessageSquare size={22} /></span><h3>No comments yet</h3></div>
+            </section>
+          </>}
+  </>
 }
 
 // #46: create a food post and see it appear in the community feed. Browsing

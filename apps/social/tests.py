@@ -728,6 +728,88 @@ class FoodFeedTests(SocialTestCase):
         self.assertEqual(self.client.delete(self.url).status_code, 405)
 
 
+class CommunityFeedVisibilityTests(SocialTestCase):
+    # #47: only posts available to the community show up.
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('social:posts')
+
+    def test_posts_by_a_deactivated_account_are_hidden(self):
+        kept = FoodPost.objects.create(author=self.other, place_name='Joe\'s Pizza', description='Classic slice.')
+        FoodPost.objects.create(author=self.third, place_name='Hidden', description='Gone for now.')
+        self.third.is_active = False
+        self.third.save()
+        posts = self.client.get(self.url).json()['posts']
+        self.assertEqual([post['id'] for post in posts], [kept.pk])
+
+    def test_posts_come_back_when_the_account_is_reactivated(self):
+        post = FoodPost.objects.create(author=self.third, place_name='Back again', description='Still good.')
+        User.objects.filter(pk=self.third.pk).update(is_active=False)
+        self.assertEqual(self.client.get(self.url).json()['posts'], [])
+        User.objects.filter(pk=self.third.pk).update(is_active=True)
+        self.assertEqual([item['id'] for item in self.client.get(self.url).json()['posts']], [post.pk])
+
+
+class FoodPostDetailTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(
+            author=self.other, place_name='Mamoun\'s Falafel', description='Get the shawarma plate. ' * 20,
+            location='119 Macdougal St', cuisine='Middle Eastern', rating=5,
+        )
+
+    def url(self, pk):
+        return reverse('social:post', args=[pk])
+
+    def test_returns_every_detail_of_the_post(self):
+        response = self.client.get(self.url(self.post.pk))
+        self.assertEqual(response.status_code, 200)
+        post = response.json()['post']
+        self.assertEqual(post['id'], self.post.pk)
+        self.assertEqual(post['place_name'], 'Mamoun\'s Falafel')
+        self.assertEqual(post['description'], self.post.description)
+        self.assertEqual(post['location'], '119 Macdougal St')
+        self.assertEqual(post['cuisine'], 'Middle Eastern')
+        self.assertEqual(post['rating'], 5)
+        self.assertEqual(post['author']['first_name'], 'Sam')
+        self.assertIn('created_at', post)
+
+    def test_matches_what_the_feed_shows_for_that_post(self):
+        feed_post = self.client.get(reverse('social:posts')).json()['posts'][0]
+        self.assertEqual(self.client.get(self.url(self.post.pk)).json()['post'], feed_post)
+
+    def test_any_student_can_open_any_post_including_their_own(self):
+        own = FoodPost.objects.create(author=self.user, place_name='Mine', description='Mine.')
+        self.assertEqual(self.client.get(self.url(own.pk)).status_code, 200)
+        self.client.force_login(self.third)
+        self.assertEqual(self.client.get(self.url(self.post.pk)).status_code, 200)
+
+    def test_does_not_expose_the_author_bio(self):
+        self.other.bio = 'Sam studies math.'
+        self.other.save()
+        self.assertNotIn('bio', self.client.get(self.url(self.post.pk)).json()['post']['author'])
+
+    def test_a_missing_post_is_not_found(self):
+        response = self.client.get(self.url(self.post.pk + 100))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['detail'], 'Post not found.')
+
+    def test_a_post_by_a_deactivated_account_is_not_found(self):
+        self.other.is_active = False
+        self.other.save()
+        self.assertEqual(self.client.get(self.url(self.post.pk)).status_code, 404)
+
+    def test_logged_out_user_cannot_open_a_post(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url(self.post.pk)).status_code, 401)
+
+    def test_only_get_is_allowed(self):
+        for method in (self.client.post, self.client.patch, self.client.delete):
+            with self.subTest(method=method.__name__):
+                self.assertEqual(method(self.url(self.post.pk)).status_code, 405)
+        self.assertTrue(FoodPost.objects.filter(pk=self.post.pk).exists())
+
+
 class FoodPostModelTests(SocialTestCase):
     def test_database_rejects_a_rating_outside_1_to_5(self):
         for rating in [0, 6]:

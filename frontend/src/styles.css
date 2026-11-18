@@ -449,6 +449,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .food-post__description { margin: 0; font-size: .84rem; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .food-post__author { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .72rem; }
 .food-post__author .avatar { width: 26px; height: 26px; font-size: .66rem; }
+.food-post__header h3 a { color: inherit; text-decoration: none; }
+.food-post__header h3 a:hover, .food-post__header h3 a:focus-visible { color: var(--violet); text-decoration: underline; }
+.food-post__more { justify-self: start; color: var(--violet); font-size: .78rem; font-weight: 600; }
+.food-post--full { padding: 1.6rem 1.75rem; }
+.food-post--full h1 { margin: 0; font-size: 1.4rem; }
+.food-post--full .food-post__description { font-size: .92rem; }
+.food-post-comments { margin-top: 1.25rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
