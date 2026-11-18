@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Bookmark, BookmarkCheck, MapPin, MessageSquare, Send, Star, Utensils } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkCheck, MapPin, MessageSquare, Search, Send, Star, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
@@ -13,6 +13,19 @@ export const PREVIEW_LENGTH = 280
 export function previewText(text) {
   if (text.length <= PREVIEW_LENGTH) return text
   return `${text.slice(0, PREVIEW_LENGTH).trimEnd()}…`
+}
+
+// #48: search the current community feed without changing the order or
+// exposing posts outside the authenticated, active-author feed.
+export function filterFoodPosts(posts, { query = '', cuisine = '', location = '' } = {}) {
+  const term = query.trim().toLocaleLowerCase()
+  const kind = cuisine.trim().toLocaleLowerCase()
+  const place = location.trim().toLocaleLowerCase()
+  return posts.filter((post) => (
+    (!term || [post.place_name, post.description].some((value) => (value || '').toLocaleLowerCase().includes(term))) &&
+    (!kind || (post.cuisine || '').toLocaleLowerCase() === kind) &&
+    (!place || (post.location || '').toLocaleLowerCase().includes(place))
+  ))
 }
 
 function FeedField({ label, hint, error, children }) {
@@ -202,6 +215,7 @@ export function FoodFeedPage() {
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState('')
+  const [filters, setFilters] = useState({ query: '', cuisine: '', location: '' })
 
   useEffect(() => {
     let active = true
@@ -235,6 +249,7 @@ export function FoodFeedPage() {
         body: { ...values, rating: values.rating ? Number(values.rating) : null },
       })
       setPosts((current) => [result.post, ...(current || [])])
+      setFilters({ query: '', cuisine: '', location: '' })
       setValues(EMPTY_POST)
       setMessage(`Posted your recommendation for ${result.post.place_name}.`)
     } catch (err) {
@@ -244,6 +259,11 @@ export function FoodFeedPage() {
       setSubmitting(false)
     }
   }
+
+  const visible = posts ? filterFoodPosts(posts, filters) : []
+  const cuisines = posts ? [...new Set(posts.map((post) => post.cuisine?.trim()).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right)) : []
+  const filtering = Object.values(filters).some((value) => value.trim())
 
   return <>
     <header className="page-header">
@@ -277,11 +297,30 @@ export function FoodFeedPage() {
       </div>
     </form>
     {message && <div className="study-notice study-notice--success food-post-notice" role="status">{message}</div>}
+    {posts && <section className="panel panel--stacked food-feed-filters" aria-label="Filter food recommendations">
+      <div className="panel__header"><div><p className="kicker">Find a place</p><h2>Search &amp; filter</h2></div>
+        {filtering && <button type="button" className="button button--secondary button--small" onClick={() => setFilters({ query: '', cuisine: '', location: '' })}>Clear filters</button>}
+      </div>
+      <div className="food-feed-filters__fields">
+        <label className="field"><span className="field__label">Search recommendations</span>
+          <div className="food-feed-filters__search"><Search size={17} aria-hidden="true" /><input type="search" value={filters.query} placeholder="Search place or keyword" onChange={(event) => setFilters((current) => ({ ...current, query: event.target.value }))} /></div>
+        </label>
+        <label className="field"><span className="field__label">Filter by cuisine</span>
+          <select value={filters.cuisine} onChange={(event) => setFilters((current) => ({ ...current, cuisine: event.target.value }))}>
+            <option value="">All cuisines</option>
+            {cuisines.map((cuisine) => <option key={cuisine} value={cuisine}>{cuisine}</option>)}
+          </select>
+        </label>
+        <label className="field"><span className="field__label">Filter by location</span>
+          <input value={filters.location} placeholder="e.g. Brooklyn" onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))} />
+        </label>
+      </div>
+    </section>}
     {loading ? <p role="status">Loading the food feed…</p> : loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} /> : posts && <section className="panel panel--stacked" aria-label="Food feed">
-      <div className="panel__header"><div><p className="kicker">Latest first</p><h2>Recommendations</h2></div><span className="count-pill">{posts.length}</span></div>
-      {posts.length ? <div className="food-post-list">
-        {posts.map((post) => <FoodPostCard post={post} key={post.id} onChange={replacePost} />)}
-      </div> : <div className="empty-state"><span><Utensils size={22} /></span><h3>No posts yet</h3><p>Be the first to recommend a place to eat.</p></div>}
+      <div className="panel__header"><div><p className="kicker">Latest first</p><h2>Recommendations</h2></div><span className="count-pill" aria-label="Matching recommendations">{visible.length}</span></div>
+      {visible.length ? <div className="food-post-list">
+        {visible.map((post) => <FoodPostCard post={post} key={post.id} onChange={replacePost} />)}
+      </div> : <div className="empty-state"><span><Utensils size={22} /></span><h3>{posts.length ? 'No matching recommendations' : 'No posts yet'}</h3><p>{posts.length ? 'Try another keyword, cuisine, or location.' : 'Be the first to recommend a place to eat.'}</p></div>}
     </section>}
   </>
 }
