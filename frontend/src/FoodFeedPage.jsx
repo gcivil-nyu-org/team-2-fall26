@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, MapPin, MessageSquare, Send, Star, Utensils } from 'lucide-react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, MapPin, MessageSquare, Pencil, Save, Send, Star, Trash2, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
@@ -21,6 +21,40 @@ function FeedField({ label, hint, error, children }) {
     {children}
     {error && <span className="field__error">{error}</span>}
   </label>
+}
+
+// #46 create and #51 edit use the same fields, so both forms stay in step.
+function FoodPostFields({ values, errors, update }) {
+  return <>
+    <FeedField label="Restaurant or food place" error={errors.place_name?.[0]}>
+      <input name="place_name" value={values.place_name} onChange={update} placeholder="e.g. Mamoun's Falafel" maxLength={200} required />
+    </FeedField>
+    <FeedField label="Description or recommendation" error={errors.description?.[0]}>
+      <textarea name="description" value={values.description} onChange={update} rows={3} placeholder="What should people order? Why do you like it?" required />
+    </FeedField>
+    <div className="field-pair">
+      <FeedField label="Cuisine" hint="Optional" error={errors.cuisine?.[0]}>
+        <input name="cuisine" value={values.cuisine} onChange={update} placeholder="e.g. Middle Eastern" maxLength={100} />
+      </FeedField>
+      <FeedField label="Rating" hint="Optional" error={errors.rating?.[0]}>
+        <select name="rating" value={values.rating} onChange={update}>
+          <option value="">No rating</option>
+          {[5, 4, 3, 2, 1].map((value) => <option key={value} value={value}>{value} / 5</option>)}
+        </select>
+      </FeedField>
+    </div>
+    <FeedField label="Location" hint="Optional" error={errors.location?.[0]}>
+      <input name="location" value={values.location} onChange={update} placeholder="e.g. 119 Macdougal St" maxLength={200} />
+    </FeedField>
+  </>
+}
+
+function postBody(values) {
+  return { ...values, rating: values.rating ? Number(values.rating) : null }
+}
+
+function NotAvailable() {
+  return <div className="empty-state"><span><Utensils size={22} /></span><h3>This post isn’t available</h3><p>It may have been removed.</p><Link className="button button--soft" to="/community">Browse the food feed</Link></div>
 }
 
 function LoadError({ message, retry }) {
@@ -53,7 +87,13 @@ function FoodPostCard({ post, full = false }) {
 // #47: one post on its own page, with room for comments (#49 adds them).
 export function FoodPostPage() {
   const { postId } = useParams()
+  const navigate = useNavigate()
+  const notice = useLocation().state?.notice
   const [post, setPost] = useState(null)
+  // #52: deleting asks first, in the same style as deleting a course.
+  const [confirming, setConfirming] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [missing, setMissing] = useState(false)
@@ -74,17 +114,131 @@ export function FoodPostPage() {
     return () => { active = false }
   }, [postId, attempt])
 
+  async function remove() {
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await api(`/social/posts/${post.id}/`, { method: 'DELETE' })
+      navigate('/community', { state: { notice: `Deleted your post about ${post.place_name}.` } })
+    } catch {
+      setDeleteError('Couldn’t delete this post. Try again.')
+      setDeleting(false)
+    }
+  }
+
+  function cancelDelete() {
+    setConfirming(false)
+    setDeleteError('')
+  }
+
   return <>
     <Link className="back-link" to="/community"><ArrowLeft size={16} /> Back to food feed</Link>
+    {notice && !loading && post && <div className="study-notice study-notice--success food-post-notice" role="status">{notice}</div>}
     {loading ? <p role="status">Loading the post…</p>
-      : missing ? <div className="empty-state"><span><Utensils size={22} /></span><h3>This post isn’t available</h3><p>It may have been removed.</p><Link className="button button--soft" to="/community">Browse the food feed</Link></div>
+      : missing ? <NotAvailable />
         : error ? <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
           : post && <>
-            <section className="panel" aria-label="Post"><FoodPostCard post={post} full /></section>
+            <section className="panel" aria-label="Post">
+              <FoodPostCard post={post} full />
+              {/* #51/#52: only the author sees these; the server checks too. */}
+              {post.is_author && <div className="food-post__actions">
+                <Link className="button button--secondary button--small" to={`/community/posts/${post.id}/edit`}><Pencil size={15} /> Edit post</Link>
+                <button className="button button--secondary button--small" onClick={() => setConfirming(true)} disabled={confirming}><Trash2 size={15} /> Delete post</button>
+              </div>}
+              {confirming && <div className="delete-confirm" role="alert">
+                <p className={deleteError ? 'delete-confirm__error' : ''}>{deleteError || `Delete your post about ${post.place_name}? This can’t be undone.`}</p>
+                <div>
+                  <button className="button button--danger button--small" onClick={remove} disabled={deleting}>Delete</button>
+                  <button className="button button--secondary button--small" onClick={cancelDelete} disabled={deleting} autoFocus>Cancel</button>
+                </div>
+              </div>}
+            </section>
             <section className="panel panel--stacked food-post-comments" aria-labelledby="comments-heading">
               <div className="panel__header"><div><h2 id="comments-heading">Comments</h2></div></div>
               <div className="empty-state"><span><MessageSquare size={22} /></span><h3>No comments yet</h3></div>
             </section>
+          </>}
+  </>
+}
+
+// #51: edit your own post with the same fields used to create it.
+export function FoodPostEditPage() {
+  const { postId } = useParams()
+  const navigate = useNavigate()
+  const [values, setValues] = useState(null)
+  const [placeName, setPlaceName] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [missing, setMissing] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  const [errors, setErrors] = useState({})
+  const [submitError, setSubmitError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const postUrl = `/community/posts/${postId}`
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setLoadError('')
+    setMissing(false)
+    api(`/social/posts/${postId}/`).then(({ post }) => {
+      if (!active) return
+      // Someone else's post can be read but not edited.
+      if (!post.is_author) return setMissing(true)
+      setPlaceName(post.place_name)
+      setValues({
+        place_name: post.place_name,
+        description: post.description,
+        location: post.location,
+        cuisine: post.cuisine,
+        rating: post.rating ? String(post.rating) : '',
+      })
+    }).catch((err) => {
+      if (!active) return
+      if (err.status === 404) setMissing(true)
+      else setLoadError(err.message)
+    }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [postId, attempt])
+
+  function update(event) {
+    setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
+    setErrors((current) => ({ ...current, [event.target.name]: undefined }))
+  }
+
+  async function submit(event) {
+    event.preventDefault()
+    setSubmitting(true)
+    setErrors({})
+    setSubmitError('')
+    try {
+      await api(`/social/posts/${postId}/`, { method: 'PATCH', body: postBody(values) })
+      navigate(postUrl, { state: { notice: 'Saved your changes.' } })
+    } catch (err) {
+      setSubmitting(false)
+      if (err.status === 404) return setMissing(true)
+      setErrors(err.errors || {})
+      if (!Object.keys(err.errors || {}).length) setSubmitError(err.message)
+    }
+  }
+
+  return <>
+    <Link className="back-link" to={postUrl}><ArrowLeft size={16} /> Back to post</Link>
+    {loading ? <p role="status">Loading the post…</p>
+      : missing ? <NotAvailable />
+        : loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} />
+          : values && <>
+            <header className="page-header">
+              <div><p className="kicker">Community</p><h1>Edit post</h1><p className="page-header__subtitle">Update your recommendation for {placeName}.</p></div>
+            </header>
+            <form onSubmit={submit} className="editor-card food-post-form" aria-label="Edit your food post">
+              <FoodPostFields values={values} errors={errors} update={update} />
+              {submitError && <p className="field__error" role="alert">{submitError}</p>}
+              <div className="form-actions">
+                <Link className="button button--secondary" to={postUrl}>Cancel</Link>
+                <button className="button button--primary" disabled={submitting}><Save size={16} /> {submitting ? 'Saving…' : 'Save changes'}</button>
+              </div>
+            </form>
           </>}
   </>
 }
@@ -101,7 +255,8 @@ export function FoodFeedPage() {
   const [errors, setErrors] = useState({})
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [message, setMessage] = useState('')
+  // #52: after deleting a post you land here with a note saying so.
+  const [message, setMessage] = useState(useLocation().state?.notice || '')
 
   useEffect(() => {
     let active = true
@@ -128,7 +283,7 @@ export function FoodFeedPage() {
     try {
       const result = await api('/social/posts/', {
         method: 'POST',
-        body: { ...values, rating: values.rating ? Number(values.rating) : null },
+        body: postBody(values),
       })
       setPosts((current) => [result.post, ...(current || [])])
       setValues(EMPTY_POST)
@@ -146,26 +301,7 @@ export function FoodFeedPage() {
       <div><p className="kicker">Community</p><h1>Food feed</h1><p className="page-header__subtitle">Share a place to eat and see what other students recommend.</p></div>
     </header>
     <form onSubmit={submit} className="editor-card food-post-form" aria-label="Create a food post">
-      <FeedField label="Restaurant or food place" error={errors.place_name?.[0]}>
-        <input name="place_name" value={values.place_name} onChange={update} placeholder="e.g. Mamoun's Falafel" maxLength={200} required />
-      </FeedField>
-      <FeedField label="Description or recommendation" error={errors.description?.[0]}>
-        <textarea name="description" value={values.description} onChange={update} rows={3} placeholder="What should people order? Why do you like it?" required />
-      </FeedField>
-      <div className="field-pair">
-        <FeedField label="Cuisine" hint="Optional" error={errors.cuisine?.[0]}>
-          <input name="cuisine" value={values.cuisine} onChange={update} placeholder="e.g. Middle Eastern" maxLength={100} />
-        </FeedField>
-        <FeedField label="Rating" hint="Optional" error={errors.rating?.[0]}>
-          <select name="rating" value={values.rating} onChange={update}>
-            <option value="">No rating</option>
-            {[5, 4, 3, 2, 1].map((value) => <option key={value} value={value}>{value} / 5</option>)}
-          </select>
-        </FeedField>
-      </div>
-      <FeedField label="Location" hint="Optional" error={errors.location?.[0]}>
-        <input name="location" value={values.location} onChange={update} placeholder="e.g. 119 Macdougal St" maxLength={200} />
-      </FeedField>
+      <FoodPostFields values={values} errors={errors} update={update} />
       {submitError && <p className="field__error" role="alert">{submitError}</p>}
       <div className="form-actions">
         <button className="button button--primary" disabled={submitting}><Send size={16} /> {submitting ? 'Posting…' : 'Post'}</button>
