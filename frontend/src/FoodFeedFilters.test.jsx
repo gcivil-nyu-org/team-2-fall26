@@ -58,7 +58,7 @@ test('search also matches keywords in recommendations, not only place names', as
 test('cuisine dropdown is generated from available posts and filters exactly', async () => {
   const user = setup()
   await screen.findByRole('article', { name: "Joe's Pizza" })
-  expect(screen.getAllByRole('option').filter((item) => item.closest('select')?.getAttribute('value') !== 'rating')).toBeTruthy()
+  expect(within(screen.getByLabelText('Filter by cuisine')).getAllByRole('option').map((item) => item.textContent)).toEqual(['All cuisines', 'Chinese', 'Italian', 'Vegetarian'])
   await user.selectOptions(screen.getByLabelText('Filter by cuisine'), 'Chinese')
   expect(names()).toEqual(['Tasty Dumplings'])
 })
