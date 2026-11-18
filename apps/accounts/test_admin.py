@@ -167,10 +167,10 @@ class AccountListTests(AdminTestCase):
         self.assertIn('Active', row)
         self.assertRegex(row, r'>\s*2\s*<')
 
-    def test_an_account_with_no_name_shows_a_dash_and_administrators_are_labelled(self):
+    def test_an_account_with_no_name_shows_a_dash_and_super_administrators_are_labelled(self):
         row_html = self.client.get(self.changelist).content.decode()
         root_row = re.search(r'<tr[^>]*>(?:(?!</tr>).)*root@nyu\.edu(?:(?!</tr>).)*</tr>', row_html, re.S).group(0)
-        self.assertIn('Administrator', root_row)
+        self.assertIn('Super administrator', root_row)
         self.assertIn('—', root_row)
 
     def test_a_deactivated_account_says_so(self):

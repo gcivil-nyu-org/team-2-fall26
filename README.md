@@ -232,7 +232,21 @@ Open **Accounts → Users**.
 - **Safety rules:** an administrator cannot deactivate or delete the account they are signed in with. Staff who are not superusers only see and manage students, never other administrators. Accounts cannot be created here (students sign up themselves), and role and permission settings are not editable here.
 - **Audit trail:** every edit, deactivation, reactivation, reset email and deletion is recorded in the account's **History** (who, what, when).
 
-No database migration is needed. Who counts as an administrator, and how administrator access is granted, is a separate story (#60).
+No database migration is needed. How administrator access is granted and revoked is covered next (#60).
+
+## Managing administrator access (#60)
+
+There are two levels of administrator. **Super administrators** can do everything, including deciding who else is an administrator; create the first one with `python manage.py createsuperuser`. **Administrators** can sign in to `/admin/` and manage student accounts (the section above) and nothing else: they cannot see other administrators or change anyone's access. Students and signed-out visitors cannot open the admin at all.
+
+Super administrators manage access from **Accounts → Users**:
+
+- **View administrators:** the list's **role** column shows Super administrator, Administrator or Student. Quick links above the list (**All accounts**, **Students**, **Administrators**, **Super administrators**) show how many there are of each and open that list; the **role** filter in the sidebar does the same. Other administrators see neither, since they only ever see students.
+- **Grant access:** select one or more students and choose **Grant administrator access**. The account must be active; deactivated accounts are skipped with a message (reactivate them first). The account becomes staff and joins the **Administrators** group, which holds only the permissions to view, edit and delete student accounts. The group is kept in sync every time, so it can't drift. An account someone marked as staff by other means (for example in the shell) gets the same permissions when granted.
+- **Revoke access:** select administrators and choose **Revoke administrator access**. It takes effect on that person's very next click, even if they are signed in. Their student account and data are untouched, and they can be granted access again later.
+- **Safety rules:** only an active super administrator sees or can run these actions (they are refused for everyone else even if sent directly). Super administrators are never changed here, so at least one always remains, and nobody can revoke their own access.
+- **Audit trail:** every grant and revoke is recorded in the account's **History**. Access lives on the account in the database, so it stays after refreshing, signing out, or signing in again.
+
+No database migration is needed.
 
 ## Database
 
