@@ -456,6 +456,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .food-post--full h1 { margin: 0; font-size: 1.4rem; }
 .food-post--full .food-post__description { font-size: .92rem; }
 .food-post-comments { margin-top: 1.25rem; }
+.food-post__actions { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0 1.75rem 1.4rem; }
+.panel > .delete-confirm { margin: 0 1.75rem 1.4rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

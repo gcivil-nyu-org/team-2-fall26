@@ -54,7 +54,7 @@ def _request_payload(friend_request, viewer):
     }
 
 
-def _post_payload(post):
+def _post_payload(post, viewer):
     return {
         'id': post.pk,
         'place_name': post.place_name,
@@ -65,6 +65,9 @@ def _post_payload(post):
         # The feed shows every student's posts, but bios are friends-only
         # (#35), so the author summary here leaves the bio out.
         'author': {k: v for k, v in _user_summary(post.author).items() if k != 'bio'},
+        # #51/#52: lets the post page show Edit and Delete to its author. The
+        # server still checks ownership on every change.
+        'is_author': post.author_id == viewer.pk,
         'created_at': post.created_at.isoformat(),
     }
 
@@ -268,7 +271,7 @@ def food_posts_view(request):
     if request.method == 'GET':
         # Every post the community can see, newest first (#46, #47).
         posts = FoodPost.objects.community().select_related('author')
-        return JsonResponse({'posts': [_post_payload(post) for post in posts]})
+        return JsonResponse({'posts': [_post_payload(post, request.user) for post in posts]})
     body = _json_body(request)
     if body is None:
         return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
@@ -278,16 +281,35 @@ def food_posts_view(request):
     post = form.save(commit=False)
     post.author = request.user
     post.save()
-    return JsonResponse({'post': _post_payload(post)}, status=201)
+    return JsonResponse({'post': _post_payload(post, request.user)}, status=201)
 
 
-@require_GET
+@require_http_methods(['GET', 'PATCH', 'DELETE'])
 def food_post_view(request, pk):
     # #47: one post's full details. A post the feed wouldn't show (missing, or
     # by a deactivated account) is a 404 here too.
+    # #51/#52: its author can edit or delete it. Anyone else gets the same 404
+    # as a missing post, so the response never says whose post it is.
     if not request.user.is_authenticated:
         return _unauthorized()
-    post = FoodPost.objects.community().select_related('author').filter(pk=pk).first()
+    posts = FoodPost.objects.community().select_related('author')
+    if request.method != 'GET':
+        posts = posts.filter(author=request.user)
+    post = posts.filter(pk=pk).first()
     if post is None:
         return JsonResponse({'detail': 'Post not found.'}, status=404)
-    return JsonResponse({'post': _post_payload(post)})
+    if request.method == 'DELETE':
+        post.delete()
+        return JsonResponse({'ok': True})
+    if request.method == 'PATCH':
+        body = _json_body(request)
+        if not isinstance(body, dict):
+            return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+        # Fields left out of the request keep their current value.
+        data = {field: getattr(post, field) for field in FoodPostForm.Meta.fields}
+        data.update({key: value for key, value in body.items() if key in data})
+        form = FoodPostForm(data, instance=post)
+        if not form.is_valid():
+            return JsonResponse({'errors': _errors(form)}, status=400)
+        post = form.save()
+    return JsonResponse({'post': _post_payload(post, request.user)})
