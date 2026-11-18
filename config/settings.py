@@ -225,10 +225,10 @@ STORAGES = {
 # balancer, since EB's local disk is ephemeral and per-instance. Setting
 # AWS_STORAGE_BUCKET_NAME switches media storage to S3 instead; leaving it unset
 # (the default, including in local dev and the test suite) keeps local-disk
-# storage exactly as before. Credentials are NOT read from Django settings here
-# on purpose — boto3 resolves them itself, preferring an IAM instance role
-# attached to the EB environment over any AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
-# env vars, so no secret keys need to live in EB's env var config at all.
+# storage exactly as before. Boto3 uses the EC2 instance profile when no
+# higher-priority credential provider is configured. In particular,
+# AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY environment variables take precedence
+# over instance-profile credentials; never put static AWS keys in EB properties.
 AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME', '')
 if AWS_STORAGE_BUCKET_NAME:
     AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
@@ -238,6 +238,7 @@ if AWS_STORAGE_BUCKET_NAME:
     # render images without granting anonymous s3:GetObject access.
     AWS_QUERYSTRING_AUTH = True
     AWS_QUERYSTRING_EXPIRE = 300  # five-minute download links
+    AWS_S3_SIGNATURE_VERSION = 's3v4'  # explicit SigV4 for presigned GET URLs
     STORAGES['default'] = {
         'BACKEND': 'storages.backends.s3.S3Storage',
     }
