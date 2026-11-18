@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Bookmark, BookmarkCheck, MapPin, MessageSquare, Search, Send, Star, Utensils } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkCheck, Heart, MapPin, MessageSquare, Search, Send, Star, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
@@ -68,6 +68,35 @@ function SaveButton({ post, onChange }) {
   </div>
 }
 
+// #50: like/unlike a post; the server returns the authoritative count.
+function LikeButton({ post, onChange }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function toggle() {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api(`/social/posts/${post.id}/like/`, { method: post.is_liked ? 'DELETE' : 'PUT' })
+      onChange({ ...post, is_liked: result.is_liked, like_count: result.like_count })
+    } catch (err) {
+      setError(err.message || 'Could not update your like.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <div className="food-post__like">
+    <button type="button" className={`button ${post.is_liked ? 'button--soft' : 'button--secondary'}`}
+      aria-pressed={Boolean(post.is_liked)} aria-label={`${post.is_liked ? 'Unlike' : 'Like'} ${post.place_name}`}
+      disabled={busy} onClick={toggle}>
+      <Heart size={15} fill={post.is_liked ? 'currentColor' : 'none'} aria-hidden="true" />
+      {post.like_count || 0} {post.like_count === 1 ? 'like' : 'likes'}
+    </button>
+    {error && <span className="field__error" role="alert">{error}</span>}
+  </div>
+}
+
 function FoodPostCard({ post, full = false, onChange }) {
   const shortened = !full && post.description.length > PREVIEW_LENGTH
   const Heading = full ? 'h1' : 'h3'
@@ -91,6 +120,7 @@ function FoodPostCard({ post, full = false, onChange }) {
       </div>
       <div className="food-post__actions">
         {!full && <Link className="food-post__comments-link" to={`/community/posts/${post.id}`} aria-label={`${commentCountLabel(post.comment_count)} on ${post.place_name}`}><MessageSquare size={14} /> {commentCountLabel(post.comment_count)}</Link>}
+        {onChange && <LikeButton post={post} onChange={onChange} />}
         {onChange && <SaveButton post={post} onChange={onChange} />}
       </div>
     </footer>
