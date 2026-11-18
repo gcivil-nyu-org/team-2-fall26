@@ -3,6 +3,7 @@ import json
 from django.db import models, transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.models import User
@@ -69,6 +70,21 @@ def _post_payload(post):
     }
 
 
+def _unread_by_friend(user):
+    # Unread messages per current friend, for the badges and the conversation
+    # list (#37). Empty when the student has message alerts off. Messages left
+    # behind by a removed friendship stay out, because the conversation can't
+    # be opened to read them.
+    if not user.message_alerts_enabled:
+        return {}
+    friend_ids = [friendship.other(user).pk for friendship in FriendRequest.objects.accepted().involving(user)]
+    unread = (
+        DirectMessage.objects.filter(recipient=user, sender__in=friend_ids, read_at__isnull=True)
+        .values('sender').annotate(total=models.Count('pk'))
+    )
+    return {row['sender']: row['total'] for row in unread}
+
+
 @require_GET
 def friends_view(request):
     if not request.user.is_authenticated:
@@ -76,11 +92,19 @@ def friends_view(request):
     accepted = FriendRequest.objects.accepted().involving(request.user).select_related('sender', 'recipient')
     received = FriendRequest.objects.pending().filter(recipient=request.user).select_related('sender')
     sent = FriendRequest.objects.pending().filter(sender=request.user).select_related('recipient')
+    unread = _unread_by_friend(request.user)
     friends = sorted(
         (
             # friendship_id is the FriendRequest's own pk — the frontend needs
             # it (not the friend's user id) to call DELETE and remove them.
-            {**_user_summary(fr.other(request.user)), 'friendship_id': fr.pk}
+            {
+                **_user_summary(fr.other(request.user)),
+                'friendship_id': fr.pk,
+                'unread_messages': unread.get(fr.other(request.user).pk, 0),
+                # True when they accepted a request you sent and you haven't
+                # opened Friends since (#37).
+                'is_new': fr.sender_id == request.user.pk and fr.response_seen_at is None,
+            }
             for fr in accepted
         ),
         key=lambda item: (item['first_name'] or item['email'], item['last_name']),
@@ -90,6 +114,18 @@ def friends_view(request):
         'received_requests': [_request_payload(fr, request.user) for fr in received],
         'sent_requests': [_request_payload(fr, request.user) for fr in sent],
     })
+
+
+@require_http_methods(['POST'])
+def friends_seen_view(request):
+    # The Friends page calls this once it has shown newly accepted requests,
+    # so they stop counting as new (#37).
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    FriendRequest.objects.accepted().filter(
+        sender=request.user, response_seen_at__isnull=True,
+    ).update(response_seen_at=timezone.now())
+    return JsonResponse({'ok': True})
 
 
 @require_GET
@@ -238,6 +274,12 @@ def conversation_view(request, pk):
         return JsonResponse({'detail': 'Conversation not found.'}, status=404)
 
     if request.method == 'GET':
+        # Opening the conversation is what reads it (#37). This happens even
+        # with message alerts turned off, so turning them back on doesn't
+        # bring back a pile of old "unread" messages.
+        DirectMessage.objects.filter(
+            sender=friend, recipient=request.user, read_at__isnull=True,
+        ).update(read_at=timezone.now())
         conversation = (
             DirectMessage.objects.filter(
                 models.Q(sender=request.user, recipient=friend) |
@@ -281,3 +323,24 @@ def food_posts_view(request):
     post.author = request.user
     post.save()
     return JsonResponse({'post': _post_payload(post)}, status=201)
+
+
+@require_GET
+def alerts_view(request):
+    # Numbers behind the sidebar badges (#37). A student who has turned an
+    # alert off just gets zero for it.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # Friends alerts cover requests waiting for you, and requests you sent
+    # that were accepted since you last opened Friends. Declines never alert.
+    friend_requests = 0
+    if request.user.friend_request_alerts_enabled:
+        friend_requests = (
+            FriendRequest.objects.pending().filter(recipient=request.user).count()
+            + FriendRequest.objects.accepted().filter(sender=request.user, response_seen_at__isnull=True).count()
+        )
+    unread = _unread_by_friend(request.user)
+    return JsonResponse({
+        'friend_requests': friend_requests,
+        'unread_messages': sum(unread.values()),
+    })

@@ -42,6 +42,9 @@ class FriendRequest(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     created_at = models.DateTimeField(auto_now_add=True)
     responded_at = models.DateTimeField(blank=True, null=True)
+    # When the sender saw that this request was accepted. Null on an accepted
+    # request means "new" — it drives the Friends alert (#37).
+    response_seen_at = models.DateTimeField(blank=True, null=True)
 
     objects = FriendRequestQuerySet.as_manager()
 
@@ -118,6 +121,8 @@ class DirectMessage(models.Model):
     )
     body = models.CharField(max_length=2000)
     created_at = models.DateTimeField(auto_now_add=True)
+    # When the recipient opened the conversation. Null means unread (#37).
+    read_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         ordering = ['created_at', 'pk']

@@ -28,6 +28,43 @@ function renderThread(id = 2) {
   </MemoryRouter>)
 }
 
+describe('unread counts and read tracking (#37)', () => {
+  test('a friend who has written shows how many messages are unread', async () => {
+    vi.mocked(realApi).mockResolvedValue({ friends: [{ ...sam, unread_messages: 3 }, { ...sam, id: 3, first_name: 'Kim', unread_messages: 0 }] })
+    renderInbox()
+    expect(await screen.findByRole('link', { name: /open conversation with sam lee/i })).toHaveTextContent('3')
+    expect(screen.getByLabelText('3 unread')).toBeInTheDocument()
+    expect(screen.getAllByLabelText(/unread$/)).toHaveLength(1)
+  })
+
+  test('no count appears when nothing is unread or the server sends none', async () => {
+    vi.mocked(realApi).mockResolvedValue({ friends: [{ ...sam, unread_messages: 0 }, { ...sam, id: 3, first_name: 'Kim' }] })
+    renderInbox()
+    await screen.findByRole('link', { name: /open conversation with sam lee/i })
+    expect(screen.queryByLabelText(/unread$/)).toBeNull()
+  })
+
+  test('opening a conversation tells the sidebar to refresh its counts', async () => {
+    const heard = vi.fn()
+    window.addEventListener('semesterpilot:alerts-changed', heard)
+    vi.mocked(realApi).mockResolvedValue({ friend: sam, messages: [] })
+    renderThread()
+    await screen.findByText('No messages yet')
+    window.removeEventListener('semesterpilot:alerts-changed', heard)
+    expect(heard).toHaveBeenCalledTimes(1)
+  })
+
+  test('a conversation that fails to load does not announce a change', async () => {
+    const heard = vi.fn()
+    window.addEventListener('semesterpilot:alerts-changed', heard)
+    vi.mocked(realApi).mockRejectedValue(new Error('Network down'))
+    renderThread()
+    await screen.findByRole('alert')
+    window.removeEventListener('semesterpilot:alerts-changed', heard)
+    expect(heard).not.toHaveBeenCalled()
+  })
+})
+
 describe('conversation list (#21)', () => {
   test('links to existing friends and not to requests', async () => {
     vi.mocked(realApi).mockResolvedValue({ friends: [sam], received_requests: [{ user: { id: 9, email: 'not-friend@nyu.edu' } }], sent_requests: [] })

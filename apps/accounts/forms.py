@@ -88,3 +88,13 @@ class ProfilePictureForm(forms.ModelForm):
         if picture.size > max_size:
             raise forms.ValidationError(f'Image must be smaller than {max_size // (1024 * 1024)}MB.')
         return picture
+
+
+class NotificationPreferencesForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = [
+            'study_reminders_enabled', 'study_reminder_minutes',
+            'deadline_reminders_enabled', 'deadline_reminder_hours',
+            'friend_request_alerts_enabled', 'message_alerts_enabled',
+        ]
