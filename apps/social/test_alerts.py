@@ -29,6 +29,11 @@ class AlertsTestCase(TestCase):
     def alerts(self):
         return self.client.get(self.url).json()
 
+    def unread_by_friend(self):
+        # Per-friend counts now come from the conversation list, not the alerts.
+        friends = self.client.get(reverse('social:friends')).json()['friends']
+        return {item['id']: item['unread_messages'] for item in friends if item['unread_messages']}
+
     def turn_off(self, **fields):
         for name, value in fields.items():
             setattr(self.me, name, value)
@@ -43,7 +48,7 @@ class AlertCountTests(AlertsTestCase):
         self.assertEqual(self.client.post(self.url, '{}', content_type='application/json').status_code, 405)
 
     def test_nothing_new_means_zeroes(self):
-        self.assertEqual(self.alerts(), {'friend_requests': 0, 'unread_messages': 0, 'unread_by_friend': {}})
+        self.assertEqual(self.alerts(), {'friend_requests': 0, 'unread_messages': 0})
 
     def test_counts_pending_requests_sent_to_me_only(self):
         FriendRequest.objects.create(sender=self.sam, recipient=self.me)
@@ -66,7 +71,7 @@ class AlertCountTests(AlertsTestCase):
         self.message(self.kim, self.me)
         data = self.alerts()
         self.assertEqual(data['unread_messages'], 3)
-        self.assertEqual(data['unread_by_friend'], {str(self.sam.pk): 2, str(self.kim.pk): 1})
+        self.assertEqual(self.unread_by_friend(), {self.sam.pk: 2, self.kim.pk: 1})
 
     def test_my_own_messages_are_never_unread(self):
         self.befriend(self.sam)
@@ -88,7 +93,7 @@ class AlertCountTests(AlertsTestCase):
     def test_friendships_in_either_direction_count(self):
         self.befriend(self.sam, sender=self.me)  # I sent the request, they accepted
         self.message(self.sam, self.me)
-        self.assertEqual(self.alerts()['unread_by_friend'], {str(self.sam.pk): 1})
+        self.assertEqual(self.unread_by_friend(), {self.sam.pk: 1})
 
     def test_one_students_alerts_do_not_include_anothers(self):
         self.befriend(self.sam)
@@ -97,7 +102,7 @@ class AlertCountTests(AlertsTestCase):
         self.client.force_login(self.sam)
         # Sam's only alert is that I accepted the request Sam sent. My unread
         # message and Kim's request to me are not Sam's to see.
-        self.assertEqual(self.alerts(), {'friend_requests': 1, 'unread_messages': 0, 'unread_by_friend': {}})
+        self.assertEqual(self.alerts(), {'friend_requests': 1, 'unread_messages': 0})
 
 
 class AlertSettingTests(AlertsTestCase):
@@ -119,7 +124,8 @@ class AlertSettingTests(AlertsTestCase):
     def test_message_alerts_off_only_silences_messages(self):
         self.turn_off(message_alerts_enabled=False)
         data = self.alerts()
-        self.assertEqual((data['friend_requests'], data['unread_messages'], data['unread_by_friend']), (1, 0, {}))
+        self.assertEqual((data['friend_requests'], data['unread_messages']), (1, 0))
+        self.assertEqual(self.unread_by_friend(), {})
 
     def test_turning_alerts_off_does_not_hide_the_requests_themselves(self):
         self.turn_off(friend_request_alerts_enabled=False)
@@ -148,7 +154,7 @@ class ReadTrackingTests(AlertsTestCase):
         self.message(self.sam, self.me)
         self.message(self.kim, self.me)
         self.client.get(self.conversation)
-        self.assertEqual(self.alerts()['unread_by_friend'], {str(self.kim.pk): 1})
+        self.assertEqual(self.unread_by_friend(), {self.kim.pk: 1})
 
     def test_opening_it_does_not_mark_my_own_messages_or_anyone_elses_read(self):
         mine = self.message(self.me, self.sam)

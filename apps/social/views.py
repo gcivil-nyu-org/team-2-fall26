@@ -343,5 +343,4 @@ def alerts_view(request):
     return JsonResponse({
         'friend_requests': friend_requests,
         'unread_messages': sum(unread.values()),
-        'unread_by_friend': {str(friend_id): total for friend_id, total in unread.items()},
     })

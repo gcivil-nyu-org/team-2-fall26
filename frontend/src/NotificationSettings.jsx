@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Bell } from 'lucide-react'
 
 import { api } from './api'
+import { refreshAlerts } from './alerts'
 
 // #37: the lead-time choices come from the server (GET /api/profile/notifications/).
 export function leadTimeLabel(minutes) {
@@ -88,6 +89,8 @@ export default function NotificationSettings() {
       setDraft(data.notifications)
       setOpen(false)
       setJustSaved(true)
+      // The sidebar badges follow these settings, so update them right away.
+      refreshAlerts()
     } catch (err) {
       setError(Object.values(err.errors || {})[0]?.[0] || err.message || 'We couldn’t save your notification settings. Try again.')
     } finally { setSaving(false) }

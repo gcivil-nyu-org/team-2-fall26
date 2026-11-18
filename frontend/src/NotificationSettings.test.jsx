@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom'
 
 import { api as realApi } from './api'
 import AccountSettings from './AccountSettings'
+import { ALERTS_CHANGED } from './alerts'
 import NotificationSettings, { deadlineLeadLabel, leadTimeLabel, notificationSummary } from './NotificationSettings'
 
 vi.mock('./api', async (importOriginal) => {
@@ -186,6 +187,33 @@ describe('notification settings on the Account settings page', () => {
     await toggle(user, /assignment and exam reminders/i)
     expect(study).toBeEnabled()
     expect(deadline).toBeDisabled()
+  })
+
+  test('saving refreshes the sidebar badges right away, and a failed save does not', async () => {
+    const user = userEvent.setup()
+    const refreshed = vi.fn()
+    window.addEventListener(ALERTS_CHANGED, refreshed)
+    try {
+      mockSettings({}, echo())
+      render(<NotificationSettings />)
+      await openEditor(user)
+      await toggle(user, /new message alerts/i)
+      await save(user)
+      expect(await screen.findByText(/notification settings have been saved/i)).toBeInTheDocument()
+      expect(refreshed).toHaveBeenCalledTimes(1)
+
+      cleanup()
+      refreshed.mockClear()
+      mockSettings({}, () => { throw Object.assign(new Error('nope'), { errors: {} }) })
+      render(<NotificationSettings />)
+      await openEditor(user)
+      await toggle(user, /new message alerts/i)
+      await save(user)
+      await screen.findByRole('alert')
+      expect(refreshed).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener(ALERTS_CHANGED, refreshed)
+    }
   })
 
   test('saving sends every setting, then collapses with the new summary and a confirmation', async () => {
