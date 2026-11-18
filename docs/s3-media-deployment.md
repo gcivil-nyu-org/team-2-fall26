@@ -5,7 +5,7 @@ This runbook is **not** an automated deployment. It describes a manual AWS chang
 ## Intended behavior
 
 - Public **access to the bucket stays blocked**. User profile photo URLs returned by Django are temporary, signed S3 URLs (valid for 300 seconds).
-- Django uploads with `django-storages` using the **Elastic Beanstalk EC2 instance role**, not credentials embedded in the application.
+- Django uploads with `django-storages` using the **Elastic Beanstalk EC2 instance role**, not credentials embedded in the application. Boto3 checks environment credentials before EC2 instance metadata: ensure no stale `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` EB properties override the role.
 - Staging and production should have **different media buckets** so a staging test or deletion cannot affect production media.
 - `static/frontend` and WhiteNoise static files remain unchanged.
 - The existing code supports S3 via `AWS_STORAGE_BUCKET_NAME`; the patch for #90 enables signed URLs when that variable is set.
@@ -17,6 +17,7 @@ This runbook is **not** an automated deployment. It describes a manual AWS chang
 - Export `AWS_PROFILE=eb-cli` and `AWS_DEFAULT_REGION=us-east-2` in the **local shell**.
 - Check current AWS caller identity. Do not paste key material or `DATABASE_PASSWORD`/other secret values into a PR.
 - Get approval before modifying production IAM, EB configuration, or storage.
+- **Staging progress (reported Nov 11, 2026; reverify before rollout):** `semesterpilot-staging-media-372213465903-us-east-2` was created with Block Public Access, SSE-S3 and versioning, and the shared EC2 role `aws-elasticbeanstalk-ec2-role` received inline policy `SemesterPilotStagingMedia`. The policy at that time granted `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` on `profile-pictures/*`, **but did not include `s3:ListBucket`**. Do not assume the AWS state remains unchanged.
 
 ## 1. Read-only inventory
 
@@ -93,11 +94,26 @@ Attach an approved IAM policy to the actual EB **instance role**, scoped to the 
 }
 ```
 
-If the IAM administrator scopes a policy differently, verify the effective permissions. The app's S3 client resolves instance-role credentials with boto3; do **not** set IAM access keys as EB environment properties.
+**Important for this staging rollout:** Verify the actual inline policy `SemesterPilotStagingMedia` includes the `ListProfilePictures` statement above. The originally reported staging policy covered only object actions, not `s3:ListBucket`. Without `ListBucket`, an S3 `HeadObject` for an object that does not exist can return `403` instead of `404`, potentially interfering with Django storage's existence/name checks. Grant bucket-level listing only for `profile-pictures/*` and test a first-time upload rather than granting broad list access. The `s3:prefix` condition limits S3 ListBucket requests; verify the effective policy in staging with a real upload.
+
+**Shared-role caution:** At the time of the staging setup, staging and production used the shared `aws-elasticbeanstalk-ec2-role`. A policy added to that role is available to both environments using it. The bucket remains private, but IAM permissions are not inherently environment-isolated. Coordinate with the team before broadening this shared role, and consider separate instance roles before production rollout.
+
+If the IAM administrator scopes a policy differently, verify the effective permissions. The app's S3 client uses boto3's credential chain; environment keys take precedence over the EC2 instance role, so do **not** set IAM access keys as EB environment properties.
+
+To verify the existing staging IAM policy without changing AWS:
+
+```bash
+aws iam get-role-policy \
+  --role-name aws-elasticbeanstalk-ec2-role \
+  --policy-name SemesterPilotStagingMedia \
+  --query 'PolicyDocument.Statement' --output json
+```
+
+Also check effective permissions with your AWS administrator if permissions boundaries, SCPs, or explicit denies apply. An IAM policy document alone is not proof that S3 access succeeds.
 
 ## 4. Configure **staging** only
 
-From AWS EB console → `semesterpilot-staging` → Configuration → Updates/Software → Environment properties, set:
+**Only after the signed-URL code is merged and deployed to staging** (and the team approves this environment update), from AWS EB console → `semesterpilot-staging` → Configuration → Updates/Software → Environment properties, set:
 
 ```
 AWS_STORAGE_BUCKET_NAME=REPLACE_WITH_APPROVED_UNIQUE_STAGING_BUCKET
