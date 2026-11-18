@@ -228,10 +228,16 @@ class SessionTimeForm(forms.Form):
         return values
 
 
-@require_http_methods(['PATCH'])
+@require_http_methods(['PATCH', 'DELETE'])
 def session_view(request, session_id):
     if not request.user.is_authenticated:
         return JsonResponse({'detail': 'Authentication required.'}, status=401)
+    if request.method == 'DELETE':
+        # Only this session goes; its assignment or exam and other sessions stay.
+        with transaction.atomic():
+            lock_study_account(request.user)
+            get_object_or_404(StudySession.objects.owned_by(request.user).select_for_update(of=('self',)), pk=session_id).delete()
+        return JsonResponse({'ok': True})
     try:
         body = json.loads(request.body)
     except (ValueError, UnicodeDecodeError):
