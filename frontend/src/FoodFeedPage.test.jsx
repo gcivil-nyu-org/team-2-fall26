@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 import { api as realApi } from './api'
-import { FoodFeedPage } from './FoodFeedPage'
+import { FoodFeedPage, FoodPostPage, PREVIEW_LENGTH, previewText } from './FoodFeedPage'
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal()
@@ -40,6 +41,19 @@ function mockFeed(posts, onCreate) {
   })
 }
 
+function renderFeed() {
+  return render(<MemoryRouter><FoodFeedPage /></MemoryRouter>)
+}
+
+function renderApp(path) {
+  return render(<MemoryRouter initialEntries={[path]}>
+    <Routes>
+      <Route path="/community" element={<FoodFeedPage />} />
+      <Route path="/community/posts/:postId" element={<FoodPostPage />} />
+    </Routes>
+  </MemoryRouter>)
+}
+
 function feed() {
   return screen.getByRole('region', { name: 'Food feed' })
 }
@@ -47,7 +61,7 @@ function feed() {
 describe('viewing the food feed', () => {
   test('shows each post with its place, details, rating and author', async () => {
     mockFeed([post()])
-    render(<FoodFeedPage />)
+    renderFeed()
     const card = await screen.findByRole('article', { name: "Joe's Pizza" })
     expect(within(card).getByText('Grab a plain slice.')).toBeInTheDocument()
     expect(within(card).getByText('Pizza')).toBeInTheDocument()
@@ -58,7 +72,7 @@ describe('viewing the food feed', () => {
 
   test('leaves out optional details a post does not have', async () => {
     mockFeed([post({ location: '', cuisine: '', rating: null })])
-    render(<FoodFeedPage />)
+    renderFeed()
     const card = await screen.findByRole('article', { name: "Joe's Pizza" })
     expect(within(card).queryByText('Pizza')).not.toBeInTheDocument()
     expect(within(card).queryByLabelText(/out of 5/)).not.toBeInTheDocument()
@@ -66,13 +80,13 @@ describe('viewing the food feed', () => {
 
   test('shows a message when there are no posts yet', async () => {
     mockFeed([])
-    render(<FoodFeedPage />)
+    renderFeed()
     expect(await screen.findByText('No posts yet')).toBeInTheDocument()
   })
 
   test('shows an error with a working retry when the feed fails to load', async () => {
     vi.mocked(realApi).mockRejectedValueOnce(new Error('Something went wrong.'))
-    render(<FoodFeedPage />)
+    renderFeed()
     expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.')
 
     mockFeed([post()])
@@ -86,7 +100,7 @@ describe('creating a food post', () => {
   test('submits the post and shows it at the top of the feed', async () => {
     const onCreate = vi.fn((body) => ({ post: post({ id: 2, ...body, author: alex }) }))
     mockFeed([post()], onCreate)
-    render(<FoodFeedPage />)
+    renderFeed()
     await screen.findByRole('article', { name: "Joe's Pizza" })
 
     await userEvent.type(screen.getByLabelText('Restaurant or food place'), "Mamoun's")
@@ -114,7 +128,7 @@ describe('creating a food post', () => {
   test('sends no rating when none is chosen', async () => {
     const onCreate = vi.fn((body) => ({ post: post({ id: 2, ...body }) }))
     mockFeed([], onCreate)
-    render(<FoodFeedPage />)
+    renderFeed()
     await screen.findByText('No posts yet')
 
     await userEvent.type(screen.getByLabelText('Restaurant or food place'), 'Somewhere')
@@ -127,7 +141,7 @@ describe('creating a food post', () => {
 
   test('shows server validation errors next to the matching fields', async () => {
     mockFeed([])
-    render(<FoodFeedPage />)
+    renderFeed()
     await screen.findByText('No posts yet')
     vi.mocked(realApi).mockRejectedValueOnce(Object.assign(new Error('Something went wrong.'), {
       status: 400,
@@ -150,7 +164,7 @@ describe('creating a food post', () => {
 
   test('shows a general error when posting fails without field errors', async () => {
     mockFeed([])
-    render(<FoodFeedPage />)
+    renderFeed()
     await screen.findByText('No posts yet')
     vi.mocked(realApi).mockRejectedValueOnce(Object.assign(new Error('Authentication required.'), { status: 401, errors: {} }))
 
@@ -159,5 +173,94 @@ describe('creating a food post', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Post' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Authentication required.')
+  })
+})
+
+describe('browsing the food feed', () => {
+  test('each place name links to that post', async () => {
+    mockFeed([post({ id: 7 })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByRole('link', { name: "Joe's Pizza" })).toHaveAttribute('href', '/community/posts/7')
+  })
+
+  test('a long recommendation is shortened with a link to read more', async () => {
+    const long = `${'Great falafel. '.repeat(30)}The end.`
+    mockFeed([post({ id: 7, description: long })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).queryByText(/The end\./)).not.toBeInTheDocument()
+    expect(within(card).getByText(previewText(long))).toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: "Read more about Joe's Pizza" })).toHaveAttribute('href', '/community/posts/7')
+  })
+
+  test('a short recommendation is shown in full with no read more link', async () => {
+    mockFeed([post()])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText('Grab a plain slice.')).toBeInTheDocument()
+    expect(within(card).queryByRole('link', { name: /Read more/ })).not.toBeInTheDocument()
+  })
+
+  test('previewText keeps text up to the limit and trims anything longer', () => {
+    expect(previewText('a'.repeat(PREVIEW_LENGTH))).toBe('a'.repeat(PREVIEW_LENGTH))
+    expect(previewText(`${'a'.repeat(PREVIEW_LENGTH - 1)} b`)).toBe(`${'a'.repeat(PREVIEW_LENGTH - 1)}…`)
+  })
+})
+
+describe('opening a food post', () => {
+  function mockPost(result) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/' && !options.method) return { posts: [post({ id: 7, description: 'x'.repeat(400) })] }
+      if (path === '/social/posts/7/' && !options.method) {
+        if (result instanceof Error) throw result
+        return { post: result }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('shows the full post, its author and an empty comments section', async () => {
+    const long = `${'Great falafel. '.repeat(30)}The end.`
+    mockPost(post({ id: 7, description: long }))
+    renderApp('/community/posts/7')
+    expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
+    const card = screen.getByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText(/The end\./)).toBeInTheDocument()
+    expect(within(card).getByText('Pizza')).toBeInTheDocument()
+    expect(within(card).getByText(/7 Carmine St/)).toBeInTheDocument()
+    expect(within(card).getByLabelText('Rated 5 out of 5')).toBeInTheDocument()
+    expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
+    expect(within(card).queryByRole('link', { name: /Read more/ })).not.toBeInTheDocument()
+    const comments = screen.getByRole('region', { name: 'Comments' })
+    expect(within(comments).getByText('No comments yet')).toBeInTheDocument()
+    expect(realApi).toHaveBeenCalledWith('/social/posts/7/')
+  })
+
+  test('clicking a post in the feed opens it, and the back link returns', async () => {
+    mockPost(post({ id: 7 }))
+    renderApp('/community')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('link', { name: "Read more about Joe's Pizza" }))
+    expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: /Back to food feed/ }))
+    expect(await screen.findByRole('region', { name: 'Food feed' })).toBeInTheDocument()
+  })
+
+  test('a missing or hidden post says it is not available', async () => {
+    mockPost(Object.assign(new Error('Post not found.'), { status: 404 }))
+    renderApp('/community/posts/7')
+    expect(await screen.findByText('This post isn’t available')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Browse the food feed' })).toHaveAttribute('href', '/community')
+    expect(screen.queryByRole('region', { name: 'Comments' })).not.toBeInTheDocument()
+  })
+
+  test('any other error offers a working retry', async () => {
+    mockPost(new Error('Network down.'))
+    renderApp('/community/posts/7')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network down.')
+    mockPost(post({ id: 7 }))
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
   })
 })

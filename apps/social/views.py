@@ -266,10 +266,8 @@ def food_posts_view(request):
     if not request.user.is_authenticated:
         return _unauthorized()
     if request.method == 'GET':
-        # #46 AC: a submitted post appears in the community feed. This is
-        # every student's posts, newest first; browsing and filtering the
-        # feed is #47.
-        posts = FoodPost.objects.select_related('author')
+        # Every post the community can see, newest first (#46, #47).
+        posts = FoodPost.objects.community().select_related('author')
         return JsonResponse({'posts': [_post_payload(post) for post in posts]})
     body = _json_body(request)
     if body is None:
@@ -281,3 +279,15 @@ def food_posts_view(request):
     post.author = request.user
     post.save()
     return JsonResponse({'post': _post_payload(post)}, status=201)
+
+
+@require_GET
+def food_post_view(request, pk):
+    # #47: one post's full details. A post the feed wouldn't show (missing, or
+    # by a deactivated account) is a 404 here too.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    post = FoodPost.objects.community().select_related('author').filter(pk=pk).first()
+    if post is None:
+        return JsonResponse({'detail': 'Post not found.'}, status=404)
+    return JsonResponse({'post': _post_payload(post)})
