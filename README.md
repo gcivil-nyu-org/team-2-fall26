@@ -218,6 +218,36 @@ Session-authenticated API endpoints are `POST /api/account/deactivate/` and
 account; request data cannot select another user. No database migration is
 needed: deactivation uses Django's existing `is_active` flag.
 
+## Managing student accounts (#54)
+
+Administrators manage accounts from Django admin at `/admin/` (sign in with an
+administrator account; create the first one with `python manage.py createsuperuser`).
+Open **Accounts → Users**.
+
+- **Find accounts:** the list shows email, name, role, status, number of courses, join date and last sign-in, newest first. Search by email, first name or last name. Filter by active/deactivated, role, last sign-in (never, within 30 days, over 30 days ago) and join date.
+- **Correct details:** an administrator can edit a student's email, name and bio. An email follows the same rules as sign-up (NYU address, not already used, stored in lower case), and the student's username moves with it so they can sign in with the corrected address.
+- **Deactivate or reactivate:** untick or tick **Active** on the account, or select several in the list and use the bulk actions. Deactivating blocks sign-in and signs the student out but keeps all of their data; reactivating restores access with the same password. This is also how students who chose **Deactivate account** (#36) get back in.
+- **Reset a password:** passwords are never shown or set by an administrator. Use **Send password reset email**; the student gets the usual reset link and chooses their own password. Deactivated accounts are skipped (reactivate first), and a mail failure shows a warning instead of an error page.
+- **Delete:** deleting an account shows everything that will be removed with it and asks for confirmation. It removes the student's courses, assignments, exams, study sessions and messages.
+- **Safety rules:** an administrator cannot deactivate or delete the account they are signed in with. Staff who are not superusers only see and manage students, never other administrators. Accounts cannot be created here (students sign up themselves), and role and permission settings are not editable here.
+- **Audit trail:** every edit, deactivation, reactivation, reset email and deletion is recorded in the account's **History** (who, what, when).
+
+No database migration is needed. How administrator access is granted and revoked is covered next (#60).
+
+## Managing administrator access (#60)
+
+There are two levels of administrator. **Super administrators** can do everything, including deciding who else is an administrator; create the first one with `python manage.py createsuperuser`. **Administrators** can sign in to `/admin/` and manage student accounts (the section above) and nothing else: they cannot see other administrators or change anyone's access. Students and signed-out visitors cannot open the admin at all.
+
+Super administrators manage access from **Accounts → Users**:
+
+- **View administrators:** the list's **role** column shows Super administrator, Administrator or Student. Quick links above the list (**All accounts**, **Students**, **Administrators**, **Super administrators**) show how many there are of each and open that list; the **role** filter in the sidebar does the same. Other administrators see neither, since they only ever see students.
+- **Grant access:** select one or more students and choose **Grant administrator access**. The account must be active; deactivated accounts are skipped with a message (reactivate them first). The account becomes staff and joins the **Administrators** group, which holds only the permissions to view, edit and delete student accounts. The group is kept in sync every time, so it can't drift. An account someone marked as staff by other means (for example in the shell) gets the same permissions when granted.
+- **Revoke access:** select administrators and choose **Revoke administrator access**. It takes effect on that person's very next click, even if they are signed in. Their student account and data are untouched, and they can be granted access again later.
+- **Safety rules:** only an active super administrator sees or can run these actions (they are refused for everyone else even if sent directly). Super administrators are never changed here, so at least one always remains, and nobody can revoke their own access.
+- **Audit trail:** every grant and revoke is recorded in the account's **History**. Access lives on the account in the database, so it stays after refreshing, signing out, or signing in again.
+
+No database migration is needed.
+
 ## Database
 
 Defaults to SQLite, no setup required. To use Postgres instead (e.g. for AWS RDS), set these in `.env`:
