@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, MapPin, MessageSquare, Pencil, Save, Send, Star, Trash2, Utensils } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkCheck, MapPin, MessageSquare, Pencil, Save, Send, Share2, Star, Trash2, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
@@ -61,7 +61,111 @@ function LoadError({ message, retry }) {
   return <div className="study-notice study-notice--error" role="alert"><p>{message}</p><button className="button button--secondary" onClick={retry}>Try again</button></div>
 }
 
-function FoodPostCard({ post, full = false }) {
+// #53: save a post to try later, or unsave it. The button only changes once
+// the server confirms, so what it shows is always what's stored.
+function SaveButton({ post, onChange }) {
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function toggle() {
+    setSaving(true)
+    setError('')
+    try {
+      const result = await api(`/social/posts/${post.id}/save/`, { method: post.is_saved ? 'DELETE' : 'PUT' })
+      onChange({ ...post, is_saved: result.saved })
+    } catch (err) {
+      setError(err.message || 'Could not update your saved recommendations.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const Icon = post.is_saved ? BookmarkCheck : Bookmark
+  return <div className="food-post__save">
+    <button type="button" className={`button ${post.is_saved ? 'button--soft' : 'button--secondary'}`} aria-pressed={post.is_saved} aria-label={`${post.is_saved ? 'Unsave' : 'Save'} ${post.place_name}`} disabled={saving} onClick={toggle}>
+      <Icon size={15} /> {post.is_saved ? 'Saved' : 'Save'}
+    </button>
+    {error && <span className="field__error" role="alert">{error}</span>}
+  </div>
+}
+
+// #22: share a post with a friend. It's sent as a message in your
+// conversation with them, with an optional note.
+function SharePanel({ post, onClose }) {
+  const [friends, setFriends] = useState(null)
+  const [loadError, setLoadError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+  const [friendId, setFriendId] = useState('')
+  const [note, setNote] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  const [sharedWith, setSharedWith] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    setFriends(null)
+    setLoadError('')
+    api('/social/friends/').then((result) => { if (active) setFriends(result.friends) })
+      .catch((err) => { if (active) setLoadError(err.message) })
+    return () => { active = false }
+  }, [attempt])
+
+  async function share(event) {
+    event.preventDefault()
+    if (!friendId || sending) return
+    setSending(true)
+    setError('')
+    try {
+      await api(`/social/posts/${post.id}/share/`, { method: 'POST', body: { friend_id: Number(friendId), note: note.trim() } })
+      setSharedWith(friends.find((friend) => String(friend.id) === friendId))
+    } catch (err) {
+      setError(err.errors?.friend_id?.[0] || err.errors?.note?.[0] || err.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return <section className="food-post__share" aria-label={`Share ${post.place_name}`}>
+    {loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} />
+      : friends === null ? <p role="status">Loading your friends…</p>
+        : sharedWith ? <div className="study-notice study-notice--success" role="status">
+          <p>Shared with {displayName(sharedWith)}.</p>
+          <div className="food-post__share-actions">
+            <Link className="button button--soft button--small" to={`/messages/${sharedWith.id}`}>Open conversation</Link>
+            <button type="button" className="button button--secondary button--small" onClick={onClose}>Done</button>
+          </div>
+        </div>
+          : !friends.length ? <div className="food-post__share-empty">
+            <p>Add a friend to share posts with them.</p>
+            <div className="food-post__share-actions">
+              <Link className="button button--soft button--small" to="/friends">Find friends</Link>
+              <button type="button" className="button button--secondary button--small" onClick={onClose}>Cancel</button>
+            </div>
+          </div>
+            : <form onSubmit={share}>
+              <label className="field">
+                <span className="field__label">Share with</span>
+                <select value={friendId} disabled={sending} onChange={(event) => { setFriendId(event.target.value); setError('') }}>
+                  <option value="">Choose a friend</option>
+                  {friends.map((friend) => <option key={friend.id} value={friend.id}>{displayName(friend)}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">Note<small>Optional</small></span>
+                <textarea value={note} rows={2} maxLength={2000} disabled={sending} placeholder="Why should they try it?"
+                  onChange={(event) => { setNote(event.target.value); setError('') }} />
+              </label>
+              {error && <p className="field__error" role="alert">{error}</p>}
+              <div className="food-post__share-actions">
+                <button className="button button--primary button--small" type="submit" disabled={!friendId || sending}><Send size={14} /> {sending ? 'Sharing…' : 'Share'}</button>
+                <button type="button" className="button button--secondary button--small" onClick={onClose} disabled={sending}>Cancel</button>
+              </div>
+            </form>}
+  </section>
+}
+
+function FoodPostCard({ post, full = false, onChange }) {
+  const [sharing, setSharing] = useState(false)
   const shortened = !full && post.description.length > PREVIEW_LENGTH
   const Heading = full ? 'h1' : 'h3'
   return <article className={`food-post ${full ? 'food-post--full' : ''}`} aria-label={post.place_name}>
@@ -77,10 +181,19 @@ function FoodPostCard({ post, full = false }) {
     </div>
     <p className="food-post__description">{full ? post.description : previewText(post.description)}</p>
     {shortened && <Link className="food-post__more" to={`/community/posts/${post.id}`} aria-label={`Read more about ${post.place_name}`}>Read more</Link>}
-    <footer className="food-post__author">
-      <div className="avatar">{post.author.profile_picture ? <img src={post.author.profile_picture} alt="" /> : initial(post.author)}</div>
-      <span>{displayName(post.author)} · {formatDate(post.created_at, true)}</span>
+    <footer className="food-post__footer">
+      <div className="food-post__author">
+        <div className="avatar">{post.author.profile_picture ? <img src={post.author.profile_picture} alt="" /> : initial(post.author)}</div>
+        <span>{displayName(post.author)} · {formatDate(post.created_at, true)}</span>
+      </div>
+      <div className="food-post__actions">
+        <button type="button" className="button button--secondary food-post__share-toggle" aria-expanded={sharing} aria-label={`Share ${post.place_name} with a friend`} onClick={() => setSharing((value) => !value)}>
+          <Share2 size={15} /> Share
+        </button>
+        {onChange && <SaveButton post={post} onChange={onChange} />}
+      </div>
     </footer>
+    {sharing && <SharePanel post={post} onClose={() => setSharing(false)} />}
   </article>
 }
 
@@ -139,9 +252,9 @@ export function FoodPostPage() {
         : error ? <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
           : post && <>
             <section className="panel" aria-label="Post">
-              <FoodPostCard post={post} full />
+              <FoodPostCard post={post} full onChange={setPost} />
               {/* #51/#52: only the author sees these; the server checks too. */}
-              {post.is_author && <div className="food-post__actions">
+              {post.is_author && <div className="food-post__owner-actions">
                 <Link className="button button--secondary button--small" to={`/community/posts/${post.id}/edit`}><Pencil size={15} /> Edit post</Link>
                 <button className="button button--secondary button--small" onClick={() => setConfirming(true)} disabled={confirming}><Trash2 size={15} /> Delete post</button>
               </div>}
@@ -268,6 +381,10 @@ export function FoodFeedPage() {
     return () => { active = false }
   }, [attempt])
 
+  function replacePost(updated) {
+    setPosts((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+  }
+
   function update(event) {
     setValues((current) => ({ ...current, [event.target.name]: event.target.value }))
     setErrors((current) => ({ ...current, [event.target.name]: undefined }))
@@ -299,6 +416,7 @@ export function FoodFeedPage() {
   return <>
     <header className="page-header">
       <div><p className="kicker">Community</p><h1>Food feed</h1><p className="page-header__subtitle">Share a place to eat and see what other students recommend.</p></div>
+      <Link className="button button--secondary" to="/community/saved"><Bookmark size={16} /> Saved recommendations</Link>
     </header>
     <form onSubmit={submit} className="editor-card food-post-form" aria-label="Create a food post">
       <FoodPostFields values={values} errors={errors} update={update} />
@@ -311,8 +429,48 @@ export function FoodFeedPage() {
     {loading ? <p role="status">Loading the food feed…</p> : loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} /> : posts && <section className="panel panel--stacked" aria-label="Food feed">
       <div className="panel__header"><div><p className="kicker">Latest first</p><h2>Recommendations</h2></div><span className="count-pill">{posts.length}</span></div>
       {posts.length ? <div className="food-post-list">
-        {posts.map((post) => <FoodPostCard post={post} key={post.id} />)}
+        {posts.map((post) => <FoodPostCard post={post} key={post.id} onChange={replacePost} />)}
       </div> : <div className="empty-state"><span><Utensils size={22} /></span><h3>No posts yet</h3><p>Be the first to recommend a place to eat.</p></div>}
     </section>}
+  </>
+}
+
+// #53: the student's saved recommendations, most recently saved first.
+// Unsaving one here takes it off the list.
+export function SavedPostsPage() {
+  const [posts, setPosts] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError('')
+    api('/social/posts/saved/').then((result) => { if (active) setPosts(result.posts) })
+      .catch((err) => { if (active) setError(err.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [attempt])
+
+  function changed(updated) {
+    setPosts((current) => (updated.is_saved
+      ? current.map((item) => (item.id === updated.id ? updated : item))
+      : current.filter((item) => item.id !== updated.id)))
+  }
+
+  return <>
+    <Link className="back-link" to="/community"><ArrowLeft size={16} /> Back to food feed</Link>
+    <header className="page-header">
+      <div><p className="kicker">Community</p><h1>Saved recommendations</h1><p className="page-header__subtitle">Places you saved to try later. Only you can see this list.</p></div>
+    </header>
+    {loading ? <p role="status">Loading your saved recommendations…</p>
+      : error ? <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
+        : posts && <section className="panel panel--stacked" aria-label="Saved recommendations">
+          <div className="panel__header"><div><p className="kicker">Most recently saved first</p><h2>Saved places</h2></div><span className="count-pill">{posts.length}</span></div>
+          {posts.length ? <div className="food-post-list">
+            {posts.map((post) => <FoodPostCard post={post} key={post.id} onChange={changed} />)}
+          </div> : <div className="empty-state"><span><Bookmark size={22} /></span><h3>No saved recommendations yet</h3><p>Save a post from the food feed to find it here later.</p><Link className="button button--soft" to="/community">Browse the food feed</Link></div>}
+        </section>}
   </>
 }

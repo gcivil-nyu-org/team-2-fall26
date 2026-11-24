@@ -42,6 +42,9 @@ class FriendRequest(models.Model):
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     created_at = models.DateTimeField(auto_now_add=True)
     responded_at = models.DateTimeField(blank=True, null=True)
+    # When the sender saw that this request was accepted. Null on an accepted
+    # request means "new" — it drives the Friends alert (#37).
+    response_seen_at = models.DateTimeField(blank=True, null=True)
 
     objects = FriendRequestQuerySet.as_manager()
 
@@ -116,8 +119,18 @@ class DirectMessage(models.Model):
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='received_direct_messages',
     )
-    body = models.CharField(max_length=2000)
+    # Blank only when the message shares a post without a note (#22).
+    body = models.CharField(max_length=2000, blank=True)
+    # #22: a food post shared into the conversation. If the post is deleted
+    # later the message stays, and shares_post lets the conversation say the
+    # post is no longer available instead of showing an empty message.
+    shared_post = models.ForeignKey(
+        'FoodPost', on_delete=models.SET_NULL, null=True, blank=True, related_name='shares',
+    )
+    shares_post = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    # When the recipient opened the conversation. Null means unread (#37).
+    read_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         ordering = ['created_at', 'pk']
@@ -138,6 +151,10 @@ class FoodPostQuerySet(models.QuerySet):
         # account stay hidden (and come back if it's reactivated); a deleted
         # account's posts are already gone with it.
         return self.filter(author__is_active=True)
+
+    def with_saved(self, user):
+        # #53: marks each post the student has saved, for the Save button.
+        return self.annotate(is_saved=models.Exists(SavedPost.objects.filter(user=user, post=models.OuterRef('pk'))))
 
 
 class FoodPost(models.Model):
@@ -177,3 +194,25 @@ class FoodPost(models.Model):
 
     def __str__(self):
         return self.place_name
+
+
+class SavedPost(models.Model):
+    # #53: a food post a student saved to try later. Saves belong to the
+    # student; nobody else can see them.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='saved_posts',
+    )
+    post = models.ForeignKey(FoodPost, on_delete=models.CASCADE, related_name='saves')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Most recently saved first.
+        ordering = ['-created_at', '-id']
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'post'], name='saved_post_once_per_user'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} saved {self.post}'

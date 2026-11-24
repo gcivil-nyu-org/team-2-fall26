@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, MessageCircle, Send } from 'lucide-react'
+import { ArrowLeft, MapPin, MessageCircle, Send, Star, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
+import { badgeText, refreshAlerts } from './alerts'
 import { displayName, initial } from './friends'
 
 function ErrorNotice({ text, retry }) {
@@ -10,6 +11,33 @@ function ErrorNotice({ text, retry }) {
     <p>{text}</p>
     {retry && <button className="button button--secondary" type="button" onClick={retry}>Try again</button>}
   </div>
+}
+
+// #22: a food post shared into the conversation, with its original content
+// and author. Opening it goes to the post's own page.
+const SHARED_PREVIEW_LENGTH = 160
+
+function SharedPost({ post }) {
+  if (!post.available) {
+    return <div className="shared-post shared-post--unavailable"><Utensils size={15} aria-hidden="true" /> This post is no longer available.</div>
+  }
+  const description = post.description.length > SHARED_PREVIEW_LENGTH
+    ? `${post.description.slice(0, SHARED_PREVIEW_LENGTH).trimEnd()}…`
+    : post.description
+  return <Link className="shared-post" to={`/community/posts/${post.id}`} aria-label={`Open shared post: ${post.place_name}`}>
+    <span className="shared-post__kicker"><Utensils size={12} aria-hidden="true" /> Shared food post</span>
+    <strong className="shared-post__title">{post.place_name}</strong>
+    {(post.cuisine || post.location || post.rating) && <span className="shared-post__meta">
+      {post.cuisine && <span>{post.cuisine}</span>}
+      {post.location && <span><MapPin size={12} aria-hidden="true" /> {post.location}</span>}
+      {post.rating && <span><Star size={12} aria-hidden="true" /> {post.rating}/5</span>}
+    </span>}
+    <span className="shared-post__description">{description}</span>
+    <span className="shared-post__author">
+      <span className="avatar">{post.author.profile_picture ? <img src={post.author.profile_picture} alt="" /> : initial(post.author)}</span>
+      Posted by {displayName(post.author)}
+    </span>
+  </Link>
 }
 
 export function MessagesPage() {
@@ -37,7 +65,8 @@ export function MessagesPage() {
         {friends.length ? <div className="friend-list">
           {friends.map((friend) => <Link key={friend.id} className="friend-row friend-row--conversation" to={`/messages/${friend.id}`} aria-label={`Open conversation with ${displayName(friend)}`}>
             <span className="avatar">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</span>
-            <span className="friend-row__copy"><strong>{displayName(friend)}</strong><small>{friend.email}</small></span>
+            <span className="friend-row__copy"><strong>{displayName(friend)}</strong>{friend.email && <small>{friend.email}</small>}</span>
+            {friend.unread_messages > 0 && <span className="unread-pill" aria-label={`${friend.unread_messages} unread`}>{badgeText(friend.unread_messages)}</span>}
             <MessageCircle size={18} aria-hidden="true" />
           </Link>)}
         </div> : <div className="empty-state"><span><MessageCircle size={22} /></span><h3>No conversations yet</h3><p>Add a friend to start messaging.</p><Link className="button button--soft" to="/friends">Find friends</Link></div>}
@@ -64,7 +93,12 @@ export function ConversationPage() {
     setDraft('')
     setSendError('')
     api(`/social/messages/${userId}/`)
-      .then((result) => { if (active) setData(result) })
+      .then((result) => {
+        if (!active) return
+        setData(result)
+        // Opening a conversation reads it, so the sidebar count drops.
+        refreshAlerts()
+      })
       .catch((err) => { if (active) setError(err.status === 404 ? 'This conversation is not available. You can only message current friends.' : err.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -92,12 +126,13 @@ export function ConversationPage() {
     {loading ? <p role="status">Loading conversation…</p>
       : error ? <ErrorNotice text={error} retry={() => setAttempt((n) => n + 1)} />
         : data && <>
-          <header className="page-header"><div><p className="kicker">Private conversation</p><h1>{displayName(data.friend)}</h1><p className="page-header__subtitle">{data.friend.email}</p></div></header>
+          <header className="page-header"><div><p className="kicker">Private conversation</p><h1>{displayName(data.friend)}</h1>{data.friend.email && <p className="page-header__subtitle">{data.friend.email}</p>}</div></header>
           <section className="panel conversation" aria-label={`Conversation with ${displayName(data.friend)}`}>
             <div className="conversation__history" role="log" aria-label="Message history" aria-live="polite">
               {data.messages.length ? data.messages.map((message) => <article key={message.id} className={`conversation__message ${message.is_mine ? 'conversation__message--mine' : ''}`}>
                 <strong>{message.is_mine ? 'You' : message.sender_name}</strong>
-                <p>{message.body}</p>
+                {message.shared_post && <SharedPost post={message.shared_post} />}
+                {message.body && <p>{message.body}</p>}
                 <time dateTime={message.created_at}>{formatDate(message.created_at, true)}</time>
               </article>) : <div className="empty-state"><span><MessageCircle size={22} /></span><h3>No messages yet</h3><p>Say hello to start your conversation.</p></div>}
             </div>
