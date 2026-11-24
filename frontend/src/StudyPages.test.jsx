@@ -267,3 +267,14 @@ test('adding a second block on the same day saves without an overlap', async () 
     { weekday: 1, start_time: '10:00', end_time: '11:00' },
   ] } })
 })
+
+
+test('saved cancelled events link to details without study controls or study hours', async () => {
+  vi.mocked(api).mockResolvedValue({ ...week, sessions: [], events: [{ id: 'event-42', event_id: 42, title: 'Career talk', status: 'cancelled', starts_at: session.starts_at, ends_at: session.ends_at, location: 'Brooklyn' }] })
+  render(<MemoryRouter><CalendarPage /></MemoryRouter>)
+  expect(await screen.findByRole('link', { name: 'Career talk' })).toHaveAttribute('href', '/events/42')
+  expect(screen.getByText('Cancelled')).toBeInTheDocument()
+  expect(screen.getByText('0 study hours')).toBeInTheDocument()
+  expect(screen.queryByText('No events this week')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Lock Career talk/ })).not.toBeInTheDocument()
+})

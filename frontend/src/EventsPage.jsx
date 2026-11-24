@@ -3,6 +3,19 @@ import { NavLink, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, MapPin } from 'lucide-react'
 import { api, formatDate } from './api'
 
+function SaveEventButton({ event }) {
+  const [saved, setSaved] = useState(event.is_saved)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function toggle() {
+    setBusy(true); setError('')
+    try { const result = await api(`/events/${event.id}/save/`, { method: saved ? 'DELETE' : 'PUT' }); setSaved(result.saved) }
+    catch (err) { setError(err.message) }
+    finally { setBusy(false) }
+  }
+  return <div><button className="button button--secondary" disabled={busy || (!saved && (event.status !== 'confirmed' || Date.parse(event.starts_at) <= Date.now()))} aria-pressed={Boolean(saved)} onClick={toggle}>{saved ? 'Remove from calendar' : 'Save to calendar'}</button>{error && <p role="alert">{error}</p>}</div>
+}
+
 function LoadError({ error, retry }) {
   return <div className="study-notice study-notice--error" role="alert"><p>{error}</p><button className="button button--secondary" onClick={retry}>Try again</button></div>
 }
@@ -67,6 +80,7 @@ export function EventsPage() {
         <p className="kicker">{formatDate(event.starts_at, true)}</p>
         <h2><NavLink to={`/events/${event.id}`}>{event.title}</NavLink></h2>
         <p>Ends {formatDate(event.ends_at, true)}</p>
+        <SaveEventButton key={`${event.id}-${event.is_saved}`} event={event} />
         <p>{event.host || 'NYU Engage'}</p>
         <p className="event-location"><MapPin size={15} aria-hidden="true" />{event.location || 'See Engage for location'}</p>
         <p className="event-categories">{event.categories.join(' · ')}</p>
@@ -98,6 +112,8 @@ export function EventDetailPage() {
       <p><strong>Starts:</strong> {formatDate(event.starts_at, true)}</p><p><strong>Ends:</strong> {formatDate(event.ends_at, true)}</p>
       <p><strong>Location:</strong> {event.location || 'See Engage for location'}</p><p><strong>Host:</strong> {event.host || 'NYU Engage'}</p>
       <p className="event-categories">{event.categories.join(' · ')}</p>
+      <SaveEventButton key={`${event.id}-${event.is_saved}`} event={event} />
+      <NavLink to="/calendar">View personal calendar</NavLink>
       <div className="event-description">{event.description || 'See the original event for details.'}</div>
       <a className="button button--primary" href={event.source_url} target="_blank" rel="noreferrer">View on NYU Engage <ExternalLink size={16} /></a>
       <p className="event-feed-note">Check Engage for current details and registration. Viewing this event does not RSVP.</p>
