@@ -449,6 +449,16 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .food-post__description { margin: 0; font-size: .84rem; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
 .food-post__author { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .72rem; }
 .food-post__author .avatar { width: 26px; height: 26px; font-size: .66rem; }
+.food-post__footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; }
+.food-post__save { display: flex; flex-direction: column; align-items: flex-end; gap: .3rem; }
+.food-post__save .button { padding: .4rem .7rem; font-size: .74rem; }
+.food-post__header h3 a { color: inherit; text-decoration: none; }
+.food-post__header h3 a:hover, .food-post__header h3 a:focus-visible { color: var(--violet); text-decoration: underline; }
+.food-post__more { justify-self: start; color: var(--violet); font-size: .78rem; font-weight: 600; }
+.food-post--full { padding: 1.6rem 1.75rem; }
+.food-post--full h1 { margin: 0; font-size: 1.4rem; }
+.food-post--full .food-post__description { font-size: .92rem; }
+.food-post-comments { margin-top: 1.25rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -518,3 +528,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .nav-badge { margin-left: auto; min-width: 1.25rem; padding: .05rem .4rem; border-radius: 999px; background: var(--violet); color: #fff; font-size: .68rem; font-weight: 700; line-height: 1.2rem; text-align: center; }
 .unread-pill { min-width: 1.35rem; padding: .05rem .45rem; border-radius: 999px; background: var(--violet); color: #fff; font-size: .7rem; font-weight: 700; line-height: 1.3rem; text-align: center; }
 .new-pill { justify-self: start; padding: .05rem .5rem; border-radius: 999px; background: var(--violet-soft); color: var(--violet); font-size: .68rem; font-weight: 700; }
+
+/* NYU Engage event discovery */
+.event-filters { display: grid; grid-template-columns: 2fr 1fr 1fr 2fr; gap: 1rem; padding: 1.25rem; margin-bottom: 1.25rem; align-items: end; }
+.event-career { display: flex; align-items: center; gap: .5rem; font-size: .85rem; min-height: 40px; }
+.event-feed-note { color: var(--muted); font-size: .8rem; line-height: 1.6; }
+.event-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.event-card { padding: 1.4rem; overflow-wrap: anywhere; }
+.event-card h2 { font-size: 1.05rem; line-height: 1.5; }
+.event-card p { font-size: .85rem; }
+.event-location { display: flex; gap: .4rem; align-items: baseline; }
+.event-location svg { flex-shrink: 0; }
+.event-categories { color: var(--muted); font-size: .8rem; }
+.event-pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1.5rem; }
+.event-detail { padding: 2rem; overflow-wrap: anywhere; }
+.event-description { white-space: pre-wrap; line-height: 1.7; margin: 1.5rem 0; }
+@media (max-width: 900px) { .event-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .event-filters, .event-grid { grid-template-columns: 1fr; } .event-detail { padding: 1.25rem; } }

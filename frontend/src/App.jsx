@@ -41,7 +41,8 @@ import { badgeText, useAlerts } from './alerts'
 import { api, easternHour, formatDate, toEasternInput } from './api'
 import AccountSettings from './AccountSettings'
 import { AvailabilityPage, CalendarPage, sessionLabel } from './StudyPages'
-import { FoodFeedPage } from './FoodFeedPage'
+import { EventsPage, EventDetailPage } from './EventsPage'
+import { FoodFeedPage, FoodPostPage, SavedPostsPage } from './FoodFeedPage'
 import { FriendProfilePage, FriendsPage } from './FriendsPage'
 import { ConversationPage, MessagesPage } from './MessagesPage'
 
@@ -107,6 +108,7 @@ function GuestRoute({ children }) {
 const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { to: '/calendar', label: 'Study calendar', icon: CalendarDays },
+  { to: '/events', label: 'NYU events', icon: Sparkles },
   { to: '/availability', label: 'Availability', icon: Clock3 },
   { to: '/friends', label: 'Friends', icon: Users, alert: 'friend_requests', alertNoun: 'pending friend requests' },
   { to: '/messages', label: 'Messages', icon: MessageCircle, alert: 'unread_messages', alertNoun: 'unread messages' },
@@ -1329,12 +1331,16 @@ function AppRoutes() {
         <Route path="/settings/account" element={<AccountSettingsPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/calendar" element={<CalendarPage />} />
+        <Route path="/events" element={<EventsPage />} />
+        <Route path="/events/:eventId" element={<EventDetailPage />} />
         <Route path="/availability" element={<AvailabilityPage />} />
         <Route path="/friends" element={<FriendsPage />} />
         <Route path="/friends/:friendshipId" element={<FriendProfilePage />} />
         <Route path="/messages" element={<MessagesPage />} />
         <Route path="/messages/:userId" element={<ConversationPage />} />
         <Route path="/community" element={<FoodFeedPage />} />
+        <Route path="/community/posts/:postId" element={<FoodPostPage />} />
+        <Route path="/community/saved" element={<SavedPostsPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />

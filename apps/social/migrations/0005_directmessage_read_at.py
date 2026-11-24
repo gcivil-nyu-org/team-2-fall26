@@ -12,7 +12,7 @@ def mark_existing_messages_read(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('social', '0003_foodpost'),
+        ('social', '0004_savedpost'),
     ]
 
     operations = [
