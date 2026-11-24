@@ -473,6 +473,25 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .food-post--full h1 { margin: 0; font-size: 1.4rem; }
 .food-post--full .food-post__description { font-size: .92rem; }
 .food-post-comments { margin-top: 1.25rem; }
+.food-post__actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .5rem; }
+.food-post__share-toggle { padding: .4rem .7rem; font-size: .74rem; }
+.food-post__share { display: grid; gap: .7rem; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: #fbf8fd; }
+.food-post__share form { display: grid; gap: .7rem; }
+.food-post__share textarea { box-sizing: border-box; width: 100%; resize: vertical; }
+.food-post__share p { margin: 0; font-size: .82rem; }
+.food-post__share .study-notice { display: grid; gap: .6rem; margin: 0; }
+.food-post__share-empty { display: grid; gap: .6rem; }
+.food-post__share-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.shared-post { display: grid; gap: .3rem; margin: .5rem 0; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: 10px; background: white; color: inherit; text-decoration: none; }
+.shared-post:hover, .shared-post:focus-visible { border-color: var(--violet); }
+.shared-post__kicker { display: inline-flex; align-items: center; gap: .3rem; color: var(--violet); font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.shared-post .shared-post__title { font-size: .9rem; }
+.shared-post__meta { display: flex; flex-wrap: wrap; gap: .25rem .75rem; color: var(--muted); font-size: .72rem; }
+.shared-post__meta span { display: inline-flex; align-items: center; gap: .2rem; }
+.shared-post__description { font-size: .8rem; line-height: 1.5; white-space: pre-line; }
+.shared-post__author { display: flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .7rem; }
+.shared-post__author .avatar { width: 22px; height: 22px; font-size: .6rem; }
+.shared-post--unavailable { display: flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .8rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
