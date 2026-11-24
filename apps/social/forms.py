@@ -38,6 +38,25 @@ class SendDirectMessageForm(forms.Form):
     )
 
 
+class ShareFoodPostForm(forms.Form):
+    # #22: who to share a post with, plus an optional note. The view checks
+    # that the student is actually a friend.
+    friend_id = forms.IntegerField(
+        min_value=1,
+        error_messages={
+            'required': 'Choose a friend to share this post with.',
+            'invalid': 'Choose a friend to share this post with.',
+            'min_value': 'Choose a friend to share this post with.',
+        },
+    )
+    note = forms.CharField(
+        required=False,
+        max_length=2000,
+        strip=True,
+        error_messages={'max_length': 'Notes must be 2000 characters or fewer.'},
+    )
+
+
 class FoodPostForm(forms.ModelForm):
     # The author is deliberately not a form field: the view always sets it
     # from request.user, so a client can never post as someone else.
