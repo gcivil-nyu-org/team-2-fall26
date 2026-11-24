@@ -8,7 +8,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 from apps.accounts.models import User
 
 from .forms import FoodPostForm, RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm
-from .models import DirectMessage, FoodPost, FriendRequest
+from .models import DirectMessage, FoodPost, FriendRequest, SavedPost
 
 
 def _json_body(request):
@@ -66,6 +66,8 @@ def _post_payload(post):
         # (#35), so the author summary here leaves the bio out.
         'author': {k: v for k, v in _user_summary(post.author).items() if k != 'bio'},
         'created_at': post.created_at.isoformat(),
+        # #53: whether the student viewing it has saved it.
+        'is_saved': bool(getattr(post, 'is_saved', False)),
     }
 
 
@@ -267,7 +269,7 @@ def food_posts_view(request):
         return _unauthorized()
     if request.method == 'GET':
         # Every post the community can see, newest first (#46, #47).
-        posts = FoodPost.objects.community().select_related('author')
+        posts = FoodPost.objects.community().with_saved(request.user).select_related('author')
         return JsonResponse({'posts': [_post_payload(post) for post in posts]})
     body = _json_body(request)
     if body is None:
@@ -287,7 +289,40 @@ def food_post_view(request, pk):
     # by a deactivated account) is a 404 here too.
     if not request.user.is_authenticated:
         return _unauthorized()
-    post = FoodPost.objects.community().select_related('author').filter(pk=pk).first()
+    post = FoodPost.objects.community().with_saved(request.user).select_related('author').filter(pk=pk).first()
     if post is None:
         return JsonResponse({'detail': 'Post not found.'}, status=404)
     return JsonResponse({'post': _post_payload(post)})
+
+
+@require_http_methods(['PUT', 'DELETE'])
+def food_post_save_view(request, pk):
+    # #53: PUT saves a post, DELETE unsaves it. Both are safe to repeat. Only
+    # posts the community can see can be saved.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    post = FoodPost.objects.community().filter(pk=pk).first()
+    if post is None:
+        return JsonResponse({'detail': 'Post not found.'}, status=404)
+    if request.method == 'PUT':
+        SavedPost.objects.get_or_create(user=request.user, post=post)
+        return JsonResponse({'saved': True})
+    SavedPost.objects.filter(user=request.user, post=post).delete()
+    return JsonResponse({'saved': False})
+
+
+@require_GET
+def saved_food_posts_view(request):
+    # #53: the student's saved posts, most recently saved first. A post by a
+    # deactivated account drops out until the account is reactivated.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    saves = (
+        SavedPost.objects.filter(user=request.user, post__author__is_active=True)
+        .select_related('post__author')
+    )
+    posts = []
+    for save in saves:
+        save.post.is_saved = True
+        posts.append(_post_payload(save.post))
+    return JsonResponse({'posts': posts})

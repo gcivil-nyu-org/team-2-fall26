@@ -41,7 +41,7 @@ import { api, easternHour, formatDate, toEasternInput } from './api'
 import AccountSettings from './AccountSettings'
 import { AvailabilityPage, CalendarPage, sessionLabel } from './StudyPages'
 import { EventsPage, EventDetailPage } from './EventsPage'
-import { FoodFeedPage, FoodPostPage } from './FoodFeedPage'
+import { FoodFeedPage, FoodPostPage, SavedPostsPage } from './FoodFeedPage'
 import { FriendProfilePage, FriendsPage } from './FriendsPage'
 import { ConversationPage, MessagesPage } from './MessagesPage'
 
@@ -1292,6 +1292,7 @@ function AppRoutes() {
         <Route path="/messages/:userId" element={<ConversationPage />} />
         <Route path="/community" element={<FoodFeedPage />} />
         <Route path="/community/posts/:postId" element={<FoodPostPage />} />
+        <Route path="/community/saved" element={<SavedPostsPage />} />
         <Route path="/courses/new" element={<CourseFormPage />} />
         <Route path="/courses/:courseId" element={<CourseDetail />} />
         <Route path="/courses/:courseId/edit" element={<CourseFormPage editing />} />
