@@ -63,7 +63,7 @@ function feed() {
 describe('authors who hide their details (#31)', () => {
   test('an author with a hidden email and photo still shows their name and an initial', async () => {
     mockFeed([post({ author: { ...sam, email: null, profile_picture: null } })])
-    render(<FoodFeedPage />)
+    renderFeed()
     const card = await screen.findByRole('article', { name: "Joe's Pizza" })
     expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
     expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('S')
@@ -72,7 +72,7 @@ describe('authors who hide their details (#31)', () => {
 
   test('an author with no name and a hidden email appears as a generic student', async () => {
     mockFeed([post({ author: { id: 5, first_name: '', last_name: '', email: null, profile_picture: null } })])
-    render(<FoodFeedPage />)
+    renderFeed()
     const card = await screen.findByRole('article', { name: "Joe's Pizza" })
     expect(within(card).getByText(/SemesterPilot student/)).toBeInTheDocument()
     expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('?')

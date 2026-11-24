@@ -9,7 +9,7 @@ from django.urls import reverse
 
 from apps.accounts.models import User
 
-from .models import FoodPost, FriendRequest
+from .models import FoodPost, FriendRequest, SavedPost
 
 # Smallest valid GIF, same fixture apps/api/tests.py uses for uploads.
 SMALL_GIF = (
@@ -286,3 +286,68 @@ class CommunityFeedPrivacyTests(TestCase):
         self.client.force_login(self.viewer)
         by_email = {post['author']['first_name']: post['author']['email'] for post in self.client.get(self.url).json()['posts']}
         self.assertEqual(by_email, {'Sam': None, 'Kim': 'kim@nyu.edu'})
+
+    # #47 and #53 added two more places that show a post's author: a single
+    # post's page and the saved list. Hidden details must stay hidden there too.
+    def detail_author(self):
+        post = FoodPost.objects.get()
+        self.client.force_login(self.viewer)
+        return self.client.get(reverse('social:post', args=[post.pk])).json()['post']['author']
+
+    def saved_author(self):
+        SavedPost.objects.create(user=self.viewer, post=FoodPost.objects.get())
+        self.client.force_login(self.viewer)
+        return self.client.get(reverse('social:saved_posts')).json()['posts'][0]['author']
+
+    def test_a_single_post_shows_email_and_photo_by_default_but_never_the_bio(self):
+        author = self.detail_author()
+        self.assertEqual(author['email'], 'sam@nyu.edu')
+        self.assertTrue(author['profile_picture'])
+        self.assertNotIn('bio', author)
+
+    def test_a_hidden_email_and_photo_are_not_on_the_single_post_page(self):
+        self.hide(show_email=False, show_profile_picture=False)
+        author = self.detail_author()
+        self.assertEqual((author['first_name'], author['last_name']), ('Sam', 'Lee'))
+        self.assertIsNone(author['email'])
+        self.assertIsNone(author['profile_picture'])
+        self.assertNotIn('bio', author)
+        post = FoodPost.objects.get()
+        body = self.client.get(reverse('social:post', args=[post.pk])).content.decode()
+        self.assertNotIn('sam@nyu.edu', body)
+        self.assertNotIn('profile-pictures', body)
+        self.assertNotIn('CS junior', body)
+
+    def test_the_single_post_page_follows_a_change_of_setting_straight_away(self):
+        self.assertEqual(self.detail_author()['email'], 'sam@nyu.edu')
+        self.hide(show_email=False)
+        self.assertIsNone(self.detail_author()['email'])
+        self.hide(show_email=True)
+        self.assertEqual(self.detail_author()['email'], 'sam@nyu.edu')
+
+    def test_the_saved_list_shows_email_and_photo_by_default_but_never_the_bio(self):
+        author = self.saved_author()
+        self.assertEqual(author['email'], 'sam@nyu.edu')
+        self.assertTrue(author['profile_picture'])
+        self.assertNotIn('bio', author)
+
+    def test_a_hidden_email_and_photo_are_not_in_the_saved_list(self):
+        self.hide(show_email=False, show_profile_picture=False)
+        author = self.saved_author()
+        self.assertEqual(author['first_name'], 'Sam')
+        self.assertIsNone(author['email'])
+        self.assertIsNone(author['profile_picture'])
+        body = self.client.get(reverse('social:saved_posts')).content.decode()
+        self.assertNotIn('sam@nyu.edu', body)
+        self.assertNotIn('profile-pictures', body)
+        self.assertNotIn('CS junior', body)
+
+    def test_saving_or_unsaving_a_post_does_not_reveal_the_author(self):
+        self.hide(show_email=False, show_profile_picture=False)
+        post = FoodPost.objects.get()
+        self.client.force_login(self.viewer)
+        saved = self.client.put(reverse('social:post_save', args=[post.pk]))
+        unsaved = self.client.delete(reverse('social:post_save', args=[post.pk]))
+        for response in (saved, unsaved):
+            self.assertNotIn('sam@nyu.edu', response.content.decode())
+            self.assertNotIn('profile-pictures', response.content.decode())
