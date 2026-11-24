@@ -1,3 +1,4 @@
+from apps.events.models import SavedEvent
 import json
 from datetime import date, datetime, time, timedelta, timezone as dt_timezone
 
@@ -163,6 +164,13 @@ def calendar_view(request):
         'previous_week': (monday - timedelta(days=7)).isoformat(),
         'next_week': end.isoformat(),
         'availability_configured': AvailabilityBlock.objects.filter(owner=request.user).exists(),
+        'events': [
+            {'id': f'event-{saved.event_id}', 'event_id': saved.event_id, 'title': saved.event.title,
+             'status': saved.event.status, 'starts_at': saved.event.starts_at.isoformat(),
+             'ends_at': saved.event.ends_at.isoformat(), 'location': saved.event.location}
+            for saved in SavedEvent.objects.filter(
+                owner=request.user, event__starts_at__lt=end_at, event__ends_at__gt=start_at).select_related('event')
+        ],
         'classes': [
             {'id': f'class-{meeting.pk}', 'starts_at': meeting.starts_at.isoformat(),
              'ends_at': meeting.ends_at.isoformat(), 'location': meeting.location,

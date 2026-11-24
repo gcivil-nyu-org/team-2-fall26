@@ -191,3 +191,45 @@ class EventAPITests(TestCase):
         self.assertTrue(data['stale'])
         self.assertIsNone(data['last_synced_at'])
         self.assertEqual(data['events'], [])
+
+
+@patch('apps.events.views.timezone.now', return_value=NOW)
+class SaveEventTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='save', email='save@nyu.edu')
+        self.other = get_user_model().objects.create_user(username='other', email='other@nyu.edu')
+        self.client.force_login(self.user)
+        sync_feed(feed())
+        self.event = Event.objects.get()
+        self.url = f'/api/events/{self.event.pk}/save/'
+
+    def test_save_is_idempotent_private_and_persistent(self, now):
+        from .models import SavedEvent
+        self.assertEqual(self.client.put(self.url).json(), {'saved': True})
+        self.client.put(self.url)
+        self.assertEqual(SavedEvent.objects.count(), 1)
+        self.assertTrue(self.client.get(f'/api/events/{self.event.pk}/').json()['event']['is_saved'])
+        calendar = '/api/study/calendar/?week=2026-11-16'
+        self.assertEqual(len(self.client.get(calendar).json()['events']), 1)
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(calendar).json()['events'], [])
+        self.client.delete(self.url)
+        self.assertEqual(SavedEvent.objects.count(), 1)
+        self.client.force_login(self.user)
+        self.client.delete(self.url)
+        self.assertEqual(self.client.get(calendar).json()['events'], [])
+
+    def test_cancellation_updates_calendar_and_can_be_unsaved(self, now):
+        self.client.put(self.url)
+        Event.objects.filter(pk=self.event.pk).update(status='cancelled')
+        self.assertEqual(self.client.put(self.url).status_code, 400)
+        events = self.client.get('/api/study/calendar/?week=2026-11-16').json()['events']
+        self.assertEqual(events[0]['status'], 'cancelled')
+        self.assertEqual(self.client.delete(self.url).status_code, 200)
+
+    def test_login_methods_and_past_events(self, now):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        now.return_value = datetime(2026, 11, 18, tzinfo=dt_timezone.utc)
+        self.assertEqual(self.client.put(self.url).status_code, 400)
+        self.client.logout()
+        self.assertEqual(self.client.put(self.url).status_code, 401)

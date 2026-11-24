@@ -35,3 +35,11 @@ class EventFeedState(models.Model):
     last_success_at = models.DateTimeField(null=True)
     imported_count = models.PositiveIntegerField(default=0)
     skipped_count = models.PositiveIntegerField(default=0)
+
+
+class SavedEvent(models.Model):
+    owner = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='saved_events')
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='saves')
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['owner', 'event'], name='saved_event_once_per_owner')]

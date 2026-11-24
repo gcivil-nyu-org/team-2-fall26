@@ -278,7 +278,7 @@ export function CalendarPage() {
   }, [week, attempt])
 
   const classes = data?.classes || []
-  const days = data ? weekDays(data.week_start, [...data.sessions, ...classes]) : []
+  const days = data ? weekDays(data.week_start, [...data.sessions, ...classes, ...(data.events || [])]) : []
   // Hours inside this week only, so a session crossing midnight Sunday isn't double counted.
   const hoursThisWeek = (sessions) => sessions.reduce((total, session) => {
     const start = Math.max(Date.parse(session.starts_at), calendarMidnight(data.week_start))
@@ -327,14 +327,14 @@ export function CalendarPage() {
           <div className="calendar-navigation"><button className="icon-button" aria-label="Previous week" onClick={() => setParams({ week: data.previous_week })}><ChevronLeft size={20} /></button><button className="button button--secondary button--small" onClick={() => setParams({})}>This week</button><button className="icon-button" aria-label="Next week" onClick={() => setParams({ week: data.next_week })}><ChevronRight size={20} /></button></div>
         </div>
         <div className="calendar-summary"><span>{data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}</span><span>{totalHours ? `${hoursLabelOf(completedHours)} of ${hoursLabelOf(totalHours)} study hours completed` : '0 study hours'}</span><span>Time zone: New York</span></div>
-        {!data.sessions.length && !classes.length && <div className="calendar-empty" role="status"><CalendarDays size={26} /><div><h3>No events this week</h3><p>Browse another week or import your class schedule.</p></div></div>}
+        {!data.sessions.length && !classes.length && !(data.events || []).length && <div className="calendar-empty" role="status"><CalendarDays size={26} /><div><h3>No events this week</h3><p>Browse another week or import your class schedule.</p></div></div>}
         <p className="calendar-scroll-hint">Scroll horizontally to see all seven days.</p>
         <div className="calendar-scroll" tabIndex="0" role="region" aria-label="Days of the week; scroll horizontally on smaller screens">
           <div className="calendar-week">
             {days.map((day) => <section key={day.date} className={`calendar-day ${day.date === today ? 'calendar-day--today' : ''}`} aria-label={`${day.name}, ${day.date}`}>
               <header className="calendar-day__header"><span>{day.name.slice(0, 3)}</span><time dateTime={day.date}>{new Date(`${day.date}T00:00:00Z`).getUTCDate()}</time>{day.date === today && <small>Today</small>}</header>
               <div className="calendar-day__sessions">
-                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={`calendar-session ${sessionLabel(session) ? `${session.is_locked ? 'calendar-session--locked' : ''} ${session.is_complete ? 'calendar-session--complete' : ''}` : 'calendar-session--class'}`}>
+                {day.entries.length ? day.entries.map((session) => session.event_id ? <article key={session.id} className="calendar-session calendar-session--class"><span>{session.time} · NYU event</span><h3><NavLink to={`/events/${session.event_id}`}>{session.title}</NavLink></h3>{session.status === 'cancelled' && <p>Cancelled</p>}<p>{session.location}</p></article> : <article key={session.id} className={`calendar-session ${sessionLabel(session) ? `${session.is_locked ? 'calendar-session--locked' : ''} ${session.is_complete ? 'calendar-session--complete' : ''}` : 'calendar-session--class'}`}>
                   <div className="calendar-session__time"><Clock3 size={12} /><span>{session.time}</span></div>
                   {session.is_complete && <span className="calendar-session__complete"><CheckCircle2 size={12} /> Completed</span>}
                   {session.is_locked && <span className="calendar-session__locked"><LockKeyhole size={12} /> Locked</span>}
