@@ -227,6 +227,9 @@ class SaveEventTests(TestCase):
         self.assertEqual(events[0]['status'], 'cancelled')
         self.assertEqual(self.client.delete(self.url).status_code, 200)
 
+    def test_missing_event_cannot_be_saved(self, now):
+        self.assertEqual(self.client.put('/api/events/999999/save/').status_code, 404)
+
     def test_login_methods_and_past_events(self, now):
         self.assertEqual(self.client.get(self.url).status_code, 405)
         now.return_value = datetime(2026, 11, 18, tzinfo=dt_timezone.utc)

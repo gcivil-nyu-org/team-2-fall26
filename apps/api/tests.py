@@ -232,6 +232,7 @@ class ProfileApiTests(ApiTestCase):
         self.assertEqual(response.json()['user'], {
             'id': self.user.pk, 'email': 'student@nyu.edu', 'first_name': 'Jane', 'last_name': 'Doe',
             'profile_picture': None, 'bio': '',
+            'show_email': True, 'show_bio': True, 'show_profile_picture': True,
         })
 
     def test_put_updates_the_name(self):

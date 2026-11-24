@@ -3,12 +3,15 @@ import json
 from django.db import models, transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.models import User
 
-from .forms import FoodPostForm, RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm
-from .models import DirectMessage, FoodPost, FriendRequest
+from .forms import (
+    FoodPostForm, RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm, ShareFoodPostForm,
+)
+from .models import DirectMessage, FoodPost, FriendRequest, SavedPost
 
 
 def _json_body(request):
@@ -29,18 +32,32 @@ def _errors(form):
     }
 
 
+ANONYMOUS_NAME = 'SemesterPilot student'
+
+
+def _display_name(user):
+    """A name to show other students: never falls back to a hidden email (#31)."""
+    name = ' '.join(filter(None, [user.first_name, user.last_name]))
+    return name or (user.email if user.show_email else ANONYMOUS_NAME)
+
+
 def _user_summary(user):
+    # Every caller passes someone *other than* the viewer (a friend, or the
+    # other side of a request), so this is where a student's privacy
+    # settings (#31) take effect. Hidden fields are blanked here rather than
+    # in the frontend so they never reach another student's browser at all.
+    # The name stays visible: friends need it to tell who is who.
     return {
         'id': user.pk,
-        'email': user.email,
+        'email': user.email if user.show_email else None,
         'first_name': user.first_name,
         'last_name': user.last_name,
-        'bio': user.bio,
+        'bio': user.bio if user.show_bio else '',
         # Lets the frontend show a real photo on friend requests and in the
-        # friends list (falling back to an initial when there isn't one) —
+        # friends list (falling back to an initial when there isn't one) -
         # same shape apps/api/views.py's _user_payload already uses for a
         # user's own profile.
-        'profile_picture': user.profile_picture.url if user.profile_picture else None,
+        'profile_picture': user.profile_picture.url if user.profile_picture and user.show_profile_picture else None,
     }
 
 
@@ -54,7 +71,7 @@ def _request_payload(friend_request, viewer):
     }
 
 
-def _post_payload(post):
+def _post_payload(post, viewer):
     return {
         'id': post.pk,
         'place_name': post.place_name,
@@ -65,8 +82,28 @@ def _post_payload(post):
         # The feed shows every student's posts, but bios are friends-only
         # (#35), so the author summary here leaves the bio out.
         'author': {k: v for k, v in _user_summary(post.author).items() if k != 'bio'},
+        # #51/#52: lets the post page show Edit and Delete to its author. The
+        # server still checks ownership on every change.
+        'is_author': post.author_id == viewer.pk,
         'created_at': post.created_at.isoformat(),
+        # #53: whether the student viewing it has saved it.
+        'is_saved': bool(getattr(post, 'is_saved', False)),
     }
+
+
+def _unread_by_friend(user):
+    # Unread messages per current friend, for the badges and the conversation
+    # list (#37). Empty when the student has message alerts off. Messages left
+    # behind by a removed friendship stay out, because the conversation can't
+    # be opened to read them.
+    if not user.message_alerts_enabled:
+        return {}
+    friend_ids = [friendship.other(user).pk for friendship in FriendRequest.objects.accepted().involving(user)]
+    unread = (
+        DirectMessage.objects.filter(recipient=user, sender__in=friend_ids, read_at__isnull=True)
+        .values('sender').annotate(total=models.Count('pk'))
+    )
+    return {row['sender']: row['total'] for row in unread}
 
 
 @require_GET
@@ -76,20 +113,40 @@ def friends_view(request):
     accepted = FriendRequest.objects.accepted().involving(request.user).select_related('sender', 'recipient')
     received = FriendRequest.objects.pending().filter(recipient=request.user).select_related('sender')
     sent = FriendRequest.objects.pending().filter(sender=request.user).select_related('recipient')
+    unread = _unread_by_friend(request.user)
     friends = sorted(
         (
             # friendship_id is the FriendRequest's own pk — the frontend needs
             # it (not the friend's user id) to call DELETE and remove them.
-            {**_user_summary(fr.other(request.user)), 'friendship_id': fr.pk}
+            {
+                **_user_summary(fr.other(request.user)),
+                'friendship_id': fr.pk,
+                'unread_messages': unread.get(fr.other(request.user).pk, 0),
+                # True when they accepted a request you sent and you haven't
+                # opened Friends since (#37).
+                'is_new': fr.sender_id == request.user.pk and fr.response_seen_at is None,
+            }
             for fr in accepted
         ),
-        key=lambda item: (item['first_name'] or item['email'], item['last_name']),
+        key=lambda item: (item['first_name'] or item['email'] or '', item['last_name']),
     )
     return JsonResponse({
         'friends': friends,
         'received_requests': [_request_payload(fr, request.user) for fr in received],
         'sent_requests': [_request_payload(fr, request.user) for fr in sent],
     })
+
+
+@require_http_methods(['POST'])
+def friends_seen_view(request):
+    # The Friends page calls this once it has shown newly accepted requests,
+    # so they stop counting as new (#37).
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    FriendRequest.objects.accepted().filter(
+        sender=request.user, response_seen_at__isnull=True,
+    ).update(response_seen_at=timezone.now())
+    return JsonResponse({'ok': True})
 
 
 @require_GET
@@ -212,15 +269,31 @@ def friend_request_view(request, pk):
         return JsonResponse({'friend_request': _request_payload(friend_request, request.user)})
 
 
+def _shared_post_payload(message, viewer):
+    # #22: the post a message shares, or None for a plain message. A post
+    # that was deleted, or whose author is deactivated, is reported as
+    # unavailable, matching what the feed would show.
+    if not message.shares_post:
+        return None
+    post = message.shared_post
+    if post is None or not post.author.is_active:
+        return {'available': False}
+    # is_saved and is_author describe the student viewing the feed, not the
+    # message, so they're left out of the shared copy.
+    details = {key: value for key, value in _post_payload(post, viewer).items() if key not in ('is_saved', 'is_author')}
+    return {'available': True, **details}
+
+
 def _message_payload(message, viewer):
     sender = message.sender
     return {
         'id': message.pk,
         'sender_id': message.sender_id,
-        'sender_name': ' '.join(filter(None, [sender.first_name, sender.last_name])) or sender.email,
+        'sender_name': _display_name(sender),
         'body': message.body,
         'created_at': message.created_at.isoformat(),
         'is_mine': message.sender_id == viewer.pk,
+        'shared_post': _shared_post_payload(message, viewer),
     }
 
 
@@ -238,11 +311,17 @@ def conversation_view(request, pk):
         return JsonResponse({'detail': 'Conversation not found.'}, status=404)
 
     if request.method == 'GET':
+        # Opening the conversation is what reads it (#37). This happens even
+        # with message alerts turned off, so turning them back on doesn't
+        # bring back a pile of old "unread" messages.
+        DirectMessage.objects.filter(
+            sender=friend, recipient=request.user, read_at__isnull=True,
+        ).update(read_at=timezone.now())
         conversation = (
             DirectMessage.objects.filter(
                 models.Q(sender=request.user, recipient=friend) |
                 models.Q(sender=friend, recipient=request.user)
-            ).select_related('sender').order_by('created_at', 'pk')
+            ).select_related('sender', 'shared_post__author').order_by('created_at', 'pk')
         )
         return JsonResponse({
             'friend': _user_summary(friend),
@@ -267,8 +346,8 @@ def food_posts_view(request):
         return _unauthorized()
     if request.method == 'GET':
         # Every post the community can see, newest first (#46, #47).
-        posts = FoodPost.objects.community().select_related('author')
-        return JsonResponse({'posts': [_post_payload(post) for post in posts]})
+        posts = FoodPost.objects.community().with_saved(request.user).select_related('author')
+        return JsonResponse({'posts': [_post_payload(post, request.user) for post in posts]})
     body = _json_body(request)
     if body is None:
         return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
@@ -278,16 +357,120 @@ def food_posts_view(request):
     post = form.save(commit=False)
     post.author = request.user
     post.save()
-    return JsonResponse({'post': _post_payload(post)}, status=201)
+    return JsonResponse({'post': _post_payload(post, request.user)}, status=201)
 
 
 @require_GET
+def alerts_view(request):
+    # Numbers behind the sidebar badges (#37). A student who has turned an
+    # alert off just gets zero for it.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    # Friends alerts cover requests waiting for you, and requests you sent
+    # that were accepted since you last opened Friends. Declines never alert.
+    friend_requests = 0
+    if request.user.friend_request_alerts_enabled:
+        friend_requests = (
+            FriendRequest.objects.pending().filter(recipient=request.user).count()
+            + FriendRequest.objects.accepted().filter(sender=request.user, response_seen_at__isnull=True).count()
+        )
+    unread = _unread_by_friend(request.user)
+    return JsonResponse({
+        'friend_requests': friend_requests,
+        'unread_messages': sum(unread.values()),
+    })
+
+
+@require_http_methods(['GET', 'PATCH', 'DELETE'])
 def food_post_view(request, pk):
     # #47: one post's full details. A post the feed wouldn't show (missing, or
     # by a deactivated account) is a 404 here too.
+    # #51/#52: its author can edit or delete it. Anyone else gets the same 404
+    # as a missing post, so the response never says whose post it is.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    posts = FoodPost.objects.community().with_saved(request.user).select_related('author')
+    if request.method != 'GET':
+        posts = posts.filter(author=request.user)
+    post = posts.filter(pk=pk).first()
+    if post is None:
+        return JsonResponse({'detail': 'Post not found.'}, status=404)
+    if request.method == 'DELETE':
+        post.delete()
+        return JsonResponse({'ok': True})
+    if request.method == 'PATCH':
+        body = _json_body(request)
+        if not isinstance(body, dict):
+            return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+        # Fields left out of the request keep their current value.
+        data = {field: getattr(post, field) for field in FoodPostForm.Meta.fields}
+        data.update({key: value for key, value in body.items() if key in data})
+        form = FoodPostForm(data, instance=post)
+        if not form.is_valid():
+            return JsonResponse({'errors': _errors(form)}, status=400)
+        post = form.save()
+    return JsonResponse({'post': _post_payload(post, request.user)})
+
+
+@require_http_methods(['PUT', 'DELETE'])
+def food_post_save_view(request, pk):
+    # #53: PUT saves a post, DELETE unsaves it. Both are safe to repeat. Only
+    # posts the community can see can be saved.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    post = FoodPost.objects.community().filter(pk=pk).first()
+    if post is None:
+        return JsonResponse({'detail': 'Post not found.'}, status=404)
+    if request.method == 'PUT':
+        SavedPost.objects.get_or_create(user=request.user, post=post)
+        return JsonResponse({'saved': True})
+    SavedPost.objects.filter(user=request.user, post=post).delete()
+    return JsonResponse({'saved': False})
+
+
+@require_http_methods(['POST'])
+def food_post_share_view(request, pk):
+    # #22: share a post with a friend. It arrives as a message in your
+    # conversation with them. Only posts the feed would show can be shared,
+    # and only with accepted friends — anyone else is a 404, like the
+    # conversation itself.
     if not request.user.is_authenticated:
         return _unauthorized()
     post = FoodPost.objects.community().select_related('author').filter(pk=pk).first()
     if post is None:
         return JsonResponse({'detail': 'Post not found.'}, status=404)
-    return JsonResponse({'post': _post_payload(post)})
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    if isinstance(body.get('friend_id'), bool):
+        return JsonResponse({'errors': {'friend_id': ['Choose a friend to share this post with.']}}, status=400)
+    if body.get('note') is not None and not isinstance(body['note'], str):
+        return JsonResponse({'errors': {'note': ['Enter a valid note.']}}, status=400)
+    form = ShareFoodPostForm(body)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    friend = User.objects.exclude(pk=request.user.pk).filter(pk=form.cleaned_data['friend_id']).first()
+    if friend is None or not FriendRequest.objects.accepted().between(request.user, friend).exists():
+        return JsonResponse({'detail': 'You can only share posts with your friends.'}, status=404)
+    message = DirectMessage.objects.create(
+        sender=request.user, recipient=friend, body=form.cleaned_data['note'],
+        shared_post=post, shares_post=True,
+    )
+    return JsonResponse({'message': _message_payload(message, request.user)}, status=201)
+
+
+@require_GET
+def saved_food_posts_view(request):
+    # #53: the student's saved posts, most recently saved first. A post by a
+    # deactivated account drops out until the account is reactivated.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    saves = (
+        SavedPost.objects.filter(user=request.user, post__author__is_active=True)
+        .select_related('post__author')
+    )
+    posts = []
+    for save in saves:
+        save.post.is_saved = True
+        posts.append(_post_payload(save.post, request.user))
+    return JsonResponse({'posts': posts})

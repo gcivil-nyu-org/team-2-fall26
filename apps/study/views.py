@@ -1,4 +1,3 @@
-from apps.events.models import SavedEvent
 import json
 from datetime import date, datetime, time, timedelta, timezone as dt_timezone
 
@@ -11,6 +10,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from apps.coursework.models import Course, Exam
+from apps.events.models import SavedEvent
 
 from .albert import parse_calendar
 from .forms import AvailabilityBlockForm
