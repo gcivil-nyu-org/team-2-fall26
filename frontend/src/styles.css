@@ -499,3 +499,20 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .conversation__compose { padding: 1rem; }
   .conversation__message { max-width: 95%; }
 }
+
+/* NYU Engage event discovery */
+.event-filters { display: grid; grid-template-columns: 2fr 1fr 1fr 2fr; gap: 1rem; padding: 1.25rem; margin-bottom: 1.25rem; align-items: end; }
+.event-career { display: flex; align-items: center; gap: .5rem; font-size: .85rem; min-height: 40px; }
+.event-feed-note { color: var(--muted); font-size: .8rem; line-height: 1.6; }
+.event-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.event-card { padding: 1.4rem; overflow-wrap: anywhere; }
+.event-card h2 { font-size: 1.05rem; line-height: 1.5; }
+.event-card p { font-size: .85rem; }
+.event-location { display: flex; gap: .4rem; align-items: baseline; }
+.event-location svg { flex-shrink: 0; }
+.event-categories { color: var(--muted); font-size: .8rem; }
+.event-pagination { display: flex; justify-content: center; align-items: center; gap: 1rem; margin-top: 1.5rem; }
+.event-detail { padding: 2rem; overflow-wrap: anywhere; }
+.event-description { white-space: pre-wrap; line-height: 1.7; margin: 1.5rem 0; }
+@media (max-width: 900px) { .event-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .event-filters, .event-grid { grid-template-columns: 1fr; } .event-detail { padding: 1.25rem; } }
