@@ -126,3 +126,54 @@ describe('conversation history and sending (#20, #21)', () => {
     expect(screen.queryByLabelText('Your message')).not.toBeInTheDocument()
   })
 })
+
+describe('shared food posts in a conversation (#22)', () => {
+  const sharedPost = {
+    available: true, id: 7, place_name: "Joe's Pizza", description: 'Grab a plain slice.', location: '7 Carmine St',
+    cuisine: 'Pizza', rating: 5, created_at: '2026-11-03T18:00:00Z',
+    author: { id: 3, email: 'jordan@nyu.edu', first_name: 'Jordan', last_name: '', profile_picture: null },
+  }
+
+  function renderThreadWithPost(messages) {
+    vi.mocked(realApi).mockResolvedValue({ friend: sam, messages })
+    return render(<MemoryRouter initialEntries={['/messages/2']}>
+      <Routes>
+        <Route path="/messages/:userId" element={<ConversationPage />} />
+        <Route path="/community/posts/:postId" element={<h1>Post page</h1>} />
+      </Routes>
+    </MemoryRouter>)
+  }
+
+  test('shows the shared post with its content, author and the note', async () => {
+    renderThreadWithPost([{ id: 1, sender_name: 'Sam Lee', body: 'You have to try this', is_mine: false, created_at: '2026-11-04T15:00:00Z', shared_post: sharedPost }])
+    const card = await screen.findByRole('link', { name: "Open shared post: Joe's Pizza" })
+    expect(card).toHaveAttribute('href', '/community/posts/7')
+    expect(card).toHaveTextContent('Grab a plain slice.')
+    expect(card).toHaveTextContent('Pizza')
+    expect(card).toHaveTextContent('7 Carmine St')
+    expect(card).toHaveTextContent('5/5')
+    expect(card).toHaveTextContent('Posted by Jordan')
+    expect(screen.getByText('You have to try this')).toBeInTheDocument()
+  })
+
+  test('opening the shared post goes to its page', async () => {
+    renderThreadWithPost([{ id: 1, sender_name: 'Sam Lee', body: '', is_mine: false, created_at: '2026-11-04T15:00:00Z', shared_post: sharedPost }])
+    await userEvent.click(await screen.findByRole('link', { name: "Open shared post: Joe's Pizza" }))
+    expect(await screen.findByRole('heading', { name: 'Post page' })).toBeInTheDocument()
+  })
+
+  test('a long description is shortened in the conversation', async () => {
+    const description = `${'Great falafel. '.repeat(20)}The end.`
+    renderThreadWithPost([{ id: 1, sender_name: 'Sam Lee', body: '', is_mine: false, created_at: '2026-11-04T15:00:00Z', shared_post: { ...sharedPost, description } }])
+    const card = await screen.findByRole('link', { name: "Open shared post: Joe's Pizza" })
+    expect(card).toHaveTextContent('…')
+    expect(card).not.toHaveTextContent('The end.')
+  })
+
+  test('a removed post says it is no longer available', async () => {
+    renderThreadWithPost([{ id: 1, sender_name: 'Sam Lee', body: 'Try this', is_mine: false, created_at: '2026-11-04T15:00:00Z', shared_post: { available: false } }])
+    expect(await screen.findByText('This post is no longer available.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Open shared post/ })).not.toBeInTheDocument()
+    expect(screen.getByText('Try this')).toBeInTheDocument()
+  })
+})

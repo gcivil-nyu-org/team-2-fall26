@@ -7,7 +7,9 @@ from django.views.decorators.http import require_GET, require_http_methods
 
 from apps.accounts.models import User
 
-from .forms import FoodPostForm, RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm
+from .forms import (
+    FoodPostForm, RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm, ShareFoodPostForm,
+)
 from .models import DirectMessage, FoodPost, FriendRequest, SavedPost
 
 
@@ -214,6 +216,19 @@ def friend_request_view(request, pk):
         return JsonResponse({'friend_request': _request_payload(friend_request, request.user)})
 
 
+def _shared_post_payload(message):
+    # #22: the post a message shares, or None for a plain message. A post
+    # that was deleted, or whose author is deactivated, is reported as
+    # unavailable, matching what the feed would show.
+    if not message.shares_post:
+        return None
+    post = message.shared_post
+    if post is None or not post.author.is_active:
+        return {'available': False}
+    details = {key: value for key, value in _post_payload(post).items() if key != 'is_saved'}
+    return {'available': True, **details}
+
+
 def _message_payload(message, viewer):
     sender = message.sender
     return {
@@ -223,6 +238,7 @@ def _message_payload(message, viewer):
         'body': message.body,
         'created_at': message.created_at.isoformat(),
         'is_mine': message.sender_id == viewer.pk,
+        'shared_post': _shared_post_payload(message),
     }
 
 
@@ -244,7 +260,7 @@ def conversation_view(request, pk):
             DirectMessage.objects.filter(
                 models.Q(sender=request.user, recipient=friend) |
                 models.Q(sender=friend, recipient=request.user)
-            ).select_related('sender').order_by('created_at', 'pk')
+            ).select_related('sender', 'shared_post__author').order_by('created_at', 'pk')
         )
         return JsonResponse({
             'friend': _user_summary(friend),
@@ -309,6 +325,37 @@ def food_post_save_view(request, pk):
         return JsonResponse({'saved': True})
     SavedPost.objects.filter(user=request.user, post=post).delete()
     return JsonResponse({'saved': False})
+
+
+@require_http_methods(['POST'])
+def food_post_share_view(request, pk):
+    # #22: share a post with a friend. It arrives as a message in your
+    # conversation with them. Only posts the feed would show can be shared,
+    # and only with accepted friends — anyone else is a 404, like the
+    # conversation itself.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    post = FoodPost.objects.community().select_related('author').filter(pk=pk).first()
+    if post is None:
+        return JsonResponse({'detail': 'Post not found.'}, status=404)
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    if isinstance(body.get('friend_id'), bool):
+        return JsonResponse({'errors': {'friend_id': ['Choose a friend to share this post with.']}}, status=400)
+    if body.get('note') is not None and not isinstance(body['note'], str):
+        return JsonResponse({'errors': {'note': ['Enter a valid note.']}}, status=400)
+    form = ShareFoodPostForm(body)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    friend = User.objects.exclude(pk=request.user.pk).filter(pk=form.cleaned_data['friend_id']).first()
+    if friend is None or not FriendRequest.objects.accepted().between(request.user, friend).exists():
+        return JsonResponse({'detail': 'You can only share posts with your friends.'}, status=404)
+    message = DirectMessage.objects.create(
+        sender=request.user, recipient=friend, body=form.cleaned_data['note'],
+        shared_post=post, shares_post=True,
+    )
+    return JsonResponse({'message': _message_payload(message, request.user)}, status=201)
 
 
 @require_GET
