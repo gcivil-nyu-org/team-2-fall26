@@ -6,6 +6,10 @@ from django.contrib import admin, messages
 from django.db.models import Count, Q
 from django.utils import timezone
 
+from .administrators import (
+    access_level, can_manage_administrators, grant_administrator_access, grant_block_reason,
+    revoke_administrator_access, revoke_block_reason,
+)
 from .forms import validate_student_email
 from .models import User
 from .password_reset import send_admin_password_reset_email
@@ -32,13 +36,19 @@ class RoleFilter(admin.SimpleListFilter):
     parameter_name = 'role'
 
     def lookups(self, request, model_admin):
-        return [('student', 'Students'), ('admin', 'Administrators')]
+        # Only super administrators can see administrators, so for anyone else
+        # there is nothing to filter by and the filter is hidden.
+        if not can_manage_administrators(request.user):
+            return None
+        return [('student', 'Students'), ('admin', 'Administrators'), ('super', 'Super administrators')]
 
     def queryset(self, request, queryset):
         if self.value() == 'student':
             return queryset.filter(is_staff=False, is_superuser=False)
         if self.value() == 'admin':
             return queryset.filter(Q(is_staff=True) | Q(is_superuser=True))
+        if self.value() == 'super':
+            return queryset.filter(is_superuser=True)
         return queryset
 
 
@@ -77,7 +87,10 @@ class StudentAccountAdmin(admin.ModelAdmin):
     search_fields = ('email', 'first_name', 'last_name')
     ordering = ('-date_joined',)
     list_per_page = 50
-    actions = ['deactivate_accounts', 'reactivate_accounts', 'send_password_reset', 'delete_selected']
+    actions = [
+        'deactivate_accounts', 'reactivate_accounts', 'send_password_reset',
+        'grant_admin_access', 'revoke_admin_access', 'delete_selected',
+    ]
     fieldsets = (
         ('Account', {
             'fields': ('email', 'is_active'),
@@ -92,6 +105,31 @@ class StudentAccountAdmin(admin.ModelAdmin):
     # Students sign themselves up, so there is nothing to create here.
     def has_add_permission(self, request):
         return False
+
+    # Custom permission behind the grant and revoke actions (#60): the action
+    # menu hides them, and Django refuses them if posted anyway, for everyone
+    # but an active super administrator.
+    def has_manage_administrators_permission(self, request):
+        return can_manage_administrators(request.user)
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = dict(extra_context or {})
+        if can_manage_administrators(request.user):
+            current = request.GET.get('role', '')
+            counts = User.objects.aggregate(
+                everyone=Count('pk'),
+                students=Count('pk', filter=Q(is_staff=False, is_superuser=False)),
+                administrators=Count('pk', filter=Q(is_staff=True) | Q(is_superuser=True)),
+                supers=Count('pk', filter=Q(is_superuser=True)),
+            )
+            extra_context['access_tabs'] = [
+                {'label': label, 'url': f'?role={value}' if value else '?', 'count': counts[key], 'current': current == value}
+                for label, value, key in (
+                    ('All accounts', '', 'everyone'), ('Students', 'student', 'students'),
+                    ('Administrators', 'admin', 'administrators'), ('Super administrators', 'super', 'supers'),
+                )
+            ]
+        return super().changelist_view(request, extra_context)
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request).annotate(course_count=Count('courses', distinct=True))
@@ -127,7 +165,7 @@ class StudentAccountAdmin(admin.ModelAdmin):
 
     @admin.display(description='Role', ordering='is_staff')
     def role(self, obj):
-        return 'Administrator' if obj.is_staff or obj.is_superuser else 'Student'
+        return access_level(obj)
 
     @admin.display(description='Status', ordering='is_active')
     def status(self, obj):
@@ -193,3 +231,45 @@ class StudentAccountAdmin(admin.ModelAdmin):
             self.message_user(request, f'Sent {done} password reset email{"s" if done != 1 else ""}.', messages.SUCCESS)
         for user, reason in skipped:
             self.message_user(request, f'Skipped {user.email}: {reason}.', messages.WARNING)
+
+    def _report_access(self, request, skipped, done):
+        for user, reason in skipped:
+            self.message_user(request, f'Skipped {user.email}: {reason}.', messages.WARNING)
+        if not done and not skipped:
+            self.message_user(request, 'Nothing to do for the selected accounts.', messages.INFO)
+
+    @admin.action(description='Grant administrator access', permissions=['manage_administrators'])
+    def grant_admin_access(self, request, queryset):
+        done, skipped = 0, []
+        for user in queryset:
+            reason = grant_block_reason(request, user)
+            if reason:
+                skipped.append((user, reason))
+                continue
+            grant_administrator_access(user)
+            self.log_change(request, user, 'Granted administrator access.')
+            done += 1
+        if done:
+            self.message_user(
+                request, f'Granted administrator access to {done} account{"s" if done != 1 else ""}.', messages.SUCCESS,
+            )
+        self._report_access(request, skipped, done)
+
+    @admin.action(description='Revoke administrator access', permissions=['manage_administrators'])
+    def revoke_admin_access(self, request, queryset):
+        done, skipped = 0, []
+        for user in queryset:
+            if not user.is_staff and not user.is_superuser:
+                continue
+            reason = revoke_block_reason(request, user)
+            if reason:
+                skipped.append((user, reason))
+                continue
+            revoke_administrator_access(user)
+            self.log_change(request, user, 'Revoked administrator access.')
+            done += 1
+        if done:
+            self.message_user(
+                request, f'Revoked administrator access from {done} account{"s" if done != 1 else ""}.', messages.SUCCESS,
+            )
+        self._report_access(request, skipped, done)
