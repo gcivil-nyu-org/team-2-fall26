@@ -5,6 +5,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 import { api as realApi } from './api'
 import { FriendProfilePage, FriendsPage } from './FriendsPage'
+import { displayName } from './friends'
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal()
@@ -335,5 +336,64 @@ describe('bios on the Friends page', () => {
     renderProfile()
     await screen.findByText('Sam Lee')
     expect(document.querySelector('.friend-profile__bio')).toBeNull()
+  })
+})
+
+// #31: a friend who hides their email, bio or photo.
+describe('friends who hide details from other students', () => {
+  const hidden = { id: 3, friendship_id: 42, first_name: 'Jordan', last_name: 'Lee', email: null, bio: '', profile_picture: null }
+
+  test('the friends list shows the name and an initial, with no email, bio or photo', async () => {
+    mockFriendsLoad(friendsPayload({ friends: [hidden] }))
+    renderFriendsPage()
+    await screen.findByText('Jordan Lee')
+    const row = rowFor('Jordan Lee')
+    expect(row.querySelector('small')).toBeNull()
+    expect(row.querySelector('.friend-row__bio')).toBeNull()
+    expect(row.querySelector('img')).toBeNull()
+    expect(row.querySelector('.avatar')).toHaveTextContent('J')
+  })
+
+  test('a friend request from someone hiding their email still shows who it is from', async () => {
+    mockFriendsLoad(friendsPayload({
+      friends: [],
+      received_requests: [{ id: 1, direction: 'received', user: { ...hidden, id: 2 } }],
+    }))
+    renderFriendsPage()
+    await screen.findByText('Jordan Lee')
+    expect(rowFor('Jordan Lee').querySelector('small')).toBeNull()
+    expect(screen.getByRole('button', { name: /accept friend request from jordan lee/i })).toBeInTheDocument()
+  })
+
+  test('details a friend does share are still shown next to the hidden ones', async () => {
+    mockFriendsLoad(friendsPayload({ friends: [{ ...hidden, bio: 'CS junior' }] }))
+    renderFriendsPage()
+    await screen.findByText('Jordan Lee')
+    expect(rowFor('Jordan Lee')).toHaveTextContent('CS junior')
+    expect(rowFor('Jordan Lee').querySelector('small')).toBeNull()
+  })
+
+  test('their profile page leaves out the email, bio and photo but keeps the name and message button', async () => {
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/42/') return { user: hidden }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    render(
+      <MemoryRouter initialEntries={['/friends/42']}>
+        <Routes><Route path="/friends/:friendshipId" element={<FriendProfilePage />} /></Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText('Jordan Lee')
+    expect(document.querySelector('.friend-profile__email')).toBeNull()
+    expect(document.querySelector('.friend-profile__bio')).toBeNull()
+    expect(document.querySelector('.friend-profile img')).toBeNull()
+    expect(document.querySelector('.friend-profile .avatar')).toHaveTextContent('J')
+    expect(screen.getByRole('link', { name: /send message/i })).toHaveAttribute('href', '/messages/3')
+  })
+
+  test('with no name and no visible email, a friend is shown as a SemesterPilot student', () => {
+    expect(displayName({ first_name: '', last_name: '', email: null })).toBe('SemesterPilot student')
+    expect(displayName({ first_name: '', last_name: '', email: 'sam@nyu.edu' })).toBe('sam@nyu.edu')
+    expect(displayName({ first_name: 'Sam', last_name: 'Lee', email: null })).toBe('Sam Lee')
   })
 })
