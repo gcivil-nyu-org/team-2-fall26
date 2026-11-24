@@ -132,6 +132,18 @@ class DirectMessage(models.Model):
         return f'Message {self.pk} from {self.sender_id} to {self.recipient_id}'
 
 
+class FoodPostQuerySet(models.QuerySet):
+    def community(self):
+        # #47: the posts other students can browse. Posts by a deactivated
+        # account stay hidden (and come back if it's reactivated); a deleted
+        # account's posts are already gone with it.
+        return self.filter(author__is_active=True)
+
+    def with_saved(self, user):
+        # #53: marks each post the student has saved, for the Save button.
+        return self.annotate(is_saved=models.Exists(SavedPost.objects.filter(user=user, post=models.OuterRef('pk'))))
+
+
 class FoodPost(models.Model):
     # #46: a student's recommendation for a place to eat, shown in the
     # community feed (E5). Photos are a follow-up that will reuse the
@@ -152,6 +164,8 @@ class FoodPost(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = FoodPostQuerySet.as_manager()
+
     class Meta:
         # -id breaks ties between posts created in the same instant, so the
         # feed's newest-first order is always stable.
@@ -167,3 +181,25 @@ class FoodPost(models.Model):
 
     def __str__(self):
         return self.place_name
+
+
+class SavedPost(models.Model):
+    # #53: a food post a student saved to try later. Saves belong to the
+    # student; nobody else can see them.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='saved_posts',
+    )
+    post = models.ForeignKey(FoodPost, on_delete=models.CASCADE, related_name='saves')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Most recently saved first.
+        ordering = ['-created_at', '-id']
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'post'], name='saved_post_once_per_user'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} saved {self.post}'
