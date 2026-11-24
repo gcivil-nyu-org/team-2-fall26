@@ -197,6 +197,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .field--error input, .field--error select, .field--error textarea { border-color: #c55742; background: #fffaf9; }
 .field__error { color: #b84936; font-size: .69rem; }
 .field__note { color: var(--muted); font-size: .69rem; }
+.privacy-options { display: grid; gap: 0; border: 1px solid var(--line); border-radius: 12px; }
+.privacy-option { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; padding: .95rem 1.1rem; cursor: pointer; }
+.privacy-option + .privacy-option { border-top: 1px solid var(--line); }
+.privacy-option__copy { display: grid; gap: .15rem; }
+.privacy-option__copy strong { font-size: .85rem; }
+.privacy-option small { color: var(--muted); font-size: .72rem; line-height: 1.5; }
+.privacy-switch { appearance: none; position: relative; flex: none; width: 2.5rem; height: 1.45rem; margin: 0; border-radius: 999px; background: #d9d0e0; cursor: pointer; transition: background .15s ease; }
+.privacy-switch::after { content: ""; position: absolute; top: .2rem; left: .2rem; width: 1.05rem; height: 1.05rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .15s ease; }
+.privacy-switch:checked { background: var(--violet); }
+.privacy-switch:checked::after { transform: translateX(1.05rem); }
+.privacy-switch:focus-visible { outline: 3px solid rgba(87, 6, 140, .25); outline-offset: 2px; }
 .form-actions { display: flex; justify-content: flex-end; gap: .65rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 .form-alert { padding: .75rem .85rem; margin-bottom: 1rem; border: 1px solid #efd5d0; border-radius: 10px; background: #fff6f4; color: #9c4031; font-size: .75rem; }
 .form-alert a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
@@ -315,6 +326,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .account-option h2 { margin-bottom: .65rem; }
 .account-option p { max-width: 590px; color: var(--muted); font-size: .84rem; line-height: 1.7; margin-bottom: .75rem; }
 .account-option .button { margin-top: .3rem; }
+.account-option__body { flex: 1; min-width: 0; }
+.account-option__body .form-alert--success { margin-bottom: .85rem; }
+.account-option__body .form-actions .button { margin-top: 0; }
 .account-option--danger { border-color: #eed5d0; }
 .account-option--danger .account-option__icon { color: #a53e2e; background: #fff0ec; }
 .button--danger-outline { color: #a53e2e; border-color: #dcb3aa; background: #fff; }
@@ -472,6 +486,26 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .food-post--full h1 { margin: 0; font-size: 1.4rem; }
 .food-post--full .food-post__description { font-size: .92rem; }
 .food-post-comments { margin-top: 1.25rem; }
+.food-post__share-toggle { padding: .4rem .7rem; font-size: .74rem; }
+.food-post__share { display: grid; gap: .7rem; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: #fbf8fd; }
+.food-post__share form { display: grid; gap: .7rem; }
+.food-post__share textarea { box-sizing: border-box; width: 100%; resize: vertical; }
+.food-post__share p { margin: 0; font-size: .82rem; }
+.food-post__share .study-notice { display: grid; gap: .6rem; margin: 0; }
+.food-post__share-empty { display: grid; gap: .6rem; }
+.food-post__share-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.shared-post { display: grid; gap: .3rem; margin: .5rem 0; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: 10px; background: white; color: inherit; text-decoration: none; }
+.shared-post:hover, .shared-post:focus-visible { border-color: var(--violet); }
+.shared-post__kicker { display: inline-flex; align-items: center; gap: .3rem; color: var(--violet); font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.shared-post .shared-post__title { font-size: .9rem; }
+.shared-post__meta { display: flex; flex-wrap: wrap; gap: .25rem .75rem; color: var(--muted); font-size: .72rem; }
+.shared-post__meta span { display: inline-flex; align-items: center; gap: .2rem; }
+.shared-post__description { font-size: .8rem; line-height: 1.5; white-space: pre-line; }
+.shared-post__author { display: flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .7rem; }
+.shared-post__author .avatar { width: 22px; height: 22px; font-size: .6rem; }
+.shared-post--unavailable { display: flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .8rem; }
+.food-post__owner-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0 1.75rem 1.4rem; }
+.panel > .delete-confirm { margin: 0 1.75rem 1.4rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -512,6 +546,35 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .conversation__compose { padding: 1rem; }
   .conversation__message { max-width: 95%; }
 }
+
+/* Notification settings (#37) */
+.notification-settings { flex: 1; min-width: 0; }
+.notification-settings .form-alert--success { margin-bottom: .85rem; }
+.notification-settings .form-actions .button { margin-top: 0; }
+.notification-summary { display: grid; gap: .3rem; margin: 0 0 1rem; padding: 0; list-style: none; color: var(--muted); font-size: .85rem; }
+.notification-options { display: grid; border: 1px solid var(--line); border-radius: 12px; }
+.notification-option { display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; padding: .95rem 1.1rem; cursor: pointer; }
+.notification-option + .notification-option { border-top: 1px solid var(--line); }
+.notification-option__copy { display: grid; gap: .15rem; }
+.notification-option__copy strong { font-size: .85rem; }
+.notification-option small { color: var(--muted); font-size: .72rem; line-height: 1.5; }
+.notification-switch { appearance: none; position: relative; flex: none; width: 2.5rem; height: 1.45rem; margin: 0; border-radius: 999px; background: #d9d0e0; cursor: pointer; transition: background .15s ease; }
+.notification-switch::after { content: ""; position: absolute; top: .2rem; left: .2rem; width: 1.05rem; height: 1.05rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); transition: transform .15s ease; }
+.notification-switch:checked { background: var(--violet); }
+.notification-switch:checked::after { transform: translateX(1.05rem); }
+.notification-switch:focus-visible { outline: 3px solid rgba(87, 6, 140, .25); outline-offset: 2px; }
+.notification-select { flex: none; min-width: 10.5rem; padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 10px; background: #fff; font: inherit; font-size: .8rem; }
+.notification-select:disabled { background: #f6f3f8; color: var(--muted); cursor: not-allowed; }
+.notification-select:focus { border-color: #9c73b8; box-shadow: 0 0 0 3px rgba(87, 6, 140, .08); outline: none; }
+@media (max-width: 620px) {
+  .notification-option--select { align-items: flex-start; flex-direction: column; }
+  .notification-select { width: 100%; }
+}
+
+/* Sidebar and conversation-list badges for pending requests and unread messages (#37). */
+.nav-badge { margin-left: auto; min-width: 1.25rem; padding: .05rem .4rem; border-radius: 999px; background: var(--violet); color: #fff; font-size: .68rem; font-weight: 700; line-height: 1.2rem; text-align: center; }
+.unread-pill { min-width: 1.35rem; padding: .05rem .45rem; border-radius: 999px; background: var(--violet); color: #fff; font-size: .7rem; font-weight: 700; line-height: 1.3rem; text-align: center; }
+.new-pill { justify-self: start; padding: .05rem .5rem; border-radius: 999px; background: var(--violet-soft); color: var(--violet); font-size: .68rem; font-weight: 700; }
 
 /* NYU Engage event discovery */
 .event-filters { display: grid; grid-template-columns: 2fr 1fr 1fr 2fr; gap: 1rem; padding: 1.25rem; margin-bottom: 1.25rem; align-items: end; }

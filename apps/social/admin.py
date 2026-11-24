@@ -12,10 +12,10 @@ class FriendRequestAdmin(admin.ModelAdmin):
 
 @admin.register(DirectMessage)
 class DirectMessageAdmin(admin.ModelAdmin):
-    list_display = ['id', 'sender', 'recipient', 'created_at']
-    list_filter = ['created_at']
+    list_display = ['id', 'sender', 'recipient', 'shares_post', 'created_at']
+    list_filter = ['created_at', 'shares_post']
     list_select_related = ['sender', 'recipient']
-    readonly_fields = ['sender', 'recipient', 'body', 'created_at']
+    readonly_fields = ['sender', 'recipient', 'body', 'shared_post', 'shares_post', 'created_at']
 
     def has_add_permission(self, request):
         return False
