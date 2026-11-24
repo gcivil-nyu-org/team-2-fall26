@@ -4,6 +4,7 @@ import { AlertTriangle, PauseCircle, Trash2 } from 'lucide-react'
 
 import { api } from './api'
 import NotificationSettings from './NotificationSettings'
+import PrivacySettings from './PrivacySettings'
 
 export default function AccountSettings({ onAccountClosed }) {
   const navigate = useNavigate()
@@ -47,7 +48,8 @@ export default function AccountSettings({ onAccountClosed }) {
   }
 
   return <div className="account-settings">
-    <header className="page-header"><div><p className="kicker">Your account</p><h1>Account settings</h1><p className="page-header__subtitle">Manage your notifications, and what happens to your account and its data.</p></div></header>
+    <header className="page-header"><div><p className="kicker">Your account</p><h1>Account settings</h1><p className="page-header__subtitle">Control what other students can see, manage your notifications, and what happens to your account and its data.</p></div></header>
+    <PrivacySettings />
     <NotificationSettings />
     <section className="panel account-option" aria-labelledby="deactivate-heading">
       <div className="account-option__icon"><PauseCircle size={23} /></div>

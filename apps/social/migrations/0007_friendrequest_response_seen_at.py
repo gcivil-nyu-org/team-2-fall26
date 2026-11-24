@@ -16,7 +16,7 @@ def mark_existing_responses_seen(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('social', '0005_directmessage_read_at'),
+        ('social', '0006_directmessage_read_at'),
     ]
 
     operations = [

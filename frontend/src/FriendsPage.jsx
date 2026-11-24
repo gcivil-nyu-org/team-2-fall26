@@ -21,7 +21,7 @@ function PersonRow({ user, children }) {
     <div className="avatar">{user.profile_picture ? <img src={user.profile_picture} alt="" /> : initial(user)}</div>
     <div className="friend-row__copy">
       <strong>{displayName(user)}</strong>
-      <small>{user.email}</small>
+      {user.email && <small>{user.email}</small>}
       {user.bio && <p className="friend-row__bio">{user.bio}</p>}
     </div>
     {children && <div className="friend-row__actions">{children}</div>}
@@ -57,7 +57,7 @@ function FriendRow({ friend, onRemoved }) {
       <div className="friend-row__copy">
         <strong>{displayName(friend)}</strong>
         {friend.is_new && <span className="new-pill">Accepted your request</span>}
-        <small>{friend.email}</small>
+        {friend.email && <small>{friend.email}</small>}
         {friend.bio && <p className="friend-row__bio">{friend.bio}</p>}
       </div>
     </Link>
@@ -233,7 +233,7 @@ export function FriendProfilePage() {
         : friend && <section className="panel friend-profile">
           <div className="avatar avatar--large">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</div>
           <h1>{displayName(friend)}</h1>
-          <p className="friend-profile__email">{friend.email}</p>
+          {friend.email && <p className="friend-profile__email">{friend.email}</p>}
           {friend.bio && <p className="friend-profile__bio">{friend.bio}</p>}
           <Link className="button button--primary" to={`/messages/${friend.id}`}><MessageCircle size={16} /> Send message</Link>
         </section>}

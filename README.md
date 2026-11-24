@@ -139,7 +139,7 @@ request to each other.
 ## Viewing a friend's profile (#18)
 
 Clicking a friend's name or photo in "Your friends" opens their profile —
-their name, email, and photo (falling back to an initial, same as
+their name, email, bio, and photo, minus anything they've hidden under Privacy (falling back to an initial, same as
 everywhere else). The link lives at `/friends/<friendshipId>`, keyed by the
 friendship itself rather than the other person's user id, so it only ever
 resolves for an actual, current friendship.
@@ -158,6 +158,17 @@ buildable as those stories are worded unless the team adds real,
 user-chosen usernames as their own feature first; in the meantime, name and
 email are the only real identifiers these stories can use.
 
+## Privacy settings (#31)
+
+Students choose what other students can see about them from the **Privacy** section at the top of **Account settings** (click **Edit privacy** to open the switches). Three things can be hidden independently: **email address**, **bio**, and **profile photo**. Everything is visible by default, which is how the app behaved before this existed. A student's **name is always visible**, so friends and friend requests can still tell who is who.
+
+- Settings are stored on the user (`show_email`, `show_bio`, `show_profile_picture`, migration `accounts/0004_user_privacy_settings`) and saved with `PUT /api/profile/privacy/`. A field left out of the request keeps its current value, and anything that isn't a real `true`/`false` is rejected with a 400 rather than guessed at.
+- The settings are applied on the server in `apps/social/views.py` (`_user_summary`), the one place that builds what another student sees: friends list, friend requests (sent and received), friend profile, and the chat header. A hidden email, bio or photo is never sent to the other student's browser, so it can't be seen by inspecting the response.
+- If a student has no name and hides their email, others see them as "SemesterPilot student" (also in message sender names) instead of falling back to the hidden email.
+- Because that would leave a nameless student unrecognizable, the Privacy section shows a note linking to Edit profile whenever the email is hidden and no name is set.
+- Hiding something only affects what *other* students see. The student still sees their own email, bio and photo everywhere, and the stored values are untouched, so switching a setting back on restores them.
+- Friend requests are still sent by typing an email address, so hiding your email does not stop someone who already knows it from finding you. This is about what the app *shows*, not about making an account unfindable.
+
 ## Notification settings (#37)
 
 Students choose what they get from the **Notifications** section of **Account settings** (click **Edit notifications**). Everything shows up inside SemesterPilot; the app sends no email or phone notifications.
@@ -171,11 +182,11 @@ Students choose what they get from the **Notifications** section of **Account se
 
 Everything defaults to on, so nothing changes for existing students except the new alerts appearing.
 
-- Stored on the user (`accounts/0004_user_notification_preferences`, `accounts/0005_user_deadline_and_social_alerts`), read and saved with `GET`/`PUT /api/profile/notifications/`, which also returns the allowed lead times as `options` so the screen never hard-codes them. A setting left out of a `PUT` keeps its current value; anything that isn't a real boolean, or a lead time outside the list, is rejected with a 400 and nothing is saved.
+- Stored on the user (`accounts/0005_user_notification_preferences`, `accounts/0006_user_deadline_and_social_alerts`), read and saved with `GET`/`PUT /api/profile/notifications/`, which also returns the allowed lead times as `options` so the screen never hard-codes them. A setting left out of a `PUT` keeps its current value; anything that isn't a real boolean, or a lead time outside the list, is rejected with a 400 and nothing is saved.
 - The dashboard's `study_reminders` and `deadline_reminders` lists follow the signed-in student's own settings: empty when off, otherwise items inside their window. Overdue and completed work is never a reminder (the dashboard already counts overdue work). One student's settings never change another's.
 - `GET /api/social/alerts/` returns the pending friend-request count and unread-message counts that drive the sidebar badges; an alert that is turned off reads as zero. The conversation list (`GET /api/social/friends/`) also carries `unread_messages` per friend.
-- Messages now record when they were read (`social/0005_directmessage_read_at`; existing messages are marked read). Opening a conversation reads the messages the friend sent you, whether or not message alerts are on. Messages from someone who is no longer a friend are not counted.
-- Accepted requests are tracked with `FriendRequest.response_seen_at` (`social/0006_friendrequest_response_seen_at`; existing requests are marked seen). `GET /api/social/friends/` marks each friend with `is_new`, and the Friends page calls `POST /api/social/friends/seen/` once it has shown them, which clears the count. Loading the Messages list does not clear it.
+- Messages now record when they were read (`social/0006_directmessage_read_at`; existing messages are marked read). Opening a conversation reads the messages the friend sent you, whether or not message alerts are on. Messages from someone who is no longer a friend are not counted.
+- Accepted requests are tracked with `FriendRequest.response_seen_at` (`social/0007_friendrequest_response_seen_at`; existing requests are marked seen). `GET /api/social/friends/` marks each friend with `is_new`, and the Friends page calls `POST /api/social/friends/seen/` once it has shown them, which clears the count. Loading the Messages list does not clear it.
 - The sidebar refreshes on navigation, every 30 seconds, when the student switches back to the tab, and straight after reading a conversation, answering a request or opening Friends. Dismissing a dashboard reminder is local to the browser and never changes the assignment or exam.
 
 ## Importing an Albert class schedule

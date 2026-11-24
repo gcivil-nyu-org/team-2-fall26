@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Bookmark, BookmarkCheck, MapPin, MessageSquare, Send, Star, Utensils } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkCheck, MapPin, MessageSquare, Send, Share2, Star, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
@@ -55,7 +55,83 @@ function SaveButton({ post, onChange }) {
   </div>
 }
 
+// #22: share a post with a friend. It's sent as a message in your
+// conversation with them, with an optional note.
+function SharePanel({ post, onClose }) {
+  const [friends, setFriends] = useState(null)
+  const [loadError, setLoadError] = useState('')
+  const [attempt, setAttempt] = useState(0)
+  const [friendId, setFriendId] = useState('')
+  const [note, setNote] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+  const [sharedWith, setSharedWith] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    setFriends(null)
+    setLoadError('')
+    api('/social/friends/').then((result) => { if (active) setFriends(result.friends) })
+      .catch((err) => { if (active) setLoadError(err.message) })
+    return () => { active = false }
+  }, [attempt])
+
+  async function share(event) {
+    event.preventDefault()
+    if (!friendId || sending) return
+    setSending(true)
+    setError('')
+    try {
+      await api(`/social/posts/${post.id}/share/`, { method: 'POST', body: { friend_id: Number(friendId), note: note.trim() } })
+      setSharedWith(friends.find((friend) => String(friend.id) === friendId))
+    } catch (err) {
+      setError(err.errors?.friend_id?.[0] || err.errors?.note?.[0] || err.message)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return <section className="food-post__share" aria-label={`Share ${post.place_name}`}>
+    {loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} />
+      : friends === null ? <p role="status">Loading your friends…</p>
+        : sharedWith ? <div className="study-notice study-notice--success" role="status">
+          <p>Shared with {displayName(sharedWith)}.</p>
+          <div className="food-post__share-actions">
+            <Link className="button button--soft button--small" to={`/messages/${sharedWith.id}`}>Open conversation</Link>
+            <button type="button" className="button button--secondary button--small" onClick={onClose}>Done</button>
+          </div>
+        </div>
+          : !friends.length ? <div className="food-post__share-empty">
+            <p>Add a friend to share posts with them.</p>
+            <div className="food-post__share-actions">
+              <Link className="button button--soft button--small" to="/friends">Find friends</Link>
+              <button type="button" className="button button--secondary button--small" onClick={onClose}>Cancel</button>
+            </div>
+          </div>
+            : <form onSubmit={share}>
+              <label className="field">
+                <span className="field__label">Share with</span>
+                <select value={friendId} disabled={sending} onChange={(event) => { setFriendId(event.target.value); setError('') }}>
+                  <option value="">Choose a friend</option>
+                  {friends.map((friend) => <option key={friend.id} value={friend.id}>{displayName(friend)}</option>)}
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">Note<small>Optional</small></span>
+                <textarea value={note} rows={2} maxLength={2000} disabled={sending} placeholder="Why should they try it?"
+                  onChange={(event) => { setNote(event.target.value); setError('') }} />
+              </label>
+              {error && <p className="field__error" role="alert">{error}</p>}
+              <div className="food-post__share-actions">
+                <button className="button button--primary button--small" type="submit" disabled={!friendId || sending}><Send size={14} /> {sending ? 'Sharing…' : 'Share'}</button>
+                <button type="button" className="button button--secondary button--small" onClick={onClose} disabled={sending}>Cancel</button>
+              </div>
+            </form>}
+  </section>
+}
+
 function FoodPostCard({ post, full = false, onChange }) {
+  const [sharing, setSharing] = useState(false)
   const shortened = !full && post.description.length > PREVIEW_LENGTH
   const Heading = full ? 'h1' : 'h3'
   return <article className={`food-post ${full ? 'food-post--full' : ''}`} aria-label={post.place_name}>
@@ -76,8 +152,14 @@ function FoodPostCard({ post, full = false, onChange }) {
         <div className="avatar">{post.author.profile_picture ? <img src={post.author.profile_picture} alt="" /> : initial(post.author)}</div>
         <span>{displayName(post.author)} · {formatDate(post.created_at, true)}</span>
       </div>
-      {onChange && <SaveButton post={post} onChange={onChange} />}
+      <div className="food-post__actions">
+        <button type="button" className="button button--secondary food-post__share-toggle" aria-expanded={sharing} aria-label={`Share ${post.place_name} with a friend`} onClick={() => setSharing((value) => !value)}>
+          <Share2 size={15} /> Share
+        </button>
+        {onChange && <SaveButton post={post} onChange={onChange} />}
+      </div>
     </footer>
+    {sharing && <SharePanel post={post} onClose={() => setSharing(false)} />}
   </article>
 }
 

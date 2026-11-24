@@ -60,6 +60,25 @@ function feed() {
   return screen.getByRole('region', { name: 'Food feed' })
 }
 
+describe('authors who hide their details (#31)', () => {
+  test('an author with a hidden email and photo still shows their name and an initial', async () => {
+    mockFeed([post({ author: { ...sam, email: null, profile_picture: null } })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
+    expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('S')
+    expect(card).not.toHaveTextContent('null')
+  })
+
+  test('an author with no name and a hidden email appears as a generic student', async () => {
+    mockFeed([post({ author: { id: 5, first_name: '', last_name: '', email: null, profile_picture: null } })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText(/SemesterPilot student/)).toBeInTheDocument()
+    expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('?')
+  })
+})
+
 describe('viewing the food feed', () => {
   test('shows each post with its place, details, rating and author', async () => {
     mockFeed([post()])
@@ -356,5 +375,106 @@ describe('saving food recommendations', () => {
     mockSaving({ saved: [post({ is_saved: true })] })
     await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByRole('article', { name: "Joe's Pizza" })).toBeInTheDocument()
+  })
+})
+
+describe('sharing a food post with a friend (#22)', () => {
+  const jordan = { id: 3, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu', profile_picture: null }
+
+  function mockSharing({ posts = [post({ id: 7 })], detail = null, friends = [sam, jordan], friendsError = null, shareError = null } = {}) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/' && !options.method) return { posts }
+      if (detail && path === `/social/posts/${detail.id}/` && !options.method) return { post: detail }
+      if (path === '/social/friends/' && !options.method) {
+        if (friendsError) throw friendsError
+        return { friends, received_requests: [], sent_requests: [] }
+      }
+      if (/^\/social\/posts\/\d+\/share\/$/.test(path) && options.method === 'POST') {
+        if (shareError) throw shareError
+        return { message: { id: 1, body: options.body.note, is_mine: true, shared_post: { available: true } } }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  async function openShare(user) {
+    await user.click(await screen.findByRole('button', { name: "Share Joe's Pizza with a friend" }))
+    return screen.findByRole('region', { name: "Share Joe's Pizza" })
+  }
+
+  test('choosing a friend and sharing sends the post with an optional note', async () => {
+    mockSharing()
+    renderFeed()
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    const share = await within(panel).findByRole('button', { name: 'Share' })
+    expect(share).toBeDisabled()
+    await user.selectOptions(within(panel).getByLabelText('Share with'), 'Sam Lee')
+    await user.type(within(panel).getByLabelText(/Note/), '  Best slice nearby  ')
+    await user.click(share)
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/share/', { method: 'POST', body: { friend_id: 2, note: 'Best slice nearby' } })
+    expect(await within(panel).findByText('Shared with Sam Lee.')).toBeInTheDocument()
+    expect(within(panel).getByRole('link', { name: 'Open conversation' })).toHaveAttribute('href', '/messages/2')
+  })
+
+  test('the friend list only offers your friends', async () => {
+    mockSharing()
+    renderFeed()
+    const panel = await openShare(userEvent.setup())
+    const options = within(await within(panel).findByLabelText('Share with')).getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual(['Choose a friend', 'Sam Lee', 'Jordan'])
+    expect(realApi).toHaveBeenCalledWith('/social/friends/')
+  })
+
+  test('without friends it points to finding some', async () => {
+    mockSharing({ friends: [] })
+    renderFeed()
+    const panel = await openShare(userEvent.setup())
+    expect(await within(panel).findByText('Add a friend to share posts with them.')).toBeInTheDocument()
+    expect(within(panel).getByRole('link', { name: 'Find friends' })).toHaveAttribute('href', '/friends')
+    expect(within(panel).queryByLabelText('Share with')).not.toBeInTheDocument()
+  })
+
+  test('a refused share shows the error and keeps the form', async () => {
+    mockSharing({ shareError: Object.assign(new Error('You can only share posts with your friends.'), { status: 404 }) })
+    renderFeed()
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    await user.selectOptions(await within(panel).findByLabelText('Share with'), 'Sam Lee')
+    await user.type(within(panel).getByLabelText(/Note/), 'Try it')
+    await user.click(within(panel).getByRole('button', { name: 'Share' }))
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('You can only share posts with your friends.')
+    expect(within(panel).getByLabelText(/Note/)).toHaveValue('Try it')
+  })
+
+  test('a failure loading friends offers a working retry', async () => {
+    mockSharing({ friendsError: new Error('Network down.') })
+    renderFeed()
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('Network down.')
+    mockSharing()
+    await user.click(within(panel).getByRole('button', { name: 'Try again' }))
+    expect(await within(panel).findByLabelText('Share with')).toBeInTheDocument()
+  })
+
+  test('cancel closes the share panel', async () => {
+    mockSharing()
+    renderFeed()
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    await user.click(await within(panel).findByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('region', { name: "Share Joe's Pizza" })).not.toBeInTheDocument()
+  })
+
+  test('a post can be shared from its own page', async () => {
+    mockSharing({ posts: [], detail: post({ id: 7 }) })
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    await user.selectOptions(await within(panel).findByLabelText('Share with'), 'Jordan')
+    await user.click(within(panel).getByRole('button', { name: 'Share' }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/share/', { method: 'POST', body: { friend_id: 3, note: '' } })
+    expect(await within(panel).findByText('Shared with Jordan.')).toBeInTheDocument()
   })
 })
