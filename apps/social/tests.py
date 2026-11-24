@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 
-from .models import FoodPost, FriendRequest, SavedPost
+from .models import FoodPost, FriendRequest, PostComment, SavedPost
 
 # A 1x1 GIF — just enough bytes to be a valid image for ImageField to accept.
 SMALL_GIF = (
@@ -979,6 +979,150 @@ class SavedFoodPostsTests(SocialTestCase):
 
     def test_only_get_is_allowed(self):
         self.assertEqual(self.client.post(self.url).status_code, 405)
+
+
+class PostCommentTests(SocialTestCase):
+    # #49: commenting on food posts.
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(author=self.other, place_name='Joe\'s Pizza', description='Classic slice.')
+        self.other_post = FoodPost.objects.create(author=self.third, place_name='Katz\'s', description='Pastrami.')
+
+    def url(self, pk=None):
+        return reverse('social:post_comments', args=[pk or self.post.pk])
+
+    def comment(self, body, pk=None):
+        return self.client.post(self.url(pk), json.dumps({'body': body}), content_type='application/json')
+
+    def comments(self, pk=None):
+        return self.client.get(self.url(pk)).json()['comments']
+
+    def test_adds_a_comment_as_the_logged_in_student(self):
+        response = self.comment('The white pie is great too.')
+        self.assertEqual(response.status_code, 201)
+        comment = response.json()['comment']
+        self.assertEqual(comment['body'], 'The white pie is great too.')
+        self.assertEqual(comment['author']['email'], self.user.email)
+        self.assertIn('created_at', comment)
+        saved = PostComment.objects.get()
+        self.assertEqual((saved.post, saved.author), (self.post, self.user))
+
+    def test_the_author_comes_from_the_session_not_the_request(self):
+        self.client.post(self.url(), json.dumps({'body': 'Hi', 'author': self.third.pk}), content_type='application/json')
+        self.assertEqual(PostComment.objects.get().author, self.user)
+
+    def test_a_comment_needs_text(self):
+        for body in ['', '   ', '\n\t']:
+            with self.subTest(body=body):
+                response = self.comment(body)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['errors']['body'], ['Write a comment before posting.'])
+        self.assertEqual(self.client.post(self.url(), '{}', content_type='application/json').status_code, 400)
+        self.assertFalse(PostComment.objects.exists())
+
+    def test_surrounding_spaces_are_trimmed(self):
+        self.assertEqual(self.comment('  So good.  ').json()['comment']['body'], 'So good.')
+
+    def test_comments_over_1000_characters_are_rejected(self):
+        self.assertEqual(self.comment('a' * 1000).status_code, 201)
+        response = self.comment('a' * 1001)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['errors']['body'], ['Comments must be 1000 characters or fewer.'])
+
+    def test_invalid_json_is_rejected(self):
+        response = self.client.post(self.url(), '{not json', content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.post(self.url(), '[]', content_type='application/json').status_code, 400)
+        self.assertFalse(PostComment.objects.exists())
+
+    def test_a_comment_shows_under_the_post_it_was_written_on_only(self):
+        self.comment('About pizza.')
+        self.comment('About pastrami.', pk=self.other_post.pk)
+        self.assertEqual([item['body'] for item in self.comments()], ['About pizza.'])
+        self.assertEqual([item['body'] for item in self.comments(self.other_post.pk)], ['About pastrami.'])
+
+    def test_comments_are_still_there_on_the_next_request(self):
+        self.comment('Still here.')
+        self.client.logout()
+        self.client.force_login(self.third)
+        self.assertEqual([(item['body'], item['author']['email']) for item in self.comments()], [('Still here.', self.user.email)])
+
+    def test_comments_are_listed_oldest_first(self):
+        first = PostComment.objects.create(post=self.post, author=self.other, body='First')
+        PostComment.objects.create(post=self.post, author=self.third, body='Second')
+        PostComment.objects.filter(pk=first.pk).update(created_at=timezone.now() - timedelta(hours=1))
+        PostComment.objects.create(post=self.post, author=self.user, body='Third')
+        self.assertEqual([item['body'] for item in self.comments()], ['First', 'Second', 'Third'])
+
+    def test_comment_authors_do_not_expose_their_bio(self):
+        self.other.bio = 'Sam studies math.'
+        self.other.save()
+        PostComment.objects.create(post=self.post, author=self.other, body='Hi')
+        self.assertNotIn('bio', self.comments()[0]['author'])
+        self.assertEqual(self.comments()[0]['author']['first_name'], 'Sam')
+
+    def test_comments_by_a_deactivated_account_are_hidden_until_reactivated(self):
+        PostComment.objects.create(post=self.post, author=self.third, body='Hidden for now')
+        User.objects.filter(pk=self.third.pk).update(is_active=False)
+        self.assertEqual(self.comments(), [])
+        User.objects.filter(pk=self.third.pk).update(is_active=True)
+        self.assertEqual([item['body'] for item in self.comments()], ['Hidden for now'])
+
+    def test_a_missing_or_hidden_post_cannot_be_read_or_commented_on(self):
+        self.assertEqual(self.client.get(self.url(self.post.pk + 100)).status_code, 404)
+        self.assertEqual(self.comment('Hi', pk=self.post.pk + 100).status_code, 404)
+        User.objects.filter(pk=self.other.pk).update(is_active=False)
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+        self.assertEqual(self.comment('Hi').status_code, 404)
+        self.assertFalse(PostComment.objects.exists())
+
+    def test_logged_out_students_cannot_read_or_comment(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url()).status_code, 401)
+        self.assertEqual(self.comment('Hi').status_code, 401)
+        self.assertFalse(PostComment.objects.exists())
+
+    def test_only_get_and_post_are_allowed(self):
+        self.assertEqual(self.client.delete(self.url()).status_code, 405)
+        self.assertEqual(self.client.put(self.url()).status_code, 405)
+
+    def test_deleting_the_post_or_the_author_removes_their_comments(self):
+        PostComment.objects.create(post=self.post, author=self.user, body='On a deleted post')
+        PostComment.objects.create(post=self.other_post, author=self.third, body='By a deleted account')
+        self.post.delete()
+        self.third.delete()
+        self.assertFalse(PostComment.objects.exists())
+
+
+class CommentCountTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(author=self.other, place_name='Busy', description='a')
+        self.quiet = FoodPost.objects.create(author=self.other, place_name='Quiet', description='b')
+        PostComment.objects.create(post=self.post, author=self.user, body='One')
+        PostComment.objects.create(post=self.post, author=self.third, body='Two')
+
+    def test_the_feed_and_post_page_count_comments(self):
+        posts = self.client.get(reverse('social:posts')).json()['posts']
+        self.assertEqual({post['place_name']: post['comment_count'] for post in posts}, {'Busy': 2, 'Quiet': 0})
+        self.assertEqual(self.client.get(reverse('social:post', args=[self.post.pk])).json()['post']['comment_count'], 2)
+
+    def test_the_count_leaves_out_hidden_comments(self):
+        User.objects.filter(pk=self.third.pk).update(is_active=False)
+        self.assertEqual(self.client.get(reverse('social:post', args=[self.post.pk])).json()['post']['comment_count'], 1)
+
+    def test_saves_do_not_inflate_the_count(self):
+        SavedPost.objects.create(user=self.user, post=self.post)
+        SavedPost.objects.create(user=self.third, post=self.post)
+        posts = self.client.get(reverse('social:saved_posts')).json()['posts']
+        self.assertEqual([(post['place_name'], post['comment_count']) for post in posts], [('Busy', 2)])
+        self.assertEqual(self.client.get(reverse('social:post', args=[self.post.pk])).json()['post']['comment_count'], 2)
+
+    def test_a_new_post_has_no_comments(self):
+        response = self.client.post(
+            reverse('social:posts'), json.dumps({'place_name': 'New', 'description': 'c'}), content_type='application/json',
+        )
+        self.assertEqual(response.json()['post']['comment_count'], 0)
 
 
 class FoodPostModelTests(SocialTestCase):
