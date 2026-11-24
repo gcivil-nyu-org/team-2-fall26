@@ -1,12 +1,13 @@
 import json
-from datetime import time
+from datetime import time, timedelta
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.coursework.models import Assignment, Course
+from apps.coursework.models import Assignment, Course, Exam
 from .models import AvailabilityBlock, StudySession
 from .services import preserved_sessions, replace_unlocked_sessions
 from .tests import StudyTestCase, instant
@@ -202,3 +203,151 @@ class SessionControlTests(StudyTestCase):
                 with self.assertRaises(ValidationError):
                     replace_unlocked_sessions(self.user, start, end, [])
         self.assertEqual(StudySession.objects.count(), 2)
+
+
+class ExamSessionTests(StudyTestCase):
+    def setUp(self):
+        super().setUp()
+        self.exam = Exam.objects.create(course=self.course, title='Midterm', starts_at=instant('2026-11-12T19:00'))
+        self.entry = StudySession.objects.create(exam=self.exam, starts_at=instant('2026-11-10T14:00'), ends_at=instant('2026-11-10T15:00'))
+
+    def test_exam_sessions_show_on_the_calendar_with_their_course(self):
+        entry = self.client.get(reverse('study:calendar'), {'week': '2026-11-09'}).json()['sessions'][0]
+        self.assertEqual(entry['exam'], {'id': self.exam.pk, 'title': 'Midterm'})
+        self.assertIsNone(entry['assignment'])
+        self.assertEqual(entry['course']['code'], 'CS-GY 6063')
+
+    def test_exam_sessions_can_be_locked_and_moved(self):
+        url = reverse('study:session', args=[self.entry.pk])
+        response = self.client.patch(url, json.dumps({'is_locked': True}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        response = self.client.patch(url, json.dumps({'starts_at': '2026-11-10T11:00', 'ends_at': '2026-11-10T12:00',
+                                                      'confirm_warnings': True}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.entry.refresh_from_db()
+        self.assertTrue(self.entry.is_locked)
+        self.assertEqual(self.entry.ends_at - self.entry.starts_at, timedelta(hours=1))
+
+    def test_other_students_cannot_see_or_change_exam_sessions(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(reverse('study:calendar'), {'week': '2026-11-09'}).json()['sessions'], [])
+        response = self.client.patch(reverse('study:session', args=[self.entry.pk]), json.dumps({'is_locked': True}),
+                                     content_type='application/json')
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(preserved_sessions(self.other, instant('2026-11-01T00:00'), instant('2026-12-01T00:00')).exists())
+
+    def test_a_session_belongs_to_exactly_one_assignment_or_exam(self):
+        both = StudySession(assignment=self.assignment, exam=self.exam, starts_at=instant('2026-11-10T16:00'), ends_at=instant('2026-11-10T17:00'))
+        neither = StudySession(starts_at=instant('2026-11-10T16:00'), ends_at=instant('2026-11-10T17:00'))
+        for session in (both, neither):
+            with self.assertRaises(ValidationError):
+                session.full_clean()
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                session.save()
+
+    def test_deleting_the_exam_removes_its_sessions(self):
+        self.exam.delete()
+        self.assertFalse(StudySession.objects.filter(pk=self.entry.pk).exists())
+
+
+class SessionCompletionTests(StudyTestCase):
+    def setUp(self):
+        super().setUp()
+        self.entry = self.session('2026-11-02T14:00', '2026-11-02T15:00')
+        self.url = reverse('study:session', args=[self.entry.pk])
+
+    def update(self, body):
+        return self.client.patch(self.url, json.dumps(body), content_type='application/json')
+
+    def calendar_entry(self):
+        return self.client.get(reverse('study:calendar'), {'week': '2026-11-02'}).json()['sessions'][0]
+
+    def test_complete_and_reopen_persist_on_the_calendar(self):
+        self.assertFalse(self.calendar_entry()['is_complete'])
+        for complete in [True, False]:
+            response = self.update({'is_complete': complete})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()['is_complete'], complete)
+            self.entry.refresh_from_db()
+            self.assertEqual(self.entry.is_complete, complete)
+            self.assertEqual(self.calendar_entry()['is_complete'], complete)
+
+    def test_completion_leaves_time_and_lock_alone(self):
+        self.entry.is_locked = True
+        self.entry.save()
+        self.update({'is_complete': True})
+        self.entry.refresh_from_db()
+        self.assertTrue(self.entry.is_locked)
+        self.assertEqual((self.entry.starts_at, self.entry.ends_at), (instant('2026-11-02T14:00'), instant('2026-11-02T15:00')))
+
+    def test_invalid_completion_values_are_rejected(self):
+        for value in ['yes', 1, None]:
+            response = self.update({'is_complete': value})
+            self.assertEqual(response.status_code, 400)
+            self.assertIn('is_complete', response.json()['errors'])
+        self.entry.refresh_from_db()
+        self.assertFalse(self.entry.is_complete)
+
+    def test_other_students_cannot_complete_my_session(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.update({'is_complete': True}).status_code, 404)
+        self.entry.refresh_from_db()
+        self.assertFalse(self.entry.is_complete)
+
+    def test_completed_sessions_are_never_replaced_by_regeneration(self):
+        done = StudySession.objects.create(assignment=self.assignment, is_complete=True,
+                                           starts_at=instant('2026-11-03T14:00'), ends_at=instant('2026-11-03T15:00'))
+        window = (instant('2026-11-03T00:00'), instant('2026-11-04T00:00'))
+        self.assertIn(done, preserved_sessions(self.user, *window))
+        replace_unlocked_sessions(self.user, *window, [])
+        self.assertTrue(StudySession.objects.filter(pk=done.pk).exists())
+        candidate = StudySession(assignment=self.assignment, is_complete=True,
+                                 starts_at=instant('2026-11-03T16:00'), ends_at=instant('2026-11-03T17:00'))
+        with self.assertRaises(ValidationError):
+            replace_unlocked_sessions(self.user, *window, [candidate])
+
+
+
+class RemoveSessionTests(StudyTestCase):
+    def setUp(self):
+        super().setUp()
+        self.entry = self.session('2026-11-02T14:00', '2026-11-02T15:00')
+        self.neighbour = self.session('2026-11-02T16:00', '2026-11-02T17:00')
+        self.url = reverse('study:session', args=[self.entry.pk])
+
+    def calendar_ids(self):
+        return [item['id'] for item in self.client.get(reverse('study:calendar'), {'week': '2026-11-02'}).json()['sessions']]
+
+    def test_removing_a_session_keeps_everything_else(self):
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(StudySession.objects.filter(pk=self.entry.pk).exists())
+        self.assertEqual(self.calendar_ids(), [self.neighbour.pk])
+        self.assertTrue(Assignment.objects.filter(pk=self.assignment.pk).exists())
+
+    def test_locked_and_exam_sessions_can_be_removed(self):
+        self.entry.is_locked = True
+        self.entry.save()
+        exam = Exam.objects.create(course=self.course, title='Midterm', starts_at=instant('2026-11-12T19:00'))
+        prep = StudySession.objects.create(exam=exam, starts_at=instant('2026-11-03T14:00'), ends_at=instant('2026-11-03T15:00'))
+        self.assertEqual(self.client.delete(self.url).status_code, 200)
+        self.assertEqual(self.client.delete(reverse('study:session', args=[prep.pk])).status_code, 200)
+        self.assertTrue(Exam.objects.filter(pk=exam.pk).exists())
+        self.assertEqual(self.calendar_ids(), [self.neighbour.pk])
+
+    def test_other_students_cannot_remove_my_session(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.delete(self.url).status_code, 404)
+        self.assertTrue(StudySession.objects.filter(pk=self.entry.pk).exists())
+
+    def test_removing_needs_login_and_csrf(self):
+        self.client.logout()
+        self.assertEqual(self.client.delete(self.url).status_code, 401)
+        strict = Client(enforce_csrf_checks=True)
+        strict.force_login(self.user)
+        self.assertEqual(strict.delete(self.url).status_code, 403)
+        self.assertTrue(StudySession.objects.filter(pk=self.entry.pk).exists())
+
+    def test_a_removed_session_is_gone_for_good(self):
+        self.client.delete(self.url)
+        self.assertEqual(self.client.delete(self.url).status_code, 404)

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useSearchParams } from 'react-router-dom'
-import { CalendarDays, ChevronLeft, ChevronRight, Clock3, LockKeyhole, Plus, Trash2, UnlockKeyhole } from 'lucide-react'
+import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Circle, Clock3, LockKeyhole, Plus, Sparkles, Trash2, UnlockKeyhole } from 'lucide-react'
 
-import { api, toEasternInput } from './api'
+import { api, formatDate, toEasternInput } from './api'
 import { AlbertImport } from './AlbertImport'
-import { availableHours, calendarDate, calendarMidnight, dateLabel, WEEKDAYS, weekDays } from './studyCalendar'
+import { availableHours, calendarDate, calendarMidnight, dateLabel, nextAvailabilityBlock, WEEKDAYS, weekDays } from './studyCalendar'
 
 function StudyHeader({ title, subtitle, children }) {
   return <header className="page-header">
@@ -50,7 +50,7 @@ export function AvailabilityPage() {
   }
 
   function add(weekday) {
-    change([...blocks, { weekday, start_time: '09:00', end_time: '10:00' }])
+    change([...blocks, nextAvailabilityBlock(blocks, weekday)])
   }
 
   function update(index, field, value) {
@@ -115,6 +115,11 @@ export function AvailabilityPage() {
   </>
 }
 
+// Study sessions prepare for an assignment or an exam; class meetings have neither.
+export function sessionLabel(session) {
+  return session.assignment?.title ?? (session.exam ? `${session.exam.title} prep` : null)
+}
+
 function SessionEditor({ session, onSaved, onCancel }) {
   const [values, setValues] = useState({ starts_at: toEasternInput(session.starts_at), ends_at: toEasternInput(session.ends_at) })
   const [warnings, setWarnings] = useState([])
@@ -145,7 +150,7 @@ function SessionEditor({ session, onSaved, onCancel }) {
   }
 
   return <section className="panel session-editor" aria-labelledby="session-editor-title">
-    <h2 id="session-editor-title">Reschedule {session.assignment.title}</h2>
+    <h2 id="session-editor-title">Reschedule {sessionLabel(session)}</h2>
     <p>All dates and times are in Eastern time. {session.is_locked && 'This session stays locked after you move it.'}</p>
     {error && <div className="study-notice study-notice--error" role="alert">{error}</div>}
     {warnings.length > 0 && <div className="study-notice" role="alert"><div><strong>Move this session anyway?</strong><ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>Confirming changes only this session.</p></div></div>}
@@ -157,6 +162,44 @@ function SessionEditor({ session, onSaved, onCancel }) {
       <div className="form-actions"><button type="button" className="button button--secondary" disabled={saving} onClick={onCancel}>Cancel</button><button className="button button--primary" disabled={saving}>{saving ? 'Saving…' : warnings.length ? 'Move anyway' : 'Save new time'}</button></div>
     </form>
   </section>
+}
+
+function hoursLabel(hours) {
+  const value = hours.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  return `${value} more hour${hours === 1 ? '' : 's'}`
+}
+
+function courseLabel(course) {
+  return course.code || course.name
+}
+
+function PlanSummary({ plan }) {
+  const count = plan.sessions.length
+  const last = plan.sessions.reduce((latest, session) => (latest && latest.ends_at > session.ends_at ? latest : session), null)
+  return <>
+    <div className="study-notice study-notice--success" role="status">
+      <Sparkles size={20} />
+      <div>
+        <strong>{count ? `Created ${count} study session${count === 1 ? '' : 's'}` : 'No new sessions were needed'}</strong>
+        <p>{count ? `Your plan runs through ${formatDate(last.ends_at)}. Use the week arrows to see later weeks.` : 'Everything with a deadline and workload is already covered, or there was nothing to plan.'}</p>
+      </div>
+    </div>
+    {plan.shortfalls.length > 0 && <div className="study-notice study-notice--warning" role="alert">
+      <Clock3 size={20} />
+      <div>
+        <strong>Not enough free time for everything</strong>
+        <ul>{plan.shortfalls.map((item) => <li key={item.id}>{item.title} ({courseLabel(item.course)}) needs {hoursLabel(item.hours_short)} before {formatDate(item.due_date)}</li>)}</ul>
+        <p>Add more availability or adjust the estimate, then generate again. <NavLink to="/availability">Edit availability</NavLink></p>
+      </div>
+    </div>}
+    {plan.skipped.length > 0 && <div className="study-notice">
+      <CalendarDays size={20} />
+      <div>
+        <strong>Not included in this plan</strong>
+        <ul>{plan.skipped.map((item) => <li key={item.id}>{item.title} ({courseLabel(item.course)}): {item.reason}</li>)}</ul>
+      </div>
+    </div>}
+  </>
 }
 
 export function CalendarPage() {
@@ -171,17 +214,56 @@ export function CalendarPage() {
   const [busy, setBusy] = useState(null)
   const [actionError, setActionError] = useState('')
   const [message, setMessage] = useState('')
+  const [confirmingPlan, setConfirmingPlan] = useState(false)
+  const [removing, setRemoving] = useState(null)
+  const [generating, setGenerating] = useState(false)
+  const [plan, setPlan] = useState(null)
 
-  async function toggleLock(session) {
+  async function generatePlan() {
+    setGenerating(true)
+    setActionError('')
+    setMessage('')
+    try {
+      setPlan(await api('/study/generate/', { method: 'POST' }))
+      setConfirmingPlan(false)
+      setAttempt((value) => value + 1)
+    } catch (err) { setActionError(err.message) }
+    finally { setGenerating(false) }
+  }
+
+  async function updateSession(session, body, describe) {
     setBusy(session.id)
     setActionError('')
     setMessage('')
     try {
-      const result = await api(`/study/sessions/${session.id}/`, { method: 'PATCH', body: { is_locked: !session.is_locked } })
+      const result = await api(`/study/sessions/${session.id}/`, { method: 'PATCH', body })
       setData((current) => ({ ...current, sessions: current.sessions.map((item) => item.id === result.id ? { ...item, ...result } : item) }))
-      setMessage(result.is_locked ? 'Session locked. Schedule regeneration will preserve it.' : 'Session unlocked.')
+      setMessage(describe(result))
     } catch (err) { setActionError(err.message) }
     finally { setBusy(null) }
+  }
+
+  function toggleLock(session) {
+    return updateSession(session, { is_locked: !session.is_locked },
+      (result) => result.is_locked ? 'Session locked. Schedule regeneration will preserve it.' : 'Session unlocked.')
+  }
+
+  async function removeSession(session) {
+    setBusy(session.id)
+    setActionError('')
+    setMessage('')
+    try {
+      await api(`/study/sessions/${session.id}/`, { method: 'DELETE' })
+      setData((current) => ({ ...current, sessions: current.sessions.filter((item) => item.id !== session.id) }))
+      setRemoving(null)
+      setMessage('Study session removed.')
+    } catch (err) { setActionError(err.message) }
+    finally { setBusy(null) }
+  }
+
+  function toggleComplete(session) {
+    return updateSession(session, { is_complete: !session.is_complete },
+      (result) => result.is_complete ? 'Session marked complete. Regenerating your plan will keep it.' : 'Session reopened.')
   }
 
   useEffect(() => {
@@ -197,17 +279,39 @@ export function CalendarPage() {
 
   const classes = data?.classes || []
   const days = data ? weekDays(data.week_start, [...data.sessions, ...classes]) : []
-  const totalHours = data ? data.sessions.reduce((total, session) => {
+  // Hours inside this week only, so a session crossing midnight Sunday isn't double counted.
+  const hoursThisWeek = (sessions) => sessions.reduce((total, session) => {
     const start = Math.max(Date.parse(session.starts_at), calendarMidnight(data.week_start))
     const end = Math.min(Date.parse(session.ends_at), calendarMidnight(data.week_end))
     return total + (end - start) / 3_600_000
-  }, 0) : 0
+  }, 0)
+  const totalHours = data ? hoursThisWeek(data.sessions) : 0
+  const completedHours = data ? hoursThisWeek(data.sessions.filter((session) => session.is_complete)) : 0
+  const hoursLabelOf = (value) => value.toLocaleString('en-US', { maximumFractionDigits: 2 })
   const today = calendarDate()
 
   return <>
     <StudyHeader title="Your study calendar" subtitle="Class meetings and study sessions, shown in Eastern time.">
       <NavLink className="button button--secondary" to="/availability"><Clock3 size={17} /> Set availability</NavLink>
+      <button className="button button--primary" disabled={!data || generating || confirmingPlan} onClick={() => {
+        setPlan(null)
+        setMessage('')
+        setActionError(data.availability_configured ? '' : 'Set your weekly availability before generating a study plan.')
+        setConfirmingPlan(data.availability_configured)
+      }}><Sparkles size={17} /> Generate study plan</button>
     </StudyHeader>
+    {confirmingPlan && <div className="study-notice study-notice--confirm" role="group" aria-label="Confirm study plan">
+      <Sparkles size={20} />
+      <div>
+        <strong>Generate a new study plan?</strong>
+        <p>This replaces your unlocked upcoming study sessions, including ones you moved by hand. Locked sessions and past sessions stay as they are.</p>
+      </div>
+      <div className="study-notice__actions">
+        <button className="button button--primary button--small" onClick={generatePlan} disabled={generating}>{generating ? 'Generating…' : 'Generate'}</button>
+        <button className="button button--secondary button--small" onClick={() => setConfirmingPlan(false)} disabled={generating}>Cancel</button>
+      </div>
+    </div>}
+    {plan && <PlanSummary plan={plan} />}
     <AlbertImport open={params.get('import') === 'albert'} onImported={() => setAttempt((value) => value + 1)} />
     {loading ? <p role="status">Loading your week…</p> : error ? <>
       <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
@@ -222,7 +326,7 @@ export function CalendarPage() {
           <div><p className="kicker">Monday – Sunday · Eastern time</p><h2 aria-live="polite">{dateLabel(data.week_start)} – {dateLabel(days[6].date, { year: 'numeric' })}</h2></div>
           <div className="calendar-navigation"><button className="icon-button" aria-label="Previous week" onClick={() => setParams({ week: data.previous_week })}><ChevronLeft size={20} /></button><button className="button button--secondary button--small" onClick={() => setParams({})}>This week</button><button className="icon-button" aria-label="Next week" onClick={() => setParams({ week: data.next_week })}><ChevronRight size={20} /></button></div>
         </div>
-        <div className="calendar-summary"><span>{data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}</span><span>{totalHours.toLocaleString('en-US', { maximumFractionDigits: 2 })} study hours</span><span>Time zone: New York</span></div>
+        <div className="calendar-summary"><span>{data.sessions.length} session{data.sessions.length === 1 ? '' : 's'}</span><span>{totalHours ? `${hoursLabelOf(completedHours)} of ${hoursLabelOf(totalHours)} study hours completed` : '0 study hours'}</span><span>Time zone: New York</span></div>
         {!data.sessions.length && !classes.length && <div className="calendar-empty" role="status"><CalendarDays size={26} /><div><h3>No events this week</h3><p>Browse another week or import your class schedule.</p></div></div>}
         <p className="calendar-scroll-hint">Scroll horizontally to see all seven days.</p>
         <div className="calendar-scroll" tabIndex="0" role="region" aria-label="Days of the week; scroll horizontally on smaller screens">
@@ -230,14 +334,22 @@ export function CalendarPage() {
             {days.map((day) => <section key={day.date} className={`calendar-day ${day.date === today ? 'calendar-day--today' : ''}`} aria-label={`${day.name}, ${day.date}`}>
               <header className="calendar-day__header"><span>{day.name.slice(0, 3)}</span><time dateTime={day.date}>{new Date(`${day.date}T00:00:00Z`).getUTCDate()}</time>{day.date === today && <small>Today</small>}</header>
               <div className="calendar-day__sessions">
-                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={`calendar-session ${session.assignment ? (session.is_locked ? 'calendar-session--locked' : '') : 'calendar-session--class'}`}>
+                {day.entries.length ? day.entries.map((session) => <article key={session.id} className={`calendar-session ${sessionLabel(session) ? `${session.is_locked ? 'calendar-session--locked' : ''} ${session.is_complete ? 'calendar-session--complete' : ''}` : 'calendar-session--class'}`}>
                   <div className="calendar-session__time"><Clock3 size={12} /><span>{session.time}</span></div>
+                  {session.is_complete && <span className="calendar-session__complete"><CheckCircle2 size={12} /> Completed</span>}
                   {session.is_locked && <span className="calendar-session__locked"><LockKeyhole size={12} /> Locked</span>}
-                  <h3>{session.assignment?.title || 'Class meeting'}</h3>
-                  <NavLink to={`/courses/${session.course.id}`}>{session.assignment ? session.course.code || session.course.name : session.course.name}</NavLink>
-                  {session.assignment && session.course.code && <p>{session.course.name}</p>}
+                  <h3>{sessionLabel(session) || 'Class meeting'}</h3>
+                  <NavLink to={`/courses/${session.course.id}`}>{sessionLabel(session) ? session.course.code || session.course.name : session.course.name}</NavLink>
+                  {sessionLabel(session) && session.course.code && <p>{session.course.name}</p>}
                   {session.location && <p>{session.location}</p>}
-                  {session.assignment && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${session.assignment.title}`} disabled={busy !== null || editing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${session.assignment.title}`} disabled={busy !== null || editing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button></div>}
+                  {sessionLabel(session) && <div className="calendar-session__actions"><button className="button button--ghost button--small" aria-label={session.is_complete ? `Reopen ${sessionLabel(session)}` : `Mark ${sessionLabel(session)} complete`} disabled={busy !== null || editing !== null || removing !== null} onClick={() => toggleComplete(session)}>{session.is_complete ? <Circle size={13} /> : <CheckCircle2 size={13} />}{session.is_complete ? 'Reopen' : 'Complete'}</button><button className="button button--ghost button--small" aria-label={`${session.is_locked ? 'Unlock' : 'Lock'} ${sessionLabel(session)}`} disabled={busy !== null || editing !== null || removing !== null} onClick={() => toggleLock(session)}>{session.is_locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{session.is_locked ? 'Unlock' : 'Lock'}</button><button className="button button--ghost button--small" aria-label={`Reschedule ${sessionLabel(session)}`} disabled={busy !== null || editing !== null || removing !== null} onClick={() => { setEditing(session); setMessage(''); setActionError('') }}>Reschedule</button><button className="button button--ghost button--small" aria-label={`Remove ${sessionLabel(session)}`} disabled={busy !== null || editing !== null || removing !== null} onClick={() => { setRemoving(session.id); setMessage(''); setActionError('') }}><Trash2 size={13} />Remove</button></div>}
+                  {removing === session.id && <div className="session-remove-confirm" role="group" aria-label={`Confirm removing ${sessionLabel(session)}`}>
+                    <p>{session.is_locked ? 'This session is locked. Remove it anyway?' : 'Remove this study session?'}</p>
+                    <div>
+                      <button className="button button--danger button--small" onClick={() => removeSession(session)} disabled={busy !== null}>Remove</button>
+                      <button className="button button--secondary button--small" onClick={() => setRemoving(null)} disabled={busy !== null} autoFocus>Cancel</button>
+                    </div>
+                  </div>}
                 </article>) : <p className="calendar-day__empty">No sessions</p>}
               </div>
             </section>)}

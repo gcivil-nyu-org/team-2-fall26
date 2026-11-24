@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'apps.api',
     'apps.study',
     'apps.social',
+    'apps.events',
 ]
 
 MIDDLEWARE = [

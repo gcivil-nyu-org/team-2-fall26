@@ -32,6 +32,13 @@ function renderWithAuth(ui, { session } = {}) {
   }
 }
 
+describe('sidebar navigation', () => {
+  test('links to the community food feed', () => {
+    renderWithAuth(<AppShell>content</AppShell>)
+    expect(screen.getByRole('link', { name: /community/i })).toHaveAttribute('href', '/community')
+  })
+})
+
 describe('sidebar avatar', () => {
   test('shows the uploaded picture when the user has one', () => {
     renderWithAuth(<AppShell>content</AppShell>, {
@@ -251,6 +258,12 @@ describe('study session reminders on the dashboard', () => {
     vi.mocked(realApi).mockResolvedValue(dashboardWith([{ ...reminder, starts_at: '2026-11-04T15:30:00+00:00' }]))
     renderDashboard()
     expect(await screen.findByRole('status')).toHaveTextContent('10:30 AM EST')
+  })
+
+  test('exam prep sessions are named after the exam', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([{ ...reminder, assignment: null, exam: { id: 4, title: 'Midterm' } }]))
+    renderDashboard()
+    expect(await screen.findByRole('status')).toHaveTextContent('EXPOS 101 Writing · Midterm prep starts')
   })
 
   test('dismissing one reminder leaves the others', async () => {
