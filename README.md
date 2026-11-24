@@ -169,6 +169,26 @@ Students choose what other students can see about them from the **Privacy** sect
 - Hiding something only affects what *other* students see. The student still sees their own email, bio and photo everywhere, and the stored values are untouched, so switching a setting back on restores them.
 - Friend requests are still sent by typing an email address, so hiding your email does not stop someone who already knows it from finding you. This is about what the app *shows*, not about making an account unfindable.
 
+## Notification settings (#37)
+
+Students choose what they get from the **Notifications** section of **Account settings** (click **Edit notifications**). Everything shows up inside SemesterPilot; the app sends no email or phone notifications.
+
+| Setting | What it controls | Choices |
+| --- | --- | --- |
+| Study session reminders | Dashboard reminder before a study session | on/off; 15 min, 30 min, 1 hour (default), 2 hours ahead |
+| Assignment and exam reminders | Dashboard reminder for work that is due soon | on/off; 6, 24 (default), 48, 72 hours ahead |
+| Friend request alerts | Count on **Friends** in the sidebar: requests waiting for you, plus requests you sent that were accepted since you last opened Friends (declines never alert) | on/off |
+| New message alerts | Count on **Messages** in the sidebar and next to each friend who wrote | on/off |
+
+Everything defaults to on, so nothing changes for existing students except the new alerts appearing.
+
+- Stored on the user (`accounts/0005_user_notification_preferences`, `accounts/0006_user_deadline_and_social_alerts`), read and saved with `GET`/`PUT /api/profile/notifications/`, which also returns the allowed lead times as `options` so the screen never hard-codes them. A setting left out of a `PUT` keeps its current value; anything that isn't a real boolean, or a lead time outside the list, is rejected with a 400 and nothing is saved.
+- The dashboard's `study_reminders` and `deadline_reminders` lists follow the signed-in student's own settings: empty when off, otherwise items inside their window. Overdue and completed work is never a reminder (the dashboard already counts overdue work). One student's settings never change another's.
+- `GET /api/social/alerts/` returns the pending friend-request count and unread-message counts that drive the sidebar badges; an alert that is turned off reads as zero. The conversation list (`GET /api/social/friends/`) also carries `unread_messages` per friend.
+- Messages now record when they were read (`social/0006_directmessage_read_at`; existing messages are marked read). Opening a conversation reads the messages the friend sent you, whether or not message alerts are on. Messages from someone who is no longer a friend are not counted.
+- Accepted requests are tracked with `FriendRequest.response_seen_at` (`social/0007_friendrequest_response_seen_at`; existing requests are marked seen). `GET /api/social/friends/` marks each friend with `is_new`, and the Friends page calls `POST /api/social/friends/seen/` once it has shown them, which clears the count. Loading the Messages list does not clear it.
+- The sidebar refreshes on navigation, every 30 seconds, when the student switches back to the tab, and straight after reading a conversation, answering a request or opening Friends. Dismissing a dashboard reminder is local to the browser and never changes the assignment or exam.
+
 ## Importing an Albert class schedule
 
 Download the Class Calendar (.ics) from Albert and use **Import from Albert**

@@ -18,6 +18,7 @@ urlpatterns = [
     path('profile/picture/', views.profile_picture_view, name='profile_picture'),
     path('profile/privacy/', views.profile_privacy_view, name='profile_privacy'),
     path('auth/change-password/', views.change_password_view, name='change_password'),
+    path('profile/notifications/', views.profile_notifications_view, name='profile_notifications'),
     path('dashboard/', views.dashboard_view, name='dashboard'),
     path('courses/', views.courses_view, name='courses'),
     path('courses/<int:pk>/', views.course_view, name='course'),

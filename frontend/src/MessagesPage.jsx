@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, MapPin, MessageCircle, Send, Star, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
+import { badgeText, refreshAlerts } from './alerts'
 import { displayName, initial } from './friends'
 
 function ErrorNotice({ text, retry }) {
@@ -65,6 +66,7 @@ export function MessagesPage() {
           {friends.map((friend) => <Link key={friend.id} className="friend-row friend-row--conversation" to={`/messages/${friend.id}`} aria-label={`Open conversation with ${displayName(friend)}`}>
             <span className="avatar">{friend.profile_picture ? <img src={friend.profile_picture} alt="" /> : initial(friend)}</span>
             <span className="friend-row__copy"><strong>{displayName(friend)}</strong>{friend.email && <small>{friend.email}</small>}</span>
+            {friend.unread_messages > 0 && <span className="unread-pill" aria-label={`${friend.unread_messages} unread`}>{badgeText(friend.unread_messages)}</span>}
             <MessageCircle size={18} aria-hidden="true" />
           </Link>)}
         </div> : <div className="empty-state"><span><MessageCircle size={22} /></span><h3>No conversations yet</h3><p>Add a friend to start messaging.</p><Link className="button button--soft" to="/friends">Find friends</Link></div>}
@@ -91,7 +93,12 @@ export function ConversationPage() {
     setDraft('')
     setSendError('')
     api(`/social/messages/${userId}/`)
-      .then((result) => { if (active) setData(result) })
+      .then((result) => {
+        if (!active) return
+        setData(result)
+        // Opening a conversation reads it, so the sidebar count drops.
+        refreshAlerts()
+      })
       .catch((err) => { if (active) setError(err.status === 404 ? 'This conversation is not available. You can only message current friends.' : err.message) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
