@@ -492,6 +492,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .shared-post__author { display: flex; align-items: center; gap: .45rem; color: var(--muted); font-size: .7rem; }
 .shared-post__author .avatar { width: 22px; height: 22px; font-size: .6rem; }
 .shared-post--unavailable { display: flex; align-items: center; gap: .4rem; color: var(--muted); font-size: .8rem; }
+.food-post__owner-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding: 0 1.75rem 1.4rem; }
+.panel > .delete-confirm { margin: 0 1.75rem 1.4rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

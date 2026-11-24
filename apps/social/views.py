@@ -71,7 +71,7 @@ def _request_payload(friend_request, viewer):
     }
 
 
-def _post_payload(post):
+def _post_payload(post, viewer):
     return {
         'id': post.pk,
         'place_name': post.place_name,
@@ -82,6 +82,9 @@ def _post_payload(post):
         # The feed shows every student's posts, but bios are friends-only
         # (#35), so the author summary here leaves the bio out.
         'author': {k: v for k, v in _user_summary(post.author).items() if k != 'bio'},
+        # #51/#52: lets the post page show Edit and Delete to its author. The
+        # server still checks ownership on every change.
+        'is_author': post.author_id == viewer.pk,
         'created_at': post.created_at.isoformat(),
         # #53: whether the student viewing it has saved it.
         'is_saved': bool(getattr(post, 'is_saved', False)),
@@ -266,7 +269,7 @@ def friend_request_view(request, pk):
         return JsonResponse({'friend_request': _request_payload(friend_request, request.user)})
 
 
-def _shared_post_payload(message):
+def _shared_post_payload(message, viewer):
     # #22: the post a message shares, or None for a plain message. A post
     # that was deleted, or whose author is deactivated, is reported as
     # unavailable, matching what the feed would show.
@@ -275,7 +278,9 @@ def _shared_post_payload(message):
     post = message.shared_post
     if post is None or not post.author.is_active:
         return {'available': False}
-    details = {key: value for key, value in _post_payload(post).items() if key != 'is_saved'}
+    # is_saved and is_author describe the student viewing the feed, not the
+    # message, so they're left out of the shared copy.
+    details = {key: value for key, value in _post_payload(post, viewer).items() if key not in ('is_saved', 'is_author')}
     return {'available': True, **details}
 
 
@@ -288,7 +293,7 @@ def _message_payload(message, viewer):
         'body': message.body,
         'created_at': message.created_at.isoformat(),
         'is_mine': message.sender_id == viewer.pk,
-        'shared_post': _shared_post_payload(message),
+        'shared_post': _shared_post_payload(message, viewer),
     }
 
 
@@ -342,7 +347,7 @@ def food_posts_view(request):
     if request.method == 'GET':
         # Every post the community can see, newest first (#46, #47).
         posts = FoodPost.objects.community().with_saved(request.user).select_related('author')
-        return JsonResponse({'posts': [_post_payload(post) for post in posts]})
+        return JsonResponse({'posts': [_post_payload(post, request.user) for post in posts]})
     body = _json_body(request)
     if body is None:
         return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
@@ -352,7 +357,7 @@ def food_posts_view(request):
     post = form.save(commit=False)
     post.author = request.user
     post.save()
-    return JsonResponse({'post': _post_payload(post)}, status=201)
+    return JsonResponse({'post': _post_payload(post, request.user)}, status=201)
 
 
 @require_GET
@@ -376,16 +381,35 @@ def alerts_view(request):
     })
 
 
-@require_GET
+@require_http_methods(['GET', 'PATCH', 'DELETE'])
 def food_post_view(request, pk):
     # #47: one post's full details. A post the feed wouldn't show (missing, or
     # by a deactivated account) is a 404 here too.
+    # #51/#52: its author can edit or delete it. Anyone else gets the same 404
+    # as a missing post, so the response never says whose post it is.
     if not request.user.is_authenticated:
         return _unauthorized()
-    post = FoodPost.objects.community().with_saved(request.user).select_related('author').filter(pk=pk).first()
+    posts = FoodPost.objects.community().with_saved(request.user).select_related('author')
+    if request.method != 'GET':
+        posts = posts.filter(author=request.user)
+    post = posts.filter(pk=pk).first()
     if post is None:
         return JsonResponse({'detail': 'Post not found.'}, status=404)
-    return JsonResponse({'post': _post_payload(post)})
+    if request.method == 'DELETE':
+        post.delete()
+        return JsonResponse({'ok': True})
+    if request.method == 'PATCH':
+        body = _json_body(request)
+        if not isinstance(body, dict):
+            return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+        # Fields left out of the request keep their current value.
+        data = {field: getattr(post, field) for field in FoodPostForm.Meta.fields}
+        data.update({key: value for key, value in body.items() if key in data})
+        form = FoodPostForm(data, instance=post)
+        if not form.is_valid():
+            return JsonResponse({'errors': _errors(form)}, status=400)
+        post = form.save()
+    return JsonResponse({'post': _post_payload(post, request.user)})
 
 
 @require_http_methods(['PUT', 'DELETE'])
@@ -448,5 +472,5 @@ def saved_food_posts_view(request):
     posts = []
     for save in saves:
         save.post.is_saved = True
-        posts.append(_post_payload(save.post))
+        posts.append(_post_payload(save.post, request.user))
     return JsonResponse({'posts': posts})

@@ -65,7 +65,10 @@ class ShareFoodPostTests(TestCase):
                 self.assertEqual(shared['author']['first_name'], 'Jordan')
                 # Bios are friends-only (#35), and the author need not be a friend.
                 self.assertNotIn('bio', shared['author'])
+                # is_saved and is_author (#51/#52) describe whoever views the
+                # feed, not the message, so the shared copy leaves both out.
                 self.assertNotIn('is_saved', shared)
+                self.assertNotIn('is_author', shared)
 
     def test_friend_can_open_the_shared_post(self):
         self.share({'friend_id': self.sam.pk})
