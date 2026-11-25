@@ -466,6 +466,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .food-post__footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; }
 .food-post__save { display: flex; flex-direction: column; align-items: flex-end; gap: .3rem; }
 .food-post__save .button { padding: .4rem .7rem; font-size: .74rem; }
+.food-post__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .9rem; }
+.food-post__comments-link { display: inline-flex; align-items: center; gap: .3rem; color: var(--muted); font-size: .74rem; font-weight: 600; text-decoration: none; }
+.food-post__comments-link:hover, .food-post__comments-link:focus-visible { color: var(--violet); }
+.food-comments { list-style: none; margin: 0; padding: 0; }
+.food-comment { display: flex; gap: .75rem; padding: 1rem 1.4rem; }
+.food-comment + .food-comment { border-top: 1px solid #f0edf2; }
+.food-comment .avatar { flex: 0 0 auto; width: 30px; height: 30px; font-size: .7rem; }
+.food-comment__body { flex: 1; min-width: 0; }
+.food-comment__meta { margin: 0; color: var(--muted); font-size: .72rem; }
+.food-comment__meta strong { color: var(--ink); }
+.food-comment__text { margin: .3rem 0 0; font-size: .86rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.food-comments__status { padding: 0 1.4rem; }
+.food-comment-form { display: grid; gap: .6rem; padding: 1.1rem 1.4rem 1.4rem; border-top: 1px solid #f0edf2; }
 .food-post__header h3 a { color: inherit; text-decoration: none; }
 .food-post__header h3 a:hover, .food-post__header h3 a:focus-visible { color: var(--violet); text-decoration: underline; }
 .food-post__more { justify-self: start; color: var(--violet); font-size: .78rem; font-weight: 600; }
@@ -481,6 +494,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .food-post__share .study-notice { display: grid; gap: .6rem; margin: 0; }
 .food-post__share-empty { display: grid; gap: .6rem; }
 .food-post__share-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.report-toggle { display: inline-flex; align-items: center; gap: .3rem; padding: .3rem .2rem; border: 0; background: none; color: var(--muted); font: inherit; font-size: .74rem; font-weight: 600; cursor: pointer; }
+.report-toggle:hover, .report-toggle:focus-visible { color: #b84936; }
+.report-toggle--done { cursor: default; color: var(--muted); font-weight: 500; }
+.report-toggle--done:hover { color: var(--muted); }
+.report-toggle--comment { margin-top: .25rem; padding-left: 0; font-size: .7rem; }
+.report-panel { display: grid; gap: .7rem; margin-top: .5rem; padding: 1rem; border: 1px solid var(--line); border-radius: 12px; background: #fdf9f8; }
+.report-panel fieldset { display: grid; gap: .45rem; margin: 0; padding: 0; border: 0; }
+.report-panel legend { margin-bottom: .35rem; padding: 0; font-size: .82rem; font-weight: 700; }
+.report-panel__reason { display: flex; align-items: center; gap: .45rem; font-size: .82rem; cursor: pointer; }
+.report-panel textarea { box-sizing: border-box; width: 100%; resize: vertical; }
+.report-panel__note { margin: 0; color: var(--muted); font-size: .74rem; }
+.report-panel__actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.report-notice { margin: .5rem 0 0; font-size: .8rem; }
 .shared-post { display: grid; gap: .3rem; margin: .5rem 0; padding: .75rem .85rem; border: 1px solid var(--line); border-radius: 10px; background: white; color: inherit; text-decoration: none; }
 .shared-post:hover, .shared-post:focus-visible { border-color: var(--violet); }
 .shared-post__kicker { display: inline-flex; align-items: center; gap: .3rem; color: var(--violet); font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }

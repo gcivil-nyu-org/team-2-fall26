@@ -1,6 +1,6 @@
 import json
 
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -9,10 +9,10 @@ from django.views.decorators.http import require_GET, require_http_methods
 from apps.accounts.models import User
 
 from .forms import (
-    FoodPostForm, PostCommentForm, RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm,
-    ShareFoodPostForm,
+    FoodPostForm, PostCommentForm, ReportContentForm, RespondToFriendRequestForm, SendDirectMessageForm,
+    SendFriendRequestForm, ShareFoodPostForm,
 )
-from .models import DirectMessage, FoodPost, FriendRequest, PostComment, SavedPost
+from .models import ContentReport, DirectMessage, FoodPost, FriendRequest, PostComment, SavedPost
 
 
 def _json_body(request):
@@ -89,6 +89,8 @@ def _post_payload(post, viewer):
         'is_saved': bool(getattr(post, 'is_saved', False)),
         # #49: how many comments the post page will show.
         'comment_count': getattr(post, 'comment_count', 0),
+        # #67: whether the student viewing it has already reported it.
+        'is_reported': bool(getattr(post, 'is_reported', False)),
     }
 
 
@@ -98,12 +100,15 @@ def _public_author(user):
     return {k: v for k, v in _user_summary(user).items() if k != 'bio'}
 
 
-def _comment_payload(comment):
+def _comment_payload(comment, viewer):
     return {
         'id': comment.pk,
         'body': comment.body,
         'author': _public_author(comment.author),
         'created_at': comment.created_at.isoformat(),
+        # #67: students can report other people's comments, once each.
+        'is_author': comment.author_id == viewer.pk,
+        'is_reported': bool(getattr(comment, 'is_reported', False)),
     }
 
 
@@ -111,7 +116,7 @@ def _community_posts(user):
     # Counting comments groups the query, and Django drops Meta.ordering from
     # grouped queries, so the newest-first order is spelled out here.
     return (
-        FoodPost.objects.community().with_saved(user).with_comment_count()
+        FoodPost.objects.community().with_saved(user).with_reported(user).with_comment_count()
         .select_related('author').order_by('-created_at', '-id')
     )
 
@@ -305,7 +310,7 @@ def _shared_post_payload(message, viewer):
         return {'available': False}
     # is_saved and is_author describe the student viewing the feed, not the
     # message, so they're left out of the shared copy.
-    details = {key: value for key, value in _post_payload(post, viewer).items() if key not in ('is_saved', 'is_author', 'comment_count')}
+    details = {key: value for key, value in _post_payload(post, viewer).items() if key not in ('is_saved', 'is_author', 'comment_count', 'is_reported')}
     return {'available': True, **details}
 
 
@@ -510,8 +515,8 @@ def food_post_comments_view(request, pk):
     if post is None:
         return JsonResponse({'detail': 'Post not found.'}, status=404)
     if request.method == 'GET':
-        comments = post.comments.community().select_related('author')
-        return JsonResponse({'comments': [_comment_payload(comment) for comment in comments]})
+        comments = post.comments.community().with_reported(request.user).select_related('author')
+        return JsonResponse({'comments': [_comment_payload(comment, request.user) for comment in comments]})
     body = _json_body(request)
     if not isinstance(body, dict):
         return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
@@ -519,4 +524,57 @@ def food_post_comments_view(request, pk):
     if not form.is_valid():
         return JsonResponse({'errors': _errors(form)}, status=400)
     comment = PostComment.objects.create(post=post, author=request.user, body=form.cleaned_data['body'])
-    return JsonResponse({'comment': _comment_payload(comment)}, status=201)
+    return JsonResponse({'comment': _comment_payload(comment, request.user)}, status=201)
+
+
+def _report(request, author, **target):
+    # #67: shared by post and comment reports. Reporting never changes or
+    # hides the content; it only adds a report for the administrators.
+    if author.pk == request.user.pk:
+        return JsonResponse({'detail': 'You can’t report your own content.'}, status=400)
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    if body.get('details') is not None and not isinstance(body['details'], str):
+        return JsonResponse({'errors': {'details': ['Enter valid details.']}}, status=400)
+    form = ReportContentForm(body)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    if ContentReport.objects.filter(reporter=request.user, **target).exists():
+        return JsonResponse({'detail': 'You’ve already reported this.'}, status=409)
+    try:
+        with transaction.atomic():
+            ContentReport.objects.create(
+                reporter=request.user, reason=form.cleaned_data['reason'],
+                details=form.cleaned_data['details'], **target,
+            )
+    except IntegrityError:
+        # Two reports sent at the same moment: the database keeps one.
+        return JsonResponse({'detail': 'You’ve already reported this.'}, status=409)
+    return JsonResponse({'reported': True}, status=201)
+
+
+@require_http_methods(['POST'])
+def food_post_report_view(request, pk):
+    # #67: report a post the feed shows.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    post = FoodPost.objects.community().select_related('author').filter(pk=pk).first()
+    if post is None:
+        return JsonResponse({'detail': 'Post not found.'}, status=404)
+    return _report(request, post.author, post=post)
+
+
+@require_http_methods(['POST'])
+def comment_report_view(request, pk):
+    # #67: report a comment the post page shows (its author and the post's
+    # author are both active).
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    comment = (
+        PostComment.objects.community().filter(pk=pk, post__author__is_active=True)
+        .select_related('author').first()
+    )
+    if comment is None:
+        return JsonResponse({'detail': 'Comment not found.'}, status=404)
+    return _report(request, comment.author, comment=comment)

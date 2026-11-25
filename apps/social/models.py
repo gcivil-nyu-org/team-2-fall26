@@ -156,6 +156,12 @@ class FoodPostQuerySet(models.QuerySet):
         # #53: marks each post the student has saved, for the Save button.
         return self.annotate(is_saved=models.Exists(SavedPost.objects.filter(user=user, post=models.OuterRef('pk'))))
 
+    def with_reported(self, user):
+        # #67: marks each post the student has already reported.
+        return self.annotate(is_reported=models.Exists(
+            ContentReport.objects.filter(reporter=user, post=models.OuterRef('pk')),
+        ))
+
     def with_comment_count(self):
         # #49: comments the community can see, so the count matches the list.
         return self.annotate(comment_count=models.Count(
@@ -230,6 +236,12 @@ class PostCommentQuerySet(models.QuerySet):
         # it's reactivated (#49).
         return self.filter(author__is_active=True)
 
+    def with_reported(self, user):
+        # #67: marks each comment the student has already reported.
+        return self.annotate(is_reported=models.Exists(
+            ContentReport.objects.filter(reporter=user, comment=models.OuterRef('pk')),
+        ))
+
 
 class PostComment(models.Model):
     # #49: a student's comment on a food post.
@@ -250,3 +262,59 @@ class PostComment(models.Model):
 
     def __str__(self):
         return f'{self.author} on {self.post}'
+
+
+class ContentReport(models.Model):
+    # #67: a student flagging a post or comment for the moderators. Reporting
+    # never hides the content; administrators see reports in the admin.
+    # Exactly one of post and comment is set. A report goes away with the
+    # content it's about.
+    class Reason(models.TextChoices):
+        SPAM = 'spam', 'Spam'
+        HARASSMENT = 'harassment', 'Harassment or bullying'
+        INAPPROPRIATE = 'inappropriate', 'Inappropriate content'
+        OTHER = 'other', 'Something else'
+
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='content_reports',
+    )
+    post = models.ForeignKey(FoodPost, on_delete=models.CASCADE, null=True, blank=True, related_name='reports')
+    comment = models.ForeignKey(PostComment, on_delete=models.CASCADE, null=True, blank=True, related_name='reports')
+    reason = models.CharField(max_length=20, choices=Reason.choices)
+    details = models.TextField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Newest first, for the review queue.
+        ordering = ['-created_at', '-id']
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(post__isnull=False, comment__isnull=True)
+                    | models.Q(post__isnull=True, comment__isnull=False)
+                ),
+                name='content_report_one_target',
+            ),
+            # One report per student per post or comment.
+            models.UniqueConstraint(
+                fields=['reporter', 'post'], condition=models.Q(post__isnull=False),
+                name='content_report_once_per_post',
+            ),
+            models.UniqueConstraint(
+                fields=['reporter', 'comment'], condition=models.Q(comment__isnull=False),
+                name='content_report_once_per_comment',
+            ),
+        ]
+
+    @property
+    def content(self):
+        return self.post or self.comment
+
+    @property
+    def content_type_label(self):
+        return 'Post' if self.post_id else 'Comment'
+
+    def __str__(self):
+        return f'{self.reporter} reported {self.content_type_label.lower()} {self.post_id or self.comment_id}'

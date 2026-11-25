@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Bookmark, BookmarkCheck, MapPin, MessageSquare, Search, Pencil, Save, Send, Share2, Star, Trash2, Utensils } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkCheck, Flag, MapPin, Search, MessageSquare, Pencil, Save, Send, Share2, Star, Trash2, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
@@ -177,8 +177,76 @@ function SharePanel({ post, onClose }) {
   </section>
 }
 
+// #67: the reasons a student can pick when reporting a post or comment.
+export const REPORT_REASONS = [
+  ['spam', 'Spam'],
+  ['harassment', 'Harassment or bullying'],
+  ['inappropriate', 'Inappropriate content'],
+  ['other', 'Something else'],
+]
+const REPORT_CONFIRMATION = 'Thanks, your report was sent to the moderators.'
+
+// #67: pick a reason (and optionally add details) and send the report.
+// Reporting never hides anything; it only tells the moderators.
+function ReportPanel({ label, kind, url, onReported, onClose }) {
+  const [reason, setReason] = useState('')
+  const [details, setDetails] = useState('')
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(event) {
+    event.preventDefault()
+    if (!reason || sending) return
+    setSending(true)
+    setError('')
+    try {
+      await api(url, { method: 'POST', body: { reason, details: details.trim() } })
+      onReported()
+    } catch (err) {
+      // Already reported (say, from another tab): the end result is the same.
+      if (err.status === 409) onReported()
+      else {
+        setError(err.errors?.reason?.[0] || err.errors?.details?.[0] || err.message)
+        setSending(false)
+      }
+    }
+  }
+
+  return <form className="report-panel" aria-label={`Report ${label}`} onSubmit={submit}>
+    <fieldset disabled={sending}>
+      <legend>Why are you reporting this {kind}?</legend>
+      {REPORT_REASONS.map(([value, text]) => <label key={value} className="report-panel__reason">
+        <input type="radio" name="reason" value={value} checked={reason === value} onChange={() => { setReason(value); setError('') }} /> {text}
+      </label>)}
+      <label className="field">
+        <span className="field__label">Details<small>Optional</small></span>
+        <textarea value={details} rows={2} maxLength={500} placeholder="Anything the moderators should know?" onChange={(event) => { setDetails(event.target.value); setError('') }} />
+      </label>
+    </fieldset>
+    <p className="report-panel__note">The {kind} stays visible while the moderators review it.</p>
+    {error && <p className="field__error" role="alert">{error}</p>}
+    <div className="report-panel__actions">
+      <button className="button button--primary button--small" type="submit" disabled={!reason || sending}><Flag size={14} /> {sending ? 'Sending…' : 'Send report'}</button>
+      <button className="button button--secondary button--small" type="button" onClick={onClose} disabled={sending}>Cancel</button>
+    </div>
+  </form>
+}
+
+// #67: the Report toggle, or "Reported" once this student has reported it.
+function ReportToggle({ label, reported, open, onToggle, className = '' }) {
+  if (reported) return <span className={`report-toggle report-toggle--done ${className}`}><Flag size={13} aria-hidden="true" /> Reported</span>
+  return <button type="button" className={`report-toggle ${className}`} aria-expanded={open} aria-label={`Report ${label}`} onClick={onToggle}>
+    <Flag size={13} aria-hidden="true" /> Report
+  </button>
+}
+
 function FoodPostCard({ post, full = false, onChange }) {
-  const [sharing, setSharing] = useState(false)
+  // Share and Report open one panel at a time under the card.
+  const [panel, setPanel] = useState(null)
+  const [reported, setReported] = useState(Boolean(post.is_reported))
+  const [reportNotice, setReportNotice] = useState(false)
+  const sharing = panel === 'share'
+  const togglePanel = (name) => setPanel((current) => (current === name ? null : name))
   const shortened = !full && post.description.length > PREVIEW_LENGTH
   const Heading = full ? 'h1' : 'h3'
   return <article className={`food-post ${full ? 'food-post--full' : ''}`} aria-label={post.place_name}>
@@ -201,13 +269,17 @@ function FoodPostCard({ post, full = false, onChange }) {
       </div>
       <div className="food-post__actions">
         {!full && <Link className="food-post__comments-link" to={`/community/posts/${post.id}`} aria-label={`${commentCountLabel(post.comment_count)} on ${post.place_name}`}><MessageSquare size={14} /> {commentCountLabel(post.comment_count)}</Link>}
-        <button type="button" className="button button--secondary food-post__share-toggle" aria-expanded={sharing} aria-label={`Share ${post.place_name} with a friend`} onClick={() => setSharing((value) => !value)}>
+        <button type="button" className="button button--secondary food-post__share-toggle" aria-expanded={sharing} aria-label={`Share ${post.place_name} with a friend`} onClick={() => togglePanel('share')}>
           <Share2 size={15} /> Share
         </button>
         {onChange && <SaveButton post={post} onChange={onChange} />}
+        {!post.is_author && <ReportToggle label={post.place_name} reported={reported} open={panel === 'report'} onToggle={() => togglePanel('report')} />}
       </div>
     </footer>
-    {sharing && <SharePanel post={post} onClose={() => setSharing(false)} />}
+    {sharing && <SharePanel post={post} onClose={() => setPanel(null)} />}
+    {panel === 'report' && <ReportPanel label={post.place_name} kind="post" url={`/social/posts/${post.id}/report/`}
+      onReported={() => { setReported(true); setReportNotice(true); setPanel(null) }} onClose={() => setPanel(null)} />}
+    {reportNotice && <p className="study-notice study-notice--success report-notice" role="status">{REPORT_CONFIRMATION}</p>}
   </article>
 }
 
@@ -217,6 +289,24 @@ export function commentCountLabel(count) {
 }
 
 // #49: a post's comments, oldest first, with a box for adding one.
+function CommentItem({ comment }) {
+  const [reporting, setReporting] = useState(false)
+  const [reported, setReported] = useState(Boolean(comment.is_reported))
+  const [notice, setNotice] = useState(false)
+  const label = `comment by ${displayName(comment.author)}`
+  return <li className="food-comment">
+    <div className="avatar">{comment.author.profile_picture ? <img src={comment.author.profile_picture} alt="" /> : initial(comment.author)}</div>
+    <div className="food-comment__body">
+      <p className="food-comment__meta"><strong>{displayName(comment.author)}</strong> · {formatDate(comment.created_at, true)}</p>
+      <p className="food-comment__text">{comment.body}</p>
+      {!comment.is_author && <ReportToggle className="report-toggle--comment" label={label} reported={reported} open={reporting} onToggle={() => setReporting((value) => !value)} />}
+      {reporting && <ReportPanel label={label} kind="comment" url={`/social/comments/${comment.id}/report/`}
+        onReported={() => { setReported(true); setNotice(true); setReporting(false) }} onClose={() => setReporting(false)} />}
+      {notice && <p className="study-notice study-notice--success report-notice" role="status">{REPORT_CONFIRMATION}</p>}
+    </div>
+  </li>
+}
+
 function PostComments({ postId, onCountChange }) {
   const [comments, setComments] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -259,13 +349,7 @@ function PostComments({ postId, onCountChange }) {
     {loading ? <p className="food-comments__status" role="status">Loading comments…</p>
       : loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} />
         : comments && (comments.length ? <ol className="food-comments" aria-label="Comments on this post">
-          {comments.map((comment) => <li className="food-comment" key={comment.id}>
-            <div className="avatar">{comment.author.profile_picture ? <img src={comment.author.profile_picture} alt="" /> : initial(comment.author)}</div>
-            <div className="food-comment__body">
-              <p className="food-comment__meta"><strong>{displayName(comment.author)}</strong> · {formatDate(comment.created_at, true)}</p>
-              <p className="food-comment__text">{comment.body}</p>
-            </div>
-          </li>)}
+          {comments.map((comment) => <CommentItem comment={comment} key={comment.id} />)}
         </ol> : <div className="empty-state"><span><MessageSquare size={22} /></span><h3>No comments yet</h3><p>Be the first to share your thoughts.</p></div>)}
     {comments && <form className="food-comment-form" onSubmit={submit} aria-label="Write a comment">
       <div className={`field ${error ? 'field--error' : ''}`}>
@@ -513,7 +597,7 @@ export function FoodFeedPage() {
       </div>
     </form>
     {message && <div className="study-notice study-notice--success food-post-notice" role="status">{message}</div>}
-    {posts && <section className="panel panel--stacked food-feed-filters" aria-label="Filter food recommendations">
+    {posts?.length > 0 && <section className="panel panel--stacked food-feed-filters" aria-label="Filter food recommendations">
       <div className="panel__header"><div><p className="kicker">Find a place</p><h2>Search &amp; filter</h2></div>
         {filtering && <button type="button" className="button button--secondary button--small" onClick={() => setFilters({ query: '', cuisine: '', location: '' })}>Clear filters</button>}
       </div>
@@ -533,7 +617,7 @@ export function FoodFeedPage() {
       </div>
     </section>}
     {loading ? <p role="status">Loading the food feed…</p> : loadError ? <LoadError message={loadError} retry={() => setAttempt((value) => value + 1)} /> : posts && <section className="panel panel--stacked" aria-label="Food feed">
-      <div className="panel__header"><div><p className="kicker">Latest first</p><h2>Recommendations</h2></div><span className="count-pill" aria-label="Matching recommendations">{visible.length}</span></div>
+      <div className="panel__header"><div><p className="kicker">Latest first</p><h2>Recommendations</h2></div><span className="count-pill" aria-label={`${visible.length} matching recommendations`}>{visible.length}</span></div>
       {visible.length ? <div className="food-post-list">
         {visible.map((post) => <FoodPostCard post={post} key={post.id} onChange={replacePost} />)}
       </div> : <div className="empty-state"><span><Utensils size={22} /></span><h3>{posts.length ? 'No matching recommendations' : 'No posts yet'}</h3><p>{posts.length ? 'Try another keyword, cuisine, or location.' : 'Be the first to recommend a place to eat.'}</p></div>}
