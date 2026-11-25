@@ -156,6 +156,12 @@ class FoodPostQuerySet(models.QuerySet):
         # #53: marks each post the student has saved, for the Save button.
         return self.annotate(is_saved=models.Exists(SavedPost.objects.filter(user=user, post=models.OuterRef('pk'))))
 
+    def with_comment_count(self):
+        # #49: comments the community can see, so the count matches the list.
+        return self.annotate(comment_count=models.Count(
+            'comments', filter=models.Q(comments__author__is_active=True), distinct=True,
+        ))
+
 
 class FoodPost(models.Model):
     # #46: a student's recommendation for a place to eat, shown in the
@@ -216,3 +222,31 @@ class SavedPost(models.Model):
 
     def __str__(self):
         return f'{self.user} saved {self.post}'
+
+
+class PostCommentQuerySet(models.QuerySet):
+    def community(self):
+        # Like posts, comments by a deactivated account stay hidden until
+        # it's reactivated (#49).
+        return self.filter(author__is_active=True)
+
+
+class PostComment(models.Model):
+    # #49: a student's comment on a food post.
+    post = models.ForeignKey(FoodPost, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='post_comments',
+    )
+    body = models.CharField(max_length=1000)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = PostCommentQuerySet.as_manager()
+
+    class Meta:
+        # Oldest first, so a discussion reads top to bottom.
+        ordering = ['created_at', 'id']
+
+    def __str__(self):
+        return f'{self.author} on {self.post}'

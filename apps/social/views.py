@@ -9,9 +9,10 @@ from django.views.decorators.http import require_GET, require_http_methods
 from apps.accounts.models import User
 
 from .forms import (
-    FoodPostForm, RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm, ShareFoodPostForm,
+    FoodPostForm, PostCommentForm, RespondToFriendRequestForm, SendDirectMessageForm, SendFriendRequestForm,
+    ShareFoodPostForm,
 )
-from .models import DirectMessage, FoodPost, FriendRequest, SavedPost
+from .models import DirectMessage, FoodPost, FriendRequest, PostComment, SavedPost
 
 
 def _json_body(request):
@@ -79,16 +80,40 @@ def _post_payload(post, viewer):
         'location': post.location,
         'cuisine': post.cuisine,
         'rating': post.rating,
-        # The feed shows every student's posts, but bios are friends-only
-        # (#35), so the author summary here leaves the bio out.
-        'author': {k: v for k, v in _user_summary(post.author).items() if k != 'bio'},
+        'author': _public_author(post.author),
         # #51/#52: lets the post page show Edit and Delete to its author. The
         # server still checks ownership on every change.
         'is_author': post.author_id == viewer.pk,
         'created_at': post.created_at.isoformat(),
         # #53: whether the student viewing it has saved it.
         'is_saved': bool(getattr(post, 'is_saved', False)),
+        # #49: how many comments the post page will show.
+        'comment_count': getattr(post, 'comment_count', 0),
     }
+
+
+def _public_author(user):
+    # Posts and comments are seen by every student, but bios are friends-only
+    # (#35), so the author summary leaves the bio out.
+    return {k: v for k, v in _user_summary(user).items() if k != 'bio'}
+
+
+def _comment_payload(comment):
+    return {
+        'id': comment.pk,
+        'body': comment.body,
+        'author': _public_author(comment.author),
+        'created_at': comment.created_at.isoformat(),
+    }
+
+
+def _community_posts(user):
+    # Counting comments groups the query, and Django drops Meta.ordering from
+    # grouped queries, so the newest-first order is spelled out here.
+    return (
+        FoodPost.objects.community().with_saved(user).with_comment_count()
+        .select_related('author').order_by('-created_at', '-id')
+    )
 
 
 def _unread_by_friend(user):
@@ -280,7 +305,7 @@ def _shared_post_payload(message, viewer):
         return {'available': False}
     # is_saved and is_author describe the student viewing the feed, not the
     # message, so they're left out of the shared copy.
-    details = {key: value for key, value in _post_payload(post, viewer).items() if key not in ('is_saved', 'is_author')}
+    details = {key: value for key, value in _post_payload(post, viewer).items() if key not in ('is_saved', 'is_author', 'comment_count')}
     return {'available': True, **details}
 
 
@@ -346,7 +371,7 @@ def food_posts_view(request):
         return _unauthorized()
     if request.method == 'GET':
         # Every post the community can see, newest first (#46, #47).
-        posts = FoodPost.objects.community().with_saved(request.user).select_related('author')
+        posts = _community_posts(request.user)
         return JsonResponse({'posts': [_post_payload(post, request.user) for post in posts]})
     body = _json_body(request)
     if body is None:
@@ -389,7 +414,7 @@ def food_post_view(request, pk):
     # as a missing post, so the response never says whose post it is.
     if not request.user.is_authenticated:
         return _unauthorized()
-    posts = FoodPost.objects.community().with_saved(request.user).select_related('author')
+    posts = _community_posts(request.user)
     if request.method != 'GET':
         posts = posts.filter(author=request.user)
     post = posts.filter(pk=pk).first()
@@ -465,12 +490,33 @@ def saved_food_posts_view(request):
     # deactivated account drops out until the account is reactivated.
     if not request.user.is_authenticated:
         return _unauthorized()
-    saves = (
-        SavedPost.objects.filter(user=request.user, post__author__is_active=True)
-        .select_related('post__author')
+    saved_at = SavedPost.objects.filter(user=request.user, post=models.OuterRef('pk'))
+    posts = (
+        _community_posts(request.user)
+        .annotate(saved_at=models.Subquery(saved_at.values('created_at')[:1]), save_id=models.Subquery(saved_at.values('pk')[:1]))
+        .filter(saved_at__isnull=False)
+        .order_by('-saved_at', '-save_id')
     )
-    posts = []
-    for save in saves:
-        save.post.is_saved = True
-        posts.append(_post_payload(save.post, request.user))
-    return JsonResponse({'posts': posts})
+    return JsonResponse({'posts': [_post_payload(post, request.user) for post in posts]})
+
+
+@require_http_methods(['GET', 'POST'])
+def food_post_comments_view(request, pk):
+    # #49: GET lists a post's comments, oldest first; POST adds one as the
+    # logged-in student. Only posts the community can see take comments.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    post = FoodPost.objects.community().filter(pk=pk).first()
+    if post is None:
+        return JsonResponse({'detail': 'Post not found.'}, status=404)
+    if request.method == 'GET':
+        comments = post.comments.community().select_related('author')
+        return JsonResponse({'comments': [_comment_payload(comment) for comment in comments]})
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    form = PostCommentForm(body)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    comment = PostComment.objects.create(post=post, author=request.user, body=form.cleaned_data['body'])
+    return JsonResponse({'comment': _comment_payload(comment)}, status=201)

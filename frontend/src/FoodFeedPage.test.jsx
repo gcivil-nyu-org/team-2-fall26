@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 import { api as realApi } from './api'
-import { FoodFeedPage, FoodPostEditPage, FoodPostPage, PREVIEW_LENGTH, previewText, SavedPostsPage } from './FoodFeedPage'
+import { commentCountLabel, FoodFeedPage, FoodPostEditPage, FoodPostPage, PREVIEW_LENGTH, previewText, SavedPostsPage } from './FoodFeedPage'
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal()
@@ -30,6 +30,7 @@ function post(overrides = {}) {
     author: sam,
     created_at: '2026-11-03T18:00:00+00:00',
     is_saved: false,
+    comment_count: 0,
     ...overrides,
   }
 }
@@ -267,6 +268,7 @@ describe('opening a food post', () => {
         if (result instanceof Error) throw result
         return { post: result }
       }
+      if (path === '/social/posts/7/comments/' && !options.method) return { comments: [] }
       throw new Error(`unexpected call to api(${path})`)
     })
   }
@@ -284,7 +286,7 @@ describe('opening a food post', () => {
     expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
     expect(within(card).queryByRole('link', { name: /Read more/ })).not.toBeInTheDocument()
     const comments = screen.getByRole('region', { name: 'Comments' })
-    expect(within(comments).getByText('No comments yet')).toBeInTheDocument()
+    expect(await within(comments).findByText('No comments yet')).toBeInTheDocument()
     expect(realApi).toHaveBeenCalledWith('/social/posts/7/')
   })
 
@@ -322,6 +324,7 @@ describe('saving food recommendations', () => {
       if (path === '/social/posts/' && !options.method) return { posts }
       if (path === '/social/posts/saved/' && !options.method) return { posts: saved }
       if (detail && path === `/social/posts/${detail.id}/` && !options.method) return { post: detail }
+      if (detail && path === `/social/posts/${detail.id}/comments/` && !options.method) return { comments: [] }
       const match = path.match(/^\/social\/posts\/(\d+)\/save\/$/)
       if (match && ['PUT', 'DELETE'].includes(options.method)) {
         if (failSave) throw new Error('Could not save that post.')
@@ -519,6 +522,7 @@ function mockOwnPost({ isAuthor = true, onPatch, onDelete } = {}) {
       if (!current) throw Object.assign(new Error('Post not found.'), { status: 404 })
       return { post: current }
     }
+    if (path === '/social/posts/7/comments/' && !options.method) return { comments: [] }
     if (path === '/social/posts/7/' && options.method === 'PATCH') {
       if (onPatch) return onPatch(options.body)
       current = { ...current, ...options.body }
@@ -577,7 +581,7 @@ describe('editing a food post (#51)', () => {
     expect(calls('PATCH')).toEqual([['/social/posts/7/', { method: 'PATCH', body: {
       place_name: "Joe's Pizza", description: 'Get the grandma slice.', location: '7 Carmine St', cuisine: 'Pizza', rating: null,
     } }]])
-    expect(await screen.findByRole('status')).toHaveTextContent('Saved your changes.')
+    expect(await screen.findByText('Saved your changes.')).toHaveAttribute('role', 'status')
     const card = screen.getByRole('article', { name: "Joe's Pizza" })
     expect(within(card).getByText('Get the grandma slice.')).toBeInTheDocument()
     expect(within(card).queryByLabelText(/Rated/)).not.toBeInTheDocument()
@@ -685,5 +689,112 @@ describe('deleting a food post (#52)', () => {
     fail = false
     await user.click(screen.getByRole('button', { name: 'Delete' }))
     expect(await screen.findByText("Deleted your post about Joe's Pizza.")).toBeInTheDocument()
+  })
+})
+
+describe('commenting on food posts', () => {
+  const alexComment = { id: 1, body: 'The white pie is great too.', author: alex, created_at: '2026-11-04T18:00:00+00:00' }
+  const samComment = { id: 2, body: 'Agreed!', author: sam, created_at: '2026-11-04T19:00:00+00:00' }
+
+  function mockComments({ comments = [], onComment, commentsError, detail = post({ id: 7, comment_count: comments.length }) } = {}) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/7/' && !options.method) return { post: detail }
+      if (path === '/social/posts/7/comments/' && !options.method) {
+        if (commentsError) throw commentsError
+        return { comments }
+      }
+      if (path === '/social/posts/7/comments/' && options.method === 'POST') return onComment(options.body)
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  async function openPost() {
+    renderApp('/community/posts/7')
+    return screen.findByRole('region', { name: 'Comments' })
+  }
+
+  test('lists comments oldest first with their author and time', async () => {
+    mockComments({ comments: [alexComment, samComment] })
+    const section = await openPost()
+    const items = await within(section).findAllByRole('listitem')
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('The white pie is great too.'),
+      expect.stringContaining('Agreed!'),
+    ])
+    expect(items[0]).toHaveTextContent('Alex')
+    expect(items[1]).toHaveTextContent('Sam Lee')
+    expect(within(section).getByText('2')).toBeInTheDocument()
+  })
+
+  test('shows an empty state when nobody has commented yet', async () => {
+    mockComments()
+    const section = await openPost()
+    expect(await within(section).findByText('No comments yet')).toBeInTheDocument()
+    expect(within(section).getByText('Be the first to share your thoughts.')).toBeInTheDocument()
+  })
+
+  test('posting a comment adds it under the post and clears the box', async () => {
+    const onComment = vi.fn(async (body) => ({ comment: { id: 3, body: body.body.trim(), author: alex, created_at: '2026-11-05T12:00:00+00:00' } }))
+    mockComments({ comments: [samComment], onComment })
+    const section = await openPost()
+    const user = userEvent.setup()
+    const box = await within(section).findByLabelText('Add a comment')
+    await user.type(box, '  Going this weekend!  ')
+    await user.click(within(section).getByRole('button', { name: 'Post comment' }))
+    expect(realApi).toHaveBeenCalledWith('/social/posts/7/comments/', { method: 'POST', body: { body: '  Going this weekend!  ' } })
+    const items = await within(section).findAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[1]).toHaveTextContent('Going this weekend!')
+    expect(box).toHaveValue('')
+    expect(within(section).getByText('2')).toBeInTheDocument()
+  })
+
+  test('the post button stays disabled until there is text', async () => {
+    const onComment = vi.fn()
+    mockComments({ onComment })
+    const section = await openPost()
+    const user = userEvent.setup()
+    const button = await within(section).findByRole('button', { name: 'Post comment' })
+    expect(button).toBeDisabled()
+    await user.type(within(section).getByLabelText('Add a comment'), '   ')
+    expect(button).toBeDisabled()
+    await user.type(within(section).getByLabelText('Add a comment'), 'Yum')
+    expect(button).toBeEnabled()
+    expect(onComment).not.toHaveBeenCalled()
+  })
+
+  test('a rejected comment shows the server error and keeps the text', async () => {
+    const onComment = vi.fn(async () => { throw Object.assign(new Error('Please fix the errors.'), { errors: { body: ['Comments must be 1000 characters or fewer.'] } }) })
+    mockComments({ onComment })
+    const section = await openPost()
+    const user = userEvent.setup()
+    await user.type(await within(section).findByLabelText('Add a comment'), 'Too long')
+    await user.click(within(section).getByRole('button', { name: 'Post comment' }))
+    expect(await within(section).findByRole('alert')).toHaveTextContent('Comments must be 1000 characters or fewer.')
+    expect(within(section).getByLabelText('Add a comment')).toHaveValue('Too long')
+    expect(within(section).queryAllByRole('listitem')).toHaveLength(0)
+  })
+
+  test('comments that fail to load offer a working retry', async () => {
+    mockComments({ commentsError: new Error('Network down.') })
+    const section = await openPost()
+    expect(await within(section).findByRole('alert')).toHaveTextContent('Network down.')
+    expect(within(section).queryByLabelText('Add a comment')).not.toBeInTheDocument()
+    mockComments({ comments: [samComment] })
+    await userEvent.setup().click(within(section).getByRole('button', { name: 'Try again' }))
+    expect(await within(section).findByText('Agreed!')).toBeInTheDocument()
+  })
+
+  test('feed cards show the comment count and link to the post', async () => {
+    mockFeed([post({ id: 7, comment_count: 3 }), post({ id: 8, place_name: 'Quiet Cafe', comment_count: 0 })])
+    renderFeed()
+    expect(await screen.findByRole('link', { name: "3 comments on Joe's Pizza" })).toHaveAttribute('href', '/community/posts/7')
+    expect(screen.getByRole('link', { name: 'No comments yet on Quiet Cafe' })).toHaveAttribute('href', '/community/posts/8')
+  })
+
+  test('commentCountLabel reads naturally', () => {
+    expect(commentCountLabel(0)).toBe('No comments yet')
+    expect(commentCountLabel(1)).toBe('1 comment')
+    expect(commentCountLabel(12)).toBe('12 comments')
   })
 })

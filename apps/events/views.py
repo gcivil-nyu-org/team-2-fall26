@@ -2,21 +2,22 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Q, Exists, OuterRef
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_http_methods
 
 from .engage import CAREER_CATEGORY
-from .models import Event, EventCategory, EventFeedState
+from .models import Event, EventCategory, EventFeedState, SavedEvent
 
 EASTERN = ZoneInfo('America/New_York')
 
 
 def payload(event, detail=False):
     result = {
+        'is_saved': bool(getattr(event, 'is_saved', False)),
         'id': event.pk, 'title': event.title, 'source_url': event.source_url,
         'starts_at': event.starts_at.isoformat(), 'ends_at': event.ends_at.isoformat(),
         'location': event.location, 'host': event.host, 'status': event.status,
@@ -32,7 +33,7 @@ def events_view(request):
     if not request.user.is_authenticated:
         return JsonResponse({'detail': 'Authentication required.'}, status=401)
     now = timezone.now()
-    events = Event.objects.filter(status='confirmed', starts_at__gt=now)
+    events = Event.objects.filter(status='confirmed', starts_at__gt=now).annotate(is_saved=Exists(SavedEvent.objects.filter(owner=request.user, event=OuterRef('pk'))))
     dates = {}
     for key in ('date_from', 'date_to'):
         value = request.GET.get(key, '')
@@ -83,5 +84,19 @@ def events_view(request):
 def event_view(request, pk):
     if not request.user.is_authenticated:
         return JsonResponse({'detail': 'Authentication required.'}, status=401)
-    event = get_object_or_404(Event.objects.prefetch_related('categories'), pk=pk)
+    event = get_object_or_404(Event.objects.annotate(is_saved=Exists(SavedEvent.objects.filter(owner=request.user, event=OuterRef('pk')))).prefetch_related('categories'), pk=pk)
     return JsonResponse({'event': payload(event, detail=True)})
+
+
+@require_http_methods(['PUT', 'DELETE'])
+def save_event_view(request, pk):
+    if not request.user.is_authenticated:
+        return JsonResponse({'detail': 'Authentication required.'}, status=401)
+    event = get_object_or_404(Event, pk=pk)
+    if request.method == 'DELETE':
+        SavedEvent.objects.filter(owner=request.user, event=event).delete()
+        return JsonResponse({'saved': False})
+    if event.status != 'confirmed' or event.starts_at <= timezone.now():
+        return JsonResponse({'detail': 'Only upcoming confirmed events can be saved.'}, status=400)
+    SavedEvent.objects.get_or_create(owner=request.user, event=event)
+    return JsonResponse({'saved': True})
