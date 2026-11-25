@@ -77,3 +77,16 @@ test('refreshes future events when returning to the page', async () => {
   window.dispatchEvent(new Event('focus'))
   expect(await screen.findByText('No upcoming events found')).toBeInTheDocument()
 })
+
+
+test('saves an upcoming event and confirms it before offering removal', async () => {
+  const user = userEvent.setup()
+  vi.mocked(api).mockResolvedValueOnce({ ...result, events: [{ ...event, starts_at: '2099-11-16T23:00:00Z', is_saved: false }] })
+    .mockResolvedValueOnce({ saved: true }).mockResolvedValueOnce({ saved: false })
+  renderList()
+  await user.click(await screen.findByRole('button', { name: 'Save to calendar' }))
+  expect(api).toHaveBeenLastCalledWith('/events/1/save/', { method: 'PUT' })
+  await user.click(await screen.findByRole('button', { name: 'Remove from calendar' }))
+  expect(api).toHaveBeenLastCalledWith('/events/1/save/', { method: 'DELETE' })
+  expect(await screen.findByRole('button', { name: 'Save to calendar' })).toBeInTheDocument()
+})
