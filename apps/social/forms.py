@@ -1,5 +1,7 @@
 from django import forms
 
+from .models import ContentReport, FoodPost
+
 
 class SendFriendRequestForm(forms.Form):
     email = forms.EmailField(
@@ -33,4 +35,69 @@ class SendDirectMessageForm(forms.Form):
             'required': 'Write a message before sending.',
             'max_length': 'Messages must be 2000 characters or fewer.',
         },
+    )
+
+
+class ShareFoodPostForm(forms.Form):
+    # #22: who to share a post with, plus an optional note. The view checks
+    # that the student is actually a friend.
+    friend_id = forms.IntegerField(
+        min_value=1,
+        error_messages={
+            'required': 'Choose a friend to share this post with.',
+            'invalid': 'Choose a friend to share this post with.',
+            'min_value': 'Choose a friend to share this post with.',
+        },
+    )
+    note = forms.CharField(
+        required=False,
+        max_length=2000,
+        strip=True,
+        error_messages={'max_length': 'Notes must be 2000 characters or fewer.'},
+    )
+
+
+class PostCommentForm(forms.Form):
+    # #49: the author and post come from the request, never the client.
+    body = forms.CharField(
+        max_length=1000,
+        strip=True,
+        error_messages={
+            'required': 'Write a comment before posting.',
+            'max_length': 'Comments must be 1000 characters or fewer.',
+        },
+    )
+
+
+class FoodPostForm(forms.ModelForm):
+    # The author is deliberately not a form field: the view always sets it
+    # from request.user, so a client can never post as someone else.
+    class Meta:
+        model = FoodPost
+        fields = ['place_name', 'description', 'location', 'cuisine', 'rating']
+        error_messages = {
+            'place_name': {'required': 'Enter the name of the restaurant or food place.'},
+            'description': {'required': 'Add a description or recommendation.'},
+            'rating': {
+                'invalid': 'Choose a rating from 1 to 5.',
+                'min_value': 'Choose a rating from 1 to 5.',
+                'max_value': 'Choose a rating from 1 to 5.',
+            },
+        }
+
+
+class ReportContentForm(forms.Form):
+    # #67: why a student is reporting a post or comment.
+    reason = forms.ChoiceField(
+        choices=ContentReport.Reason.choices,
+        error_messages={
+            'required': 'Choose a reason for your report.',
+            'invalid_choice': 'Choose a reason for your report.',
+        },
+    )
+    details = forms.CharField(
+        required=False,
+        max_length=500,
+        strip=True,
+        error_messages={'max_length': 'Details must be 500 characters or fewer.'},
     )

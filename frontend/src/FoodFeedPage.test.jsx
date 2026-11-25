@@ -1,0 +1,937 @@
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+
+import { api as realApi } from './api'
+import { commentCountLabel, FoodFeedPage, FoodPostEditPage, FoodPostPage, PREVIEW_LENGTH, previewText, SavedPostsPage } from './FoodFeedPage'
+
+vi.mock('./api', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, api: vi.fn() }
+})
+
+afterEach(() => {
+  cleanup()
+  vi.mocked(realApi).mockReset()
+})
+
+const sam = { id: 2, first_name: 'Sam', last_name: 'Lee', email: 'sam@nyu.edu', profile_picture: null }
+const alex = { id: 1, first_name: 'Alex', last_name: '', email: 'alex@nyu.edu', profile_picture: null }
+
+function post(overrides = {}) {
+  return {
+    id: 1,
+    place_name: "Joe's Pizza",
+    description: 'Grab a plain slice.',
+    location: '7 Carmine St',
+    cuisine: 'Pizza',
+    rating: 5,
+    author: sam,
+    created_at: '2026-11-03T18:00:00+00:00',
+    is_saved: false,
+    comment_count: 0,
+    ...overrides,
+  }
+}
+
+function mockFeed(posts, onCreate) {
+  vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+    if (path === '/social/posts/' && !options.method) return { posts }
+    if (path === '/social/posts/' && options.method === 'POST' && onCreate) return onCreate(options.body)
+    throw new Error(`unexpected call to api(${path})`)
+  })
+}
+
+function renderFeed() {
+  return render(<MemoryRouter><FoodFeedPage /></MemoryRouter>)
+}
+
+function renderApp(path) {
+  return render(<MemoryRouter initialEntries={[path]}>
+    <Routes>
+      <Route path="/community" element={<FoodFeedPage />} />
+      <Route path="/community/posts/:postId" element={<FoodPostPage />} />
+      <Route path="/community/saved" element={<SavedPostsPage />} />
+      <Route path="/community/posts/:postId/edit" element={<FoodPostEditPage />} />
+    </Routes>
+  </MemoryRouter>)
+}
+
+function feed() {
+  return screen.getByRole('region', { name: 'Food feed' })
+}
+
+describe('authors who hide their details (#31)', () => {
+  test('an author with a hidden email and photo still shows their name and an initial', async () => {
+    mockFeed([post({ author: { ...sam, email: null, profile_picture: null } })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
+    expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('S')
+    expect(card).not.toHaveTextContent('null')
+  })
+
+  test('an author with no name and a hidden email appears as a generic student', async () => {
+    mockFeed([post({ author: { id: 5, first_name: '', last_name: '', email: null, profile_picture: null } })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText(/SemesterPilot student/)).toBeInTheDocument()
+    expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('?')
+  })
+
+  // #122: the post's own page (#47) follows the same settings as the feed.
+  function mockPostPage(author, isAuthor) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/7/' && !options.method) return { post: post({ id: 7, author, is_author: isAuthor }) }
+      if (path === '/social/posts/7/comments/' && !options.method) return { comments: [] }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('the post page shows a hidden author’s name and an initial', async () => {
+    mockPostPage({ ...sam, email: null, profile_picture: null }, false)
+    renderApp('/community/posts/7')
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
+    expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('S')
+    expect(card.querySelector('.food-post__author img')).toBeNull()
+    expect(card).not.toHaveTextContent('null')
+    expect(card).not.toHaveTextContent('sam@nyu.edu')
+  })
+
+  test('an author who hides their details still gets Edit and Delete on their own post', async () => {
+    mockPostPage({ ...alex, email: null, profile_picture: null }, true)
+    renderApp('/community/posts/7')
+    expect(await screen.findByRole('link', { name: /Edit post/ })).toHaveAttribute('href', '/community/posts/7/edit')
+    expect(screen.getByRole('button', { name: /Delete post/ })).toBeEnabled()
+    const card = screen.getByRole('article', { name: "Joe's Pizza" })
+    expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('A')
+    expect(card).not.toHaveTextContent('null')
+  })
+})
+
+describe('viewing the food feed', () => {
+  test('shows each post with its place, details, rating and author', async () => {
+    mockFeed([post()])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText('Grab a plain slice.')).toBeInTheDocument()
+    expect(within(card).getByText('Pizza')).toBeInTheDocument()
+    expect(within(card).getByText(/7 Carmine St/)).toBeInTheDocument()
+    expect(within(card).getByLabelText('Rated 5 out of 5')).toBeInTheDocument()
+    expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
+  })
+
+  test('leaves out optional details a post does not have', async () => {
+    mockFeed([post({ location: '', cuisine: '', rating: null })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).queryByText('Pizza')).not.toBeInTheDocument()
+    expect(within(card).queryByLabelText(/out of 5/)).not.toBeInTheDocument()
+  })
+
+  test('shows a message when there are no posts yet', async () => {
+    mockFeed([])
+    renderFeed()
+    expect(await screen.findByText('No posts yet')).toBeInTheDocument()
+  })
+
+  test('shows an error with a working retry when the feed fails to load', async () => {
+    vi.mocked(realApi).mockRejectedValueOnce(new Error('Something went wrong.'))
+    renderFeed()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.')
+
+    mockFeed([post()])
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('article', { name: "Joe's Pizza" })).toBeInTheDocument()
+  })
+})
+
+// #46 AC: "I can submit the post and see it appear in the community feed."
+describe('creating a food post', () => {
+  test('submits the post and shows it at the top of the feed', async () => {
+    const onCreate = vi.fn((body) => ({ post: post({ id: 2, ...body, author: alex }) }))
+    mockFeed([post()], onCreate)
+    renderFeed()
+    await screen.findByRole('article', { name: "Joe's Pizza" })
+
+    await userEvent.type(screen.getByLabelText('Restaurant or food place'), "Mamoun's")
+    await userEvent.type(screen.getByLabelText('Description or recommendation'), 'Best falafel near campus.')
+    await userEvent.type(screen.getByLabelText(/Cuisine/), 'Middle Eastern')
+    await userEvent.selectOptions(screen.getByLabelText(/Rating/), '4')
+    await userEvent.type(screen.getByLabelText(/Location/), '119 Macdougal St')
+    await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+
+    expect(onCreate).toHaveBeenCalledWith({
+      place_name: "Mamoun's",
+      description: 'Best falafel near campus.',
+      cuisine: 'Middle Eastern',
+      rating: 4,
+      location: '119 Macdougal St',
+    })
+    await screen.findByRole('article', { name: "Mamoun's" })
+    const names = within(feed()).getAllByRole('article').map((card) => card.getAttribute('aria-label'))
+    expect(names).toEqual(["Mamoun's", "Joe's Pizza"])
+    expect(screen.getByRole('status')).toHaveTextContent("Posted your recommendation for Mamoun's.")
+    expect(screen.getByLabelText('Restaurant or food place')).toHaveValue('')
+    expect(screen.getByLabelText('Description or recommendation')).toHaveValue('')
+  })
+
+  test('sends no rating when none is chosen', async () => {
+    const onCreate = vi.fn((body) => ({ post: post({ id: 2, ...body }) }))
+    mockFeed([], onCreate)
+    renderFeed()
+    await screen.findByText('No posts yet')
+
+    await userEvent.type(screen.getByLabelText('Restaurant or food place'), 'Somewhere')
+    await userEvent.type(screen.getByLabelText('Description or recommendation'), 'Good.')
+    await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+
+    await waitFor(() => expect(onCreate).toHaveBeenCalled())
+    expect(onCreate.mock.calls[0][0].rating).toBeNull()
+  })
+
+  test('shows server validation errors next to the matching fields', async () => {
+    mockFeed([])
+    renderFeed()
+    await screen.findByText('No posts yet')
+    vi.mocked(realApi).mockRejectedValueOnce(Object.assign(new Error('Something went wrong.'), {
+      status: 400,
+      errors: {
+        description: ['Add a description or recommendation.'],
+        rating: ['Choose a rating from 1 to 5.'],
+      },
+    }))
+
+    await userEvent.type(screen.getByLabelText('Restaurant or food place'), 'Somewhere')
+    await userEvent.type(screen.getByLabelText('Description or recommendation'), ' ')
+    await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+
+    const description = await screen.findByText('Add a description or recommendation.')
+    expect(description.closest('.field')).toHaveClass('field--error')
+    expect(screen.getByText('Choose a rating from 1 to 5.').closest('.field')).toContainElement(screen.getByLabelText(/Rating/))
+    expect(screen.getByLabelText('Restaurant or food place')).toHaveValue('Somewhere')
+    expect(within(feed()).queryAllByRole('article')).toHaveLength(0)
+  })
+
+  test('shows a general error when posting fails without field errors', async () => {
+    mockFeed([])
+    renderFeed()
+    await screen.findByText('No posts yet')
+    vi.mocked(realApi).mockRejectedValueOnce(Object.assign(new Error('Authentication required.'), { status: 401, errors: {} }))
+
+    await userEvent.type(screen.getByLabelText('Restaurant or food place'), 'Somewhere')
+    await userEvent.type(screen.getByLabelText('Description or recommendation'), 'Good.')
+    await userEvent.click(screen.getByRole('button', { name: 'Post' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Authentication required.')
+  })
+})
+
+describe('browsing the food feed', () => {
+  test('each place name links to that post', async () => {
+    mockFeed([post({ id: 7 })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByRole('link', { name: "Joe's Pizza" })).toHaveAttribute('href', '/community/posts/7')
+  })
+
+  test('a long recommendation is shortened with a link to read more', async () => {
+    const long = `${'Great falafel. '.repeat(30)}The end.`
+    mockFeed([post({ id: 7, description: long })])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).queryByText(/The end\./)).not.toBeInTheDocument()
+    expect(within(card).getByText(previewText(long))).toBeInTheDocument()
+    expect(within(card).getByRole('link', { name: "Read more about Joe's Pizza" })).toHaveAttribute('href', '/community/posts/7')
+  })
+
+  test('a short recommendation is shown in full with no read more link', async () => {
+    mockFeed([post()])
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText('Grab a plain slice.')).toBeInTheDocument()
+    expect(within(card).queryByRole('link', { name: /Read more/ })).not.toBeInTheDocument()
+  })
+
+  test('previewText keeps text up to the limit and trims anything longer', () => {
+    expect(previewText('a'.repeat(PREVIEW_LENGTH))).toBe('a'.repeat(PREVIEW_LENGTH))
+    expect(previewText(`${'a'.repeat(PREVIEW_LENGTH - 1)} b`)).toBe(`${'a'.repeat(PREVIEW_LENGTH - 1)}…`)
+  })
+})
+
+describe('opening a food post', () => {
+  function mockPost(result) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/' && !options.method) return { posts: [post({ id: 7, description: 'x'.repeat(400) })] }
+      if (path === '/social/posts/7/' && !options.method) {
+        if (result instanceof Error) throw result
+        return { post: result }
+      }
+      if (path === '/social/posts/7/comments/' && !options.method) return { comments: [] }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('shows the full post, its author and an empty comments section', async () => {
+    const long = `${'Great falafel. '.repeat(30)}The end.`
+    mockPost(post({ id: 7, description: long }))
+    renderApp('/community/posts/7')
+    expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
+    const card = screen.getByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText(/The end\./)).toBeInTheDocument()
+    expect(within(card).getByText('Pizza')).toBeInTheDocument()
+    expect(within(card).getByText(/7 Carmine St/)).toBeInTheDocument()
+    expect(within(card).getByLabelText('Rated 5 out of 5')).toBeInTheDocument()
+    expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
+    expect(within(card).queryByRole('link', { name: /Read more/ })).not.toBeInTheDocument()
+    const comments = screen.getByRole('region', { name: 'Comments' })
+    expect(await within(comments).findByText('No comments yet')).toBeInTheDocument()
+    expect(realApi).toHaveBeenCalledWith('/social/posts/7/')
+  })
+
+  test('clicking a post in the feed opens it, and the back link returns', async () => {
+    mockPost(post({ id: 7 }))
+    renderApp('/community')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('link', { name: "Read more about Joe's Pizza" }))
+    expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: /Back to food feed/ }))
+    expect(await screen.findByRole('region', { name: 'Food feed' })).toBeInTheDocument()
+  })
+
+  test('a missing or hidden post says it is not available', async () => {
+    mockPost(Object.assign(new Error('Post not found.'), { status: 404 }))
+    renderApp('/community/posts/7')
+    expect(await screen.findByText('This post isn’t available')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Browse the food feed' })).toHaveAttribute('href', '/community')
+    expect(screen.queryByRole('region', { name: 'Comments' })).not.toBeInTheDocument()
+  })
+
+  test('any other error offers a working retry', async () => {
+    mockPost(new Error('Network down.'))
+    renderApp('/community/posts/7')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network down.')
+    mockPost(post({ id: 7 }))
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
+  })
+})
+
+describe('saving food recommendations', () => {
+  function mockSaving({ posts = [], saved = [], detail = null, failSave = false } = {}) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/' && !options.method) return { posts }
+      if (path === '/social/posts/saved/' && !options.method) return { posts: saved }
+      if (detail && path === `/social/posts/${detail.id}/` && !options.method) return { post: detail }
+      if (detail && path === `/social/posts/${detail.id}/comments/` && !options.method) return { comments: [] }
+      const match = path.match(/^\/social\/posts\/(\d+)\/save\/$/)
+      if (match && ['PUT', 'DELETE'].includes(options.method)) {
+        if (failSave) throw new Error('Could not save that post.')
+        return { saved: options.method === 'PUT' }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('saving a post from the feed marks it saved, and saving again unsaves it', async () => {
+    mockSaving({ posts: [post({ id: 7 })] })
+    renderFeed()
+    const user = userEvent.setup()
+    const save = await screen.findByRole('button', { name: "Save Joe's Pizza" })
+    expect(save).toHaveAttribute('aria-pressed', 'false')
+    await user.click(save)
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/save/', { method: 'PUT' })
+    const unsave = await screen.findByRole('button', { name: "Unsave Joe's Pizza" })
+    expect(unsave).toHaveAttribute('aria-pressed', 'true')
+    expect(unsave).toHaveTextContent('Saved')
+    await user.click(unsave)
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/save/', { method: 'DELETE' })
+    expect(await screen.findByRole('button', { name: "Save Joe's Pizza" })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('a post you already saved shows as saved', async () => {
+    mockSaving({ posts: [post({ is_saved: true })] })
+    renderFeed()
+    expect(await screen.findByRole('button', { name: "Unsave Joe's Pizza" })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test('a failed save shows an error and leaves the button as it was', async () => {
+    mockSaving({ posts: [post({ id: 7 })], failSave: true })
+    renderFeed()
+    await userEvent.setup().click(await screen.findByRole('button', { name: "Save Joe's Pizza" }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not save that post.')
+    expect(screen.getByRole('button', { name: "Save Joe's Pizza" })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  test('a post can be saved from its own page', async () => {
+    mockSaving({ detail: post({ id: 7 }) })
+    renderApp('/community/posts/7')
+    await userEvent.setup().click(await screen.findByRole('button', { name: "Save Joe's Pizza" }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/save/', { method: 'PUT' })
+    expect(await screen.findByRole('button', { name: "Unsave Joe's Pizza" })).toBeInTheDocument()
+  })
+
+  test('the feed links to your saved recommendations', async () => {
+    mockSaving({ posts: [], saved: [post({ id: 7, is_saved: true })] })
+    renderApp('/community')
+    await userEvent.setup().click(await screen.findByRole('link', { name: /Saved recommendations/ }))
+    const list = await screen.findByRole('region', { name: 'Saved recommendations' })
+    expect(within(list).getByRole('article', { name: "Joe's Pizza" })).toBeInTheDocument()
+  })
+
+  test('the saved page lists your saved posts and unsaving one removes it', async () => {
+    const pizza = post({ id: 7, is_saved: true })
+    const falafel = post({ id: 8, place_name: "Mamoun's Falafel", is_saved: true })
+    mockSaving({ saved: [pizza, falafel] })
+    renderApp('/community/saved')
+    const list = await screen.findByRole('region', { name: 'Saved recommendations' })
+    expect(within(list).getAllByRole('article').map((card) => card.getAttribute('aria-label'))).toEqual(["Joe's Pizza", "Mamoun's Falafel"])
+    expect(within(list).getByText('2')).toBeInTheDocument()
+    await userEvent.setup().click(within(list).getByRole('button', { name: "Unsave Joe's Pizza" }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/save/', { method: 'DELETE' })
+    await waitFor(() => expect(within(list).queryByRole('article', { name: "Joe's Pizza" })).not.toBeInTheDocument())
+    expect(within(list).getByRole('article', { name: "Mamoun's Falafel" })).toBeInTheDocument()
+  })
+
+  test('the saved page says when nothing is saved yet', async () => {
+    mockSaving({ saved: [] })
+    renderApp('/community/saved')
+    expect(await screen.findByText('No saved recommendations yet')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Browse the food feed' })).toHaveAttribute('href', '/community')
+  })
+
+  test('the saved page offers a working retry when it fails to load', async () => {
+    vi.mocked(realApi).mockRejectedValueOnce(new Error('Network down.'))
+    renderApp('/community/saved')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network down.')
+    mockSaving({ saved: [post({ is_saved: true })] })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('article', { name: "Joe's Pizza" })).toBeInTheDocument()
+  })
+})
+
+describe('sharing a food post with a friend (#22)', () => {
+  const jordan = { id: 3, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu', profile_picture: null }
+
+  function mockSharing({ posts = [post({ id: 7 })], detail = null, friends = [sam, jordan], friendsError = null, shareError = null } = {}) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/' && !options.method) return { posts }
+      if (detail && path === `/social/posts/${detail.id}/` && !options.method) return { post: detail }
+      if (path === '/social/friends/' && !options.method) {
+        if (friendsError) throw friendsError
+        return { friends, received_requests: [], sent_requests: [] }
+      }
+      if (/^\/social\/posts\/\d+\/share\/$/.test(path) && options.method === 'POST') {
+        if (shareError) throw shareError
+        return { message: { id: 1, body: options.body.note, is_mine: true, shared_post: { available: true } } }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  async function openShare(user) {
+    await user.click(await screen.findByRole('button', { name: "Share Joe's Pizza with a friend" }))
+    return screen.findByRole('region', { name: "Share Joe's Pizza" })
+  }
+
+  test('choosing a friend and sharing sends the post with an optional note', async () => {
+    mockSharing()
+    renderFeed()
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    const share = await within(panel).findByRole('button', { name: 'Share' })
+    expect(share).toBeDisabled()
+    await user.selectOptions(within(panel).getByLabelText('Share with'), 'Sam Lee')
+    await user.type(within(panel).getByLabelText(/Note/), '  Best slice nearby  ')
+    await user.click(share)
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/share/', { method: 'POST', body: { friend_id: 2, note: 'Best slice nearby' } })
+    expect(await within(panel).findByText('Shared with Sam Lee.')).toBeInTheDocument()
+    expect(within(panel).getByRole('link', { name: 'Open conversation' })).toHaveAttribute('href', '/messages/2')
+  })
+
+  test('the friend list only offers your friends', async () => {
+    mockSharing()
+    renderFeed()
+    const panel = await openShare(userEvent.setup())
+    const options = within(await within(panel).findByLabelText('Share with')).getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual(['Choose a friend', 'Sam Lee', 'Jordan'])
+    expect(realApi).toHaveBeenCalledWith('/social/friends/')
+  })
+
+  test('without friends it points to finding some', async () => {
+    mockSharing({ friends: [] })
+    renderFeed()
+    const panel = await openShare(userEvent.setup())
+    expect(await within(panel).findByText('Add a friend to share posts with them.')).toBeInTheDocument()
+    expect(within(panel).getByRole('link', { name: 'Find friends' })).toHaveAttribute('href', '/friends')
+    expect(within(panel).queryByLabelText('Share with')).not.toBeInTheDocument()
+  })
+
+  test('a refused share shows the error and keeps the form', async () => {
+    mockSharing({ shareError: Object.assign(new Error('You can only share posts with your friends.'), { status: 404 }) })
+    renderFeed()
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    await user.selectOptions(await within(panel).findByLabelText('Share with'), 'Sam Lee')
+    await user.type(within(panel).getByLabelText(/Note/), 'Try it')
+    await user.click(within(panel).getByRole('button', { name: 'Share' }))
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('You can only share posts with your friends.')
+    expect(within(panel).getByLabelText(/Note/)).toHaveValue('Try it')
+  })
+
+  test('a failure loading friends offers a working retry', async () => {
+    mockSharing({ friendsError: new Error('Network down.') })
+    renderFeed()
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('Network down.')
+    mockSharing()
+    await user.click(within(panel).getByRole('button', { name: 'Try again' }))
+    expect(await within(panel).findByLabelText('Share with')).toBeInTheDocument()
+  })
+
+  test('cancel closes the share panel', async () => {
+    mockSharing()
+    renderFeed()
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    await user.click(await within(panel).findByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('region', { name: "Share Joe's Pizza" })).not.toBeInTheDocument()
+  })
+
+  test('a post can be shared from its own page', async () => {
+    mockSharing({ posts: [], detail: post({ id: 7 }) })
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    const panel = await openShare(user)
+    await user.selectOptions(await within(panel).findByLabelText('Share with'), 'Jordan')
+    await user.click(within(panel).getByRole('button', { name: 'Share' }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/share/', { method: 'POST', body: { friend_id: 3, note: '' } })
+    expect(await within(panel).findByText('Shared with Jordan.')).toBeInTheDocument()
+  })
+})
+
+// #51/#52: a stand-in server holding one post (id 7). `is_author` is what the
+// real API reports for the logged-in student.
+function mockOwnPost({ isAuthor = true, onPatch, onDelete } = {}) {
+  let current = post({ id: 7, author: isAuthor ? alex : sam, is_author: isAuthor, rating: 4 })
+  vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+    if (path === '/social/posts/' && !options.method) return { posts: current ? [current] : [] }
+    if (path === '/social/posts/7/' && !options.method) {
+      if (!current) throw Object.assign(new Error('Post not found.'), { status: 404 })
+      return { post: current }
+    }
+    if (path === '/social/posts/7/comments/' && !options.method) return { comments: [] }
+    if (path === '/social/posts/7/' && options.method === 'PATCH') {
+      if (onPatch) return onPatch(options.body)
+      current = { ...current, ...options.body }
+      return { post: current }
+    }
+    if (path === '/social/posts/7/' && options.method === 'DELETE') {
+      if (onDelete) return onDelete()
+      current = null
+      return { ok: true }
+    }
+    throw new Error(`unexpected call to api(${path}, ${options.method})`)
+  })
+}
+
+function calls(method) {
+  return vi.mocked(realApi).mock.calls.filter(([, options = {}]) => options.method === method)
+}
+
+describe('editing a food post (#51)', () => {
+  test('the author sees Edit post on their own post', async () => {
+    mockOwnPost()
+    renderApp('/community/posts/7')
+    expect(await screen.findByRole('link', { name: /Edit post/ })).toHaveAttribute('href', '/community/posts/7/edit')
+  })
+
+  test('another student sees no Edit post or Delete post', async () => {
+    mockOwnPost({ isAuthor: false })
+    renderApp('/community/posts/7')
+    expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Edit post/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Delete post/ })).not.toBeInTheDocument()
+  })
+
+  test('the edit form opens with the post’s current information', async () => {
+    mockOwnPost()
+    renderApp('/community/posts/7/edit')
+    const form = await screen.findByRole('form', { name: 'Edit your food post' })
+    expect(within(form).getByLabelText(/Restaurant or food place/)).toHaveValue("Joe's Pizza")
+    expect(within(form).getByLabelText(/Description or recommendation/)).toHaveValue('Grab a plain slice.')
+    expect(within(form).getByLabelText(/Cuisine/)).toHaveValue('Pizza')
+    expect(within(form).getByLabelText(/Rating/)).toHaveValue('4')
+    expect(within(form).getByLabelText(/Location/)).toHaveValue('7 Carmine St')
+  })
+
+  test('saving sends the changes and the post page shows them', async () => {
+    mockOwnPost()
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('link', { name: /Edit post/ }))
+    const description = await screen.findByLabelText(/Description or recommendation/)
+    await user.clear(description)
+    await user.type(description, 'Get the grandma slice.')
+    await user.selectOptions(screen.getByLabelText(/Rating/), '')
+    await user.click(screen.getByRole('button', { name: /Save changes/ }))
+
+    expect(calls('PATCH')).toEqual([['/social/posts/7/', { method: 'PATCH', body: {
+      place_name: "Joe's Pizza", description: 'Get the grandma slice.', location: '7 Carmine St', cuisine: 'Pizza', rating: null,
+    } }]])
+    expect(await screen.findByText('Saved your changes.')).toHaveAttribute('role', 'status')
+    const card = screen.getByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText('Get the grandma slice.')).toBeInTheDocument()
+    expect(within(card).queryByLabelText(/Rated/)).not.toBeInTheDocument()
+  })
+
+  test('saved changes show in the community feed', async () => {
+    mockOwnPost()
+    renderApp('/community/posts/7/edit')
+    const user = userEvent.setup()
+    const name = await screen.findByLabelText(/Restaurant or food place/)
+    await user.clear(name)
+    await user.type(name, "Joe's Pizza Carmine")
+    await user.click(screen.getByRole('button', { name: /Save changes/ }))
+    await user.click(await screen.findByRole('link', { name: /Back to food feed/ }))
+    expect(await within(await screen.findByRole('region', { name: 'Food feed' })).findByRole('link', { name: "Joe's Pizza Carmine" })).toBeInTheDocument()
+  })
+
+  test('server validation errors show next to the fields and nothing is lost', async () => {
+    mockOwnPost({ onPatch: async () => { throw Object.assign(new Error('Invalid'), { errors: { place_name: ['Enter the name of the restaurant or food place.'] } }) } })
+    renderApp('/community/posts/7/edit')
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText(/Description or recommendation/), ' More.')
+    await user.click(screen.getByRole('button', { name: /Save changes/ }))
+    expect(await screen.findByText('Enter the name of the restaurant or food place.')).toBeInTheDocument()
+    expect(screen.getByLabelText(/Description or recommendation/)).toHaveValue('Grab a plain slice. More.')
+    expect(screen.getByRole('form', { name: 'Edit your food post' })).toBeInTheDocument()
+  })
+
+  test('a general error shows when saving fails without field errors', async () => {
+    mockOwnPost({ onPatch: async () => { throw new Error('Network down.') } })
+    renderApp('/community/posts/7/edit')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /Save changes/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network down.')
+    expect(screen.getByRole('button', { name: /Save changes/ })).toBeEnabled()
+  })
+
+  test('cancel goes back to the post without saving', async () => {
+    mockOwnPost()
+    renderApp('/community/posts/7/edit')
+    const user = userEvent.setup()
+    await user.type(await screen.findByLabelText(/Description or recommendation/), ' Changed.')
+    await user.click(screen.getByRole('link', { name: 'Cancel' }))
+    expect(await screen.findByRole('heading', { level: 1, name: "Joe's Pizza" })).toBeInTheDocument()
+    expect(screen.getByText('Grab a plain slice.')).toBeInTheDocument()
+    expect(calls('PATCH')).toEqual([])
+  })
+
+  test('another student opening the edit page directly sees it is not available', async () => {
+    mockOwnPost({ isAuthor: false })
+    renderApp('/community/posts/7/edit')
+    expect(await screen.findByText('This post isn’t available')).toBeInTheDocument()
+    expect(screen.queryByRole('form', { name: 'Edit your food post' })).not.toBeInTheDocument()
+  })
+
+  test('if the server refuses the edit, the page says the post is not available', async () => {
+    mockOwnPost({ onPatch: async () => { throw Object.assign(new Error('Post not found.'), { status: 404 }) } })
+    renderApp('/community/posts/7/edit')
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Save changes/ }))
+    expect(await screen.findByText('This post isn’t available')).toBeInTheDocument()
+  })
+})
+
+describe('deleting a food post (#52)', () => {
+  test('clicking Delete post asks to confirm before deleting anything', async () => {
+    mockOwnPost()
+    renderApp('/community/posts/7')
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Delete post/ }))
+    expect(screen.getByRole('alert')).toHaveTextContent("Delete your post about Joe's Pizza? This can’t be undone.")
+    expect(calls('DELETE')).toEqual([])
+  })
+
+  test('confirming deletes the post and it is gone from the feed', async () => {
+    mockOwnPost()
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /Delete post/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(calls('DELETE')).toEqual([['/social/posts/7/', { method: 'DELETE' }]])
+    expect(await screen.findByText("Deleted your post about Joe's Pizza.")).toBeInTheDocument()
+    expect(await within(await screen.findByRole('region', { name: 'Food feed' })).findByText('No posts yet')).toBeInTheDocument()
+  })
+
+  test('cancelling leaves the post unchanged', async () => {
+    mockOwnPost()
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /Delete post/ }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('article', { name: "Joe's Pizza" })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Delete post/ })).toBeEnabled()
+    expect(calls('DELETE')).toEqual([])
+  })
+
+  test('a failed delete keeps the post and lets you try again', async () => {
+    let fail = true
+    mockOwnPost({ onDelete: async () => { if (fail) throw new Error('Network down.'); return { ok: true } } })
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /Delete post/ }))
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(await screen.findByText('Couldn’t delete this post. Try again.')).toBeInTheDocument()
+    expect(screen.getByRole('article', { name: "Joe's Pizza" })).toBeInTheDocument()
+    fail = false
+    await user.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(await screen.findByText("Deleted your post about Joe's Pizza.")).toBeInTheDocument()
+  })
+})
+
+describe('commenting on food posts', () => {
+  const alexComment = { id: 1, body: 'The white pie is great too.', author: alex, created_at: '2026-11-04T18:00:00+00:00' }
+  const samComment = { id: 2, body: 'Agreed!', author: sam, created_at: '2026-11-04T19:00:00+00:00' }
+
+  function mockComments({ comments = [], onComment, commentsError, detail = post({ id: 7, comment_count: comments.length }) } = {}) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/7/' && !options.method) return { post: detail }
+      if (path === '/social/posts/7/comments/' && !options.method) {
+        if (commentsError) throw commentsError
+        return { comments }
+      }
+      if (path === '/social/posts/7/comments/' && options.method === 'POST') return onComment(options.body)
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  async function openPost() {
+    renderApp('/community/posts/7')
+    return screen.findByRole('region', { name: 'Comments' })
+  }
+
+  test('lists comments oldest first with their author and time', async () => {
+    mockComments({ comments: [alexComment, samComment] })
+    const section = await openPost()
+    const items = await within(section).findAllByRole('listitem')
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining('The white pie is great too.'),
+      expect.stringContaining('Agreed!'),
+    ])
+    expect(items[0]).toHaveTextContent('Alex')
+    expect(items[1]).toHaveTextContent('Sam Lee')
+    expect(within(section).getByText('2')).toBeInTheDocument()
+  })
+
+  test('shows an empty state when nobody has commented yet', async () => {
+    mockComments()
+    const section = await openPost()
+    expect(await within(section).findByText('No comments yet')).toBeInTheDocument()
+    expect(within(section).getByText('Be the first to share your thoughts.')).toBeInTheDocument()
+  })
+
+  test('posting a comment adds it under the post and clears the box', async () => {
+    const onComment = vi.fn(async (body) => ({ comment: { id: 3, body: body.body.trim(), author: alex, created_at: '2026-11-05T12:00:00+00:00' } }))
+    mockComments({ comments: [samComment], onComment })
+    const section = await openPost()
+    const user = userEvent.setup()
+    const box = await within(section).findByLabelText('Add a comment')
+    await user.type(box, '  Going this weekend!  ')
+    await user.click(within(section).getByRole('button', { name: 'Post comment' }))
+    expect(realApi).toHaveBeenCalledWith('/social/posts/7/comments/', { method: 'POST', body: { body: '  Going this weekend!  ' } })
+    const items = await within(section).findAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[1]).toHaveTextContent('Going this weekend!')
+    expect(box).toHaveValue('')
+    expect(within(section).getByText('2')).toBeInTheDocument()
+  })
+
+  test('the post button stays disabled until there is text', async () => {
+    const onComment = vi.fn()
+    mockComments({ onComment })
+    const section = await openPost()
+    const user = userEvent.setup()
+    const button = await within(section).findByRole('button', { name: 'Post comment' })
+    expect(button).toBeDisabled()
+    await user.type(within(section).getByLabelText('Add a comment'), '   ')
+    expect(button).toBeDisabled()
+    await user.type(within(section).getByLabelText('Add a comment'), 'Yum')
+    expect(button).toBeEnabled()
+    expect(onComment).not.toHaveBeenCalled()
+  })
+
+  test('a rejected comment shows the server error and keeps the text', async () => {
+    const onComment = vi.fn(async () => { throw Object.assign(new Error('Please fix the errors.'), { errors: { body: ['Comments must be 1000 characters or fewer.'] } }) })
+    mockComments({ onComment })
+    const section = await openPost()
+    const user = userEvent.setup()
+    await user.type(await within(section).findByLabelText('Add a comment'), 'Too long')
+    await user.click(within(section).getByRole('button', { name: 'Post comment' }))
+    expect(await within(section).findByRole('alert')).toHaveTextContent('Comments must be 1000 characters or fewer.')
+    expect(within(section).getByLabelText('Add a comment')).toHaveValue('Too long')
+    expect(within(section).queryAllByRole('listitem')).toHaveLength(0)
+  })
+
+  test('comments that fail to load offer a working retry', async () => {
+    mockComments({ commentsError: new Error('Network down.') })
+    const section = await openPost()
+    expect(await within(section).findByRole('alert')).toHaveTextContent('Network down.')
+    expect(within(section).queryByLabelText('Add a comment')).not.toBeInTheDocument()
+    mockComments({ comments: [samComment] })
+    await userEvent.setup().click(within(section).getByRole('button', { name: 'Try again' }))
+    expect(await within(section).findByText('Agreed!')).toBeInTheDocument()
+  })
+
+  test('feed cards show the comment count and link to the post', async () => {
+    mockFeed([post({ id: 7, comment_count: 3 }), post({ id: 8, place_name: 'Quiet Cafe', comment_count: 0 })])
+    renderFeed()
+    expect(await screen.findByRole('link', { name: "3 comments on Joe's Pizza" })).toHaveAttribute('href', '/community/posts/7')
+    expect(screen.getByRole('link', { name: 'No comments yet on Quiet Cafe' })).toHaveAttribute('href', '/community/posts/8')
+  })
+
+  test('commentCountLabel reads naturally', () => {
+    expect(commentCountLabel(0)).toBe('No comments yet')
+    expect(commentCountLabel(1)).toBe('1 comment')
+    expect(commentCountLabel(12)).toBe('12 comments')
+  })
+})
+
+describe('reporting posts and comments (#67)', () => {
+  const jordan = { id: 3, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu', profile_picture: null }
+  const spam = { id: 1, body: 'Buy my crypto course!', author: jordan, created_at: '2026-11-04T18:00:00+00:00', is_author: false, is_reported: false }
+  const mine = { id: 2, body: 'Love this place.', author: alex, created_at: '2026-11-04T19:00:00+00:00', is_author: true, is_reported: false }
+
+  function mockReporting({ posts = [post({ id: 7 })], detail = post({ id: 7 }), comments = [], reportError = null } = {}) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/' && !options.method) return { posts }
+      if (path === '/social/posts/7/' && !options.method) return { post: detail }
+      if (path === '/social/posts/7/comments/' && !options.method) return { comments }
+      if (/^\/social\/(posts|comments)\/\d+\/report\/$/.test(path) && options.method === 'POST') {
+        if (reportError) throw reportError
+        return { reported: true }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('reporting a post sends the reason and details, confirms it, and keeps the post', async () => {
+    mockReporting()
+    renderFeed()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    const form = screen.getByRole('form', { name: "Report Joe's Pizza" })
+    expect(within(form).getAllByRole('radio').map((radio) => radio.parentElement.textContent.trim()))
+      .toEqual(['Spam', 'Harassment or bullying', 'Inappropriate content', 'Something else'])
+    const send = within(form).getByRole('button', { name: 'Send report' })
+    expect(send).toBeDisabled()
+    await user.click(within(form).getByLabelText('Spam'))
+    await user.type(within(form).getByLabelText(/Details/), '  Posted three times  ')
+    await user.click(send)
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/report/', { method: 'POST', body: { reason: 'spam', details: 'Posted three times' } })
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks, your report was sent to the moderators.')
+    expect(screen.queryByRole('form', { name: "Report Joe's Pizza" })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: "Report Joe's Pizza" })).not.toBeInTheDocument()
+    const card = screen.getByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText('Reported')).toBeInTheDocument()
+    expect(within(card).getByText('Grab a plain slice.')).toBeInTheDocument()
+  })
+
+  test('a post you already reported shows as reported, with no way to report it again', async () => {
+    mockReporting({ posts: [post({ id: 7, is_reported: true })] })
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText('Reported')).toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: /Report/ })).not.toBeInTheDocument()
+  })
+
+  test('your own post has no report option', async () => {
+    mockReporting({ posts: [post({ id: 7, author: alex, is_author: true })] })
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).queryByRole('button', { name: /Report/ })).not.toBeInTheDocument()
+    expect(within(card).queryByText('Reported')).not.toBeInTheDocument()
+  })
+
+  test('a failed report shows the error and keeps your choices', async () => {
+    mockReporting({ reportError: new Error('Network down.') })
+    renderFeed()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    const form = screen.getByRole('form', { name: "Report Joe's Pizza" })
+    await user.click(within(form).getByLabelText('Something else'))
+    await user.type(within(form).getByLabelText(/Details/), 'Not a real place')
+    await user.click(within(form).getByRole('button', { name: 'Send report' }))
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Network down.')
+    expect(within(form).getByLabelText('Something else')).toBeChecked()
+    expect(within(form).getByLabelText(/Details/)).toHaveValue('Not a real place')
+  })
+
+  test('a report the server already has counts as reported', async () => {
+    mockReporting({ reportError: Object.assign(new Error('You’ve already reported this.'), { status: 409 }) })
+    renderFeed()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    await user.click(screen.getByLabelText('Spam'))
+    await user.click(screen.getByRole('button', { name: 'Send report' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks, your report was sent to the moderators.')
+    expect(screen.getByText('Reported')).toBeInTheDocument()
+  })
+
+  test('cancel closes the report form, and opening Share closes it too', async () => {
+    mockReporting()
+    renderFeed()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('form', { name: "Report Joe's Pizza" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: "Report Joe's Pizza" }))
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/') return { friends: [], received_requests: [], sent_requests: [] }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    await user.click(screen.getByRole('button', { name: "Share Joe's Pizza with a friend" }))
+    expect(screen.queryByRole('form', { name: "Report Joe's Pizza" })).not.toBeInTheDocument()
+  })
+
+  test('a post can be reported from its own page', async () => {
+    mockReporting()
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    await user.click(screen.getByLabelText('Inappropriate content'))
+    await user.click(screen.getByRole('button', { name: 'Send report' }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/report/', { method: 'POST', body: { reason: 'inappropriate', details: '' } })
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks, your report was sent to the moderators.')
+  })
+
+  test('reporting a comment confirms it and keeps the comment on the page', async () => {
+    mockReporting({ comments: [spam, mine] })
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    const section = await screen.findByRole('region', { name: 'Comments' })
+    await user.click(await within(section).findByRole('button', { name: 'Report comment by Jordan' }))
+    const form = within(section).getByRole('form', { name: 'Report comment by Jordan' })
+    await user.click(within(form).getByLabelText('Spam'))
+    await user.click(within(form).getByRole('button', { name: 'Send report' }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/comments/1/report/', { method: 'POST', body: { reason: 'spam', details: '' } })
+    expect(await within(section).findByRole('status')).toHaveTextContent('Thanks, your report was sent to the moderators.')
+    const [first] = within(section).getAllByRole('listitem')
+    expect(first).toHaveTextContent('Buy my crypto course!')
+    expect(within(first).getByText('Reported')).toBeInTheDocument()
+  })
+
+  test('your own comments have no report option and reported ones show as reported', async () => {
+    mockReporting({ comments: [{ ...spam, is_reported: true }, mine] })
+    renderApp('/community/posts/7')
+    const section = await screen.findByRole('region', { name: 'Comments' })
+    const [theirs, own] = await within(section).findAllByRole('listitem')
+    expect(within(theirs).getByText('Reported')).toBeInTheDocument()
+    expect(within(theirs).queryByRole('button', { name: /Report/ })).not.toBeInTheDocument()
+    expect(within(own).queryByRole('button', { name: /Report/ })).not.toBeInTheDocument()
+    expect(within(own).queryByText('Reported')).not.toBeInTheDocument()
+  })
+})

@@ -1,0 +1,20 @@
+{% extends "admin/change_list.html" %}
+{% comment %}
+  #60: super administrators get quick links to the students, administrators and
+  super administrators, with how many of each. Other administrators only ever
+  see students, so they get no links.
+{% endcomment %}
+{% block content_title %}{{ block.super }}
+{% if access_tabs %}
+<nav class="access-tabs" aria-label="Types of account">
+  {% for tab in access_tabs %}<a href="{{ tab.url }}"{% if tab.current %} aria-current="page"{% endif %}>{{ tab.label }} <span>{{ tab.count }}</span></a>{% endfor %}
+</nav>
+<style>
+  .access-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+  .access-tabs a { padding: 6px 14px; border: 1px solid var(--hairline-color); border-radius: 999px; color: var(--body-fg); text-decoration: none; }
+  .access-tabs a span { margin-left: 4px; color: var(--body-quiet-color); }
+  .access-tabs a[aria-current="page"] { background: var(--primary); border-color: var(--primary); color: var(--button-fg); }
+  .access-tabs a[aria-current="page"] span { color: inherit; }
+</style>
+{% endif %}
+{% endblock %}

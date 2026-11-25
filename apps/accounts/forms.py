@@ -28,6 +28,19 @@ class AccountActionForm(forms.Form):
         return value
 
 
+def validate_student_email(email, exclude_pk=None):
+    # One rule for every way an email gets onto an account: students signing
+    # up, and administrators correcting an address (#54). Lower-cased because
+    # sign-in looks the address up in lower case.
+    email = email.lower()
+    domain = email.rsplit('@', 1)[-1]
+    if domain != 'nyu.edu' and not domain.endswith('.nyu.edu'):
+        raise forms.ValidationError('Please sign up with your NYU email address (@nyu.edu).')
+    if User.objects.filter(email__iexact=email).exclude(pk=exclude_pk).exists():
+        raise forms.ValidationError('An account with this email already exists.')
+    return email
+
+
 class SignUpForm(UserCreationForm):
     email = forms.EmailField(required=True)
 
@@ -36,13 +49,7 @@ class SignUpForm(UserCreationForm):
         fields = ['email', 'password1', 'password2']
 
     def clean_email(self):
-        email = self.cleaned_data['email'].lower()
-        domain = email.rsplit('@', 1)[-1]
-        if domain != 'nyu.edu' and not domain.endswith('.nyu.edu'):
-            raise forms.ValidationError('Please sign up with your NYU email address (@nyu.edu).')
-        if User.objects.filter(email=email).exists():
-            raise forms.ValidationError('An account with this email already exists.')
-        return email
+        return validate_student_email(self.cleaned_data['email'])
 
     def save(self, commit=True):
         user = super().save(commit=False)
@@ -68,6 +75,12 @@ class ProfileForm(forms.ModelForm):
         self.fields['last_name'].error_messages['required'] = 'Last name is required.'
 
 
+class PrivacySettingsForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ['show_email', 'show_bio', 'show_profile_picture']
+
+
 class ProfilePictureForm(forms.ModelForm):
     class Meta:
         model = User
@@ -88,3 +101,13 @@ class ProfilePictureForm(forms.ModelForm):
         if picture.size > max_size:
             raise forms.ValidationError(f'Image must be smaller than {max_size // (1024 * 1024)}MB.')
         return picture
+
+
+class NotificationPreferencesForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = [
+            'study_reminders_enabled', 'study_reminder_minutes',
+            'deadline_reminders_enabled', 'deadline_reminder_hours',
+            'friend_request_alerts_enabled', 'message_alerts_enabled',
+        ]

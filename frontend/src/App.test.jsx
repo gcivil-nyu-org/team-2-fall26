@@ -32,6 +32,13 @@ function renderWithAuth(ui, { session } = {}) {
   }
 }
 
+describe('sidebar navigation', () => {
+  test('links to the community food feed', () => {
+    renderWithAuth(<AppShell>content</AppShell>)
+    expect(screen.getByRole('link', { name: /community/i })).toHaveAttribute('href', '/community')
+  })
+})
+
 describe('sidebar avatar', () => {
   test('shows the uploaded picture when the user has one', () => {
     renderWithAuth(<AppShell>content</AppShell>, {
@@ -253,6 +260,12 @@ describe('study session reminders on the dashboard', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('10:30 AM EST')
   })
 
+  test('exam prep sessions are named after the exam', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([{ ...reminder, assignment: null, exam: { id: 4, title: 'Midterm' } }]))
+    renderDashboard()
+    expect(await screen.findByRole('status')).toHaveTextContent('EXPOS 101 Writing · Midterm prep starts')
+  })
+
   test('dismissing one reminder leaves the others', async () => {
     const other = { ...reminder, id: 6, course: { id: 3, name: 'Algorithms', code: '' } }
     vi.mocked(realApi).mockResolvedValue(dashboardWith([reminder, other]))
@@ -307,5 +320,120 @@ describe('bio on the Edit Profile page', () => {
 
     await user.click(screen.getByRole('button', { name: /save changes/i }))
     expect(await screen.findByText('Bio must be 300 characters or fewer.')).toBeInTheDocument()
+  })
+})
+
+describe('due-date reminders on the dashboard (#37)', () => {
+  const assignment = {
+    id: 5, kind: 'assignment', title: 'Essay draft', when: '2026-11-04T15:00:00+00:00',
+    course: { id: 1, name: 'Writing', code: 'EXPOS 101' },
+  }
+  const exam = {
+    id: 8, kind: 'exam', title: 'Midterm', when: '2026-11-04T18:00:00+00:00',
+    course: { id: 2, name: 'Calculus', code: '' },
+  }
+
+  function dashboardWith(deadline_reminders) {
+    return {
+      user: { email: 'sam@nyu.edu' },
+      metrics: { courses: 0, due_this_week: 0, overdue: 0 },
+      courses: [], assignments: [], upcoming: [],
+      study_reminders: [],
+      deadline_reminders,
+    }
+  }
+
+  afterEach(() => localStorage.clear())
+
+  test('names the course, the assignment and when it is due', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([assignment]))
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent('Due soon')
+    expect(notice).toHaveTextContent('EXPOS 101 Writing · Essay draft is due Nov 4, 10:00 AM EST')
+  })
+
+  test('an exam says it starts rather than is due, and copes with a course that has no code', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([exam]))
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent('Exam soon')
+    expect(notice).toHaveTextContent('Calculus · Midterm starts Nov 4, 1:00 PM EST')
+  })
+
+  test('lists each item once', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([assignment, exam]))
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await screen.findByText('Due soon')
+    expect(screen.getAllByRole('status')).toHaveLength(2)
+  })
+
+  test('shows nothing when nothing is coming up, or when the server sends no list at all', async () => {
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([]))
+    const { unmount } = render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await screen.findByText('Everything is clear')
+    expect(screen.queryByRole('status')).toBeNull()
+    unmount()
+
+    const { deadline_reminders, ...withoutList } = dashboardWith([])
+    vi.mocked(realApi).mockResolvedValue(withoutList)
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await screen.findByText('Everything is clear')
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  test('dismissing hides it for good in this browser without calling the server', async () => {
+    const user = userEvent.setup()
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([assignment, exam]))
+    const { unmount } = render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await screen.findByText('Due soon')
+    const callsBefore = vi.mocked(realApi).mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Dismiss reminder for Essay draft' }))
+    expect(screen.queryByText('Due soon')).toBeNull()
+    expect(screen.getByText('Exam soon')).toBeInTheDocument()
+    expect(vi.mocked(realApi).mock.calls.length).toBe(callsBefore)
+    unmount()
+
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await screen.findByText('Exam soon')
+    expect(screen.queryByText('Due soon')).toBeNull()
+  })
+
+  test('an item moved to a new time reminds the student again', async () => {
+    const user = userEvent.setup()
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([assignment]))
+    const { unmount } = render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Dismiss reminder for Essay draft' }))
+    unmount()
+
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([{ ...assignment, when: '2026-11-04T16:00:00+00:00' }]))
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    expect(await screen.findByText('Due soon')).toBeInTheDocument()
+  })
+
+  test('an assignment and an exam with the same id are dismissed separately', async () => {
+    const user = userEvent.setup()
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([{ ...assignment, id: 1 }, { ...exam, id: 1, when: assignment.when }]))
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Dismiss reminder for Essay draft' }))
+    expect(screen.getByText('Exam soon')).toBeInTheDocument()
+  })
+
+  test('still works when the browser will not store the dismissal', async () => {
+    const user = userEvent.setup()
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([assignment]))
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await user.click(await screen.findByRole('button', { name: 'Dismiss reminder for Essay draft' }))
+    expect(screen.queryByText('Due soon')).toBeNull()
+    setItem.mockRestore()
+  })
+
+  test('ignores a damaged dismissal list in storage', async () => {
+    localStorage.setItem('dismissed-deadline-reminders', '{not json')
+    vi.mocked(realApi).mockResolvedValue(dashboardWith([assignment]))
+    render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    expect(await screen.findByText('Due soon')).toBeInTheDocument()
+    localStorage.setItem('dismissed-deadline-reminders', '"a string"')
   })
 })

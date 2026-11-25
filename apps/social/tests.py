@@ -1,16 +1,18 @@
 import json
 import shutil
 import tempfile
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.accounts.models import User
 
-from .models import FriendRequest
+from .models import FoodPost, FriendRequest, PostComment, PostLike, SavedPost
 
 # A 1x1 GIF — just enough bytes to be a valid image for ImageField to accept.
 SMALL_GIF = (
@@ -554,3 +556,843 @@ class FriendBioVisibilityTests(SocialTestCase):
         FriendRequest.objects.create(sender=self.other, recipient=self.third)
         data = self.client.get(reverse('social:friends')).json()
         self.assertEqual(data, {'friends': [], 'received_requests': [], 'sent_requests': []})
+
+
+class CreateFoodPostTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('social:posts')
+
+    def post(self, data):
+        return self.client.post(self.url, json.dumps(data), content_type='application/json')
+
+    def test_creates_a_post_with_only_the_required_fields(self):
+        response = self.post({'place_name': 'Mamoun\'s', 'description': 'Best falafel near campus.'})
+        self.assertEqual(response.status_code, 201)
+        post = FoodPost.objects.get()
+        self.assertEqual(post.place_name, 'Mamoun\'s')
+        self.assertEqual(post.description, 'Best falafel near campus.')
+        self.assertEqual(post.location, '')
+        self.assertEqual(post.cuisine, '')
+        self.assertIsNone(post.rating)
+        payload = response.json()['post']
+        self.assertEqual(payload['id'], post.pk)
+        self.assertEqual(payload['place_name'], 'Mamoun\'s')
+        self.assertIsNone(payload['rating'])
+
+    def test_saves_the_optional_location_cuisine_and_rating(self):
+        response = self.post({
+            'place_name': 'Joe\'s Pizza',
+            'description': 'Grab a plain slice.',
+            'location': '7 Carmine St',
+            'cuisine': 'Pizza',
+            'rating': 5,
+        })
+        self.assertEqual(response.status_code, 201)
+        post = FoodPost.objects.get()
+        self.assertEqual(post.location, '7 Carmine St')
+        self.assertEqual(post.cuisine, 'Pizza')
+        self.assertEqual(post.rating, 5)
+        payload = response.json()['post']
+        self.assertEqual(payload['location'], '7 Carmine St')
+        self.assertEqual(payload['cuisine'], 'Pizza')
+        self.assertEqual(payload['rating'], 5)
+
+    def test_post_persists_and_shows_in_the_feed(self):
+        self.post({'place_name': 'Taiwan Pork Chop House', 'description': 'Cheap and filling.'})
+        feed = self.client.get(self.url).json()['posts']
+        self.assertEqual([post['place_name'] for post in feed], ['Taiwan Pork Chop House'])
+
+    def test_requires_a_place_name_and_description(self):
+        response = self.post({'place_name': '', 'description': ''})
+        self.assertEqual(response.status_code, 400)
+        errors = response.json()['errors']
+        self.assertEqual(errors['place_name'], ['Enter the name of the restaurant or food place.'])
+        self.assertEqual(errors['description'], ['Add a description or recommendation.'])
+        self.assertFalse(FoodPost.objects.exists())
+
+    def test_whitespace_only_required_fields_are_rejected(self):
+        response = self.post({'place_name': '   ', 'description': '\n  '})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.json()['errors']), {'place_name', 'description'})
+        self.assertFalse(FoodPost.objects.exists())
+
+    def test_missing_fields_are_rejected(self):
+        response = self.post({})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(set(response.json()['errors']), {'place_name', 'description'})
+        self.assertFalse(FoodPost.objects.exists())
+
+    def test_rating_must_be_from_1_to_5(self):
+        for rating in [0, 6, 'abc', 3.5]:
+            with self.subTest(rating=rating):
+                response = self.post({'place_name': 'Somewhere', 'description': 'Good.', 'rating': rating})
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['errors']['rating'], ['Choose a rating from 1 to 5.'])
+        self.assertFalse(FoodPost.objects.exists())
+
+    def test_an_empty_rating_is_saved_as_no_rating(self):
+        for rating in [None, '']:
+            with self.subTest(rating=rating):
+                response = self.post({'place_name': 'Somewhere', 'description': 'Good.', 'rating': rating})
+                self.assertEqual(response.status_code, 201)
+                self.assertIsNone(response.json()['post']['rating'])
+
+    def test_post_belongs_to_the_logged_in_user(self):
+        response = self.post({'place_name': 'Xi\'an Famous Foods', 'description': 'Spicy noodles.'})
+        self.assertEqual(FoodPost.objects.get().author, self.user)
+        self.assertEqual(response.json()['post']['author']['email'], 'alex@nyu.edu')
+
+    def test_author_in_the_request_body_is_ignored(self):
+        self.post({
+            'place_name': 'Xi\'an Famous Foods',
+            'description': 'Spicy noodles.',
+            'author': self.other.pk,
+            'author_id': self.other.pk,
+        })
+        self.assertEqual(FoodPost.objects.get().author, self.user)
+        self.assertFalse(self.other.food_posts.exists())
+
+    def test_logged_out_user_cannot_post(self):
+        self.client.logout()
+        response = self.post({'place_name': 'Somewhere', 'description': 'Good.'})
+        self.assertEqual(response.status_code, 401)
+        self.assertFalse(FoodPost.objects.exists())
+
+    def test_rejects_invalid_json(self):
+        response = self.client.post(self.url, '{not json', content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['detail'], 'Invalid JSON.')
+        self.assertFalse(FoodPost.objects.exists())
+
+
+class FoodFeedTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('social:posts')
+
+    def test_lists_every_student_s_posts_newest_first(self):
+        oldest = FoodPost.objects.create(author=self.other, place_name='Oldest', description='First.')
+        middle = FoodPost.objects.create(author=self.user, place_name='Middle', description='Second.')
+        newest = FoodPost.objects.create(author=self.third, place_name='Newest', description='Third.')
+        FoodPost.objects.filter(pk=oldest.pk).update(created_at=timezone.now() - timedelta(days=2))
+        FoodPost.objects.filter(pk=middle.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        posts = response.json()['posts']
+        self.assertEqual([post['id'] for post in posts], [newest.pk, middle.pk, oldest.pk])
+
+    def test_posts_created_at_the_same_time_are_still_newest_first(self):
+        first = FoodPost.objects.create(author=self.user, place_name='First', description='a')
+        second = FoodPost.objects.create(author=self.user, place_name='Second', description='b')
+        FoodPost.objects.update(created_at=timezone.now())
+        posts = self.client.get(self.url).json()['posts']
+        self.assertEqual([post['id'] for post in posts], [second.pk, first.pk])
+
+    def test_each_post_includes_its_author(self):
+        FoodPost.objects.create(author=self.other, place_name='Katz\'s', description='Pastrami.', rating=4)
+        post = self.client.get(self.url).json()['posts'][0]
+        self.assertEqual(post['author']['first_name'], 'Sam')
+        self.assertEqual(post['author']['last_name'], 'Lee')
+        self.assertEqual(post['author']['email'], 'sam@nyu.edu')
+        self.assertIsNone(post['author']['profile_picture'])
+        self.assertEqual(post['rating'], 4)
+        self.assertIn('created_at', post)
+
+    def test_feed_does_not_expose_author_bio(self):
+        self.other.bio = 'Sam studies math.'
+        self.other.save()
+        FoodPost.objects.create(author=self.other, place_name='Katz\'s', description='Pastrami.')
+        posts = self.client.get(self.url).json()['posts']
+        self.assertNotIn('bio', posts[0]['author'])
+
+        self.user.bio = 'Alex likes ramen.'
+        self.user.save()
+        response = self.client.post(
+            self.url,
+            json.dumps({'place_name': 'Ippudo', 'description': 'Rich broth.'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn('bio', response.json()['post']['author'])
+
+    def test_empty_feed(self):
+        self.assertEqual(self.client.get(self.url).json(), {'posts': []})
+
+    def test_logged_out_user_cannot_view_the_feed(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 401)
+
+    def test_only_get_and_post_are_allowed(self):
+        self.assertEqual(self.client.delete(self.url).status_code, 405)
+
+
+class CommunityFeedVisibilityTests(SocialTestCase):
+    # #47: only posts available to the community show up.
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('social:posts')
+
+    def test_posts_by_a_deactivated_account_are_hidden(self):
+        kept = FoodPost.objects.create(author=self.other, place_name='Joe\'s Pizza', description='Classic slice.')
+        FoodPost.objects.create(author=self.third, place_name='Hidden', description='Gone for now.')
+        self.third.is_active = False
+        self.third.save()
+        posts = self.client.get(self.url).json()['posts']
+        self.assertEqual([post['id'] for post in posts], [kept.pk])
+
+    def test_posts_come_back_when_the_account_is_reactivated(self):
+        post = FoodPost.objects.create(author=self.third, place_name='Back again', description='Still good.')
+        User.objects.filter(pk=self.third.pk).update(is_active=False)
+        self.assertEqual(self.client.get(self.url).json()['posts'], [])
+        User.objects.filter(pk=self.third.pk).update(is_active=True)
+        self.assertEqual([item['id'] for item in self.client.get(self.url).json()['posts']], [post.pk])
+
+
+class FoodPostDetailTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(
+            author=self.other, place_name='Mamoun\'s Falafel', description='Get the shawarma plate. ' * 20,
+            location='119 Macdougal St', cuisine='Middle Eastern', rating=5,
+        )
+
+    def url(self, pk):
+        return reverse('social:post', args=[pk])
+
+    def test_returns_every_detail_of_the_post(self):
+        response = self.client.get(self.url(self.post.pk))
+        self.assertEqual(response.status_code, 200)
+        post = response.json()['post']
+        self.assertEqual(post['id'], self.post.pk)
+        self.assertEqual(post['place_name'], 'Mamoun\'s Falafel')
+        self.assertEqual(post['description'], self.post.description)
+        self.assertEqual(post['location'], '119 Macdougal St')
+        self.assertEqual(post['cuisine'], 'Middle Eastern')
+        self.assertEqual(post['rating'], 5)
+        self.assertEqual(post['author']['first_name'], 'Sam')
+        self.assertIn('created_at', post)
+
+    def test_matches_what_the_feed_shows_for_that_post(self):
+        feed_post = self.client.get(reverse('social:posts')).json()['posts'][0]
+        self.assertEqual(self.client.get(self.url(self.post.pk)).json()['post'], feed_post)
+
+    def test_any_student_can_open_any_post_including_their_own(self):
+        own = FoodPost.objects.create(author=self.user, place_name='Mine', description='Mine.')
+        self.assertEqual(self.client.get(self.url(own.pk)).status_code, 200)
+        self.client.force_login(self.third)
+        self.assertEqual(self.client.get(self.url(self.post.pk)).status_code, 200)
+
+    def test_does_not_expose_the_author_bio(self):
+        self.other.bio = 'Sam studies math.'
+        self.other.save()
+        self.assertNotIn('bio', self.client.get(self.url(self.post.pk)).json()['post']['author'])
+
+    def test_a_missing_post_is_not_found(self):
+        response = self.client.get(self.url(self.post.pk + 100))
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['detail'], 'Post not found.')
+
+    def test_a_post_by_a_deactivated_account_is_not_found(self):
+        self.other.is_active = False
+        self.other.save()
+        self.assertEqual(self.client.get(self.url(self.post.pk)).status_code, 404)
+
+    def test_logged_out_user_cannot_open_a_post(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url(self.post.pk)).status_code, 401)
+
+    def test_only_get_patch_and_delete_are_allowed(self):
+        # #51/#52 add PATCH (edit) and DELETE to this endpoint on purpose;
+        # anything else is still refused.
+        for method in (self.client.post, self.client.put):
+            with self.subTest(method=method.__name__):
+                self.assertEqual(method(self.url(self.post.pk)).status_code, 405)
+        self.assertTrue(FoodPost.objects.filter(pk=self.post.pk).exists())
+
+    def test_says_whether_the_viewer_wrote_the_post(self):
+        own = FoodPost.objects.create(author=self.user, place_name='Mine', description='Mine.')
+        self.assertTrue(self.client.get(self.url(own.pk)).json()['post']['is_author'])
+        self.assertFalse(self.client.get(self.url(self.post.pk)).json()['post']['is_author'])
+        feed = {post['id']: post['is_author'] for post in self.client.get(reverse('social:posts')).json()['posts']}
+        self.assertEqual(feed, {own.pk: True, self.post.pk: False})
+
+
+class EditFoodPostTests(SocialTestCase):
+    # #51: a student can edit their own food posts, and no one else's.
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(
+            author=self.user, place_name='Mamoun\'s', description='Good falafel.',
+            location='119 Macdougal St', cuisine='Middle Eastern', rating=4,
+        )
+        self.url = reverse('social:post', args=[self.post.pk])
+
+    def patch(self, data, url=None):
+        return self.client.patch(url or self.url, json.dumps(data), content_type='application/json')
+
+    def test_author_can_update_every_detail(self):
+        response = self.patch({
+            'place_name': 'Mamoun\'s Falafel', 'description': 'Get the shawarma plate.',
+            'location': '30 St Marks Pl', 'cuisine': 'Lebanese', 'rating': 5,
+        })
+        self.assertEqual(response.status_code, 200)
+        post = response.json()['post']
+        self.assertEqual(post['place_name'], 'Mamoun\'s Falafel')
+        self.assertEqual(post['description'], 'Get the shawarma plate.')
+        self.assertEqual(post['location'], '30 St Marks Pl')
+        self.assertEqual(post['cuisine'], 'Lebanese')
+        self.assertEqual(post['rating'], 5)
+        self.assertTrue(post['is_author'])
+
+    def test_changes_persist_in_the_feed_and_post_details(self):
+        self.patch({'description': 'Even better now.'})
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.description, 'Even better now.')
+        self.assertEqual(self.client.get(reverse('social:posts')).json()['posts'][0]['description'], 'Even better now.')
+        self.assertEqual(self.client.get(self.url).json()['post']['description'], 'Even better now.')
+
+    def test_fields_left_out_keep_their_current_value(self):
+        self.patch({'cuisine': 'Lebanese'})
+        self.post.refresh_from_db()
+        self.assertEqual(
+            (self.post.place_name, self.post.description, self.post.location, self.post.cuisine, self.post.rating),
+            ('Mamoun\'s', 'Good falafel.', '119 Macdougal St', 'Lebanese', 4),
+        )
+
+    def test_clearing_the_rating_and_optional_fields(self):
+        response = self.patch({'rating': '', 'location': '', 'cuisine': ''})
+        self.assertEqual(response.status_code, 200)
+        self.post.refresh_from_db()
+        self.assertIsNone(self.post.rating)
+        self.assertEqual((self.post.location, self.post.cuisine), ('', ''))
+
+    def test_uses_the_same_rules_as_creating_a_post(self):
+        for data, field in [
+            ({'place_name': '   '}, 'place_name'),
+            ({'description': ''}, 'description'),
+            ({'rating': 6}, 'rating'),
+        ]:
+            with self.subTest(data=data):
+                response = self.patch(data)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(field, response.json()['errors'])
+        self.post.refresh_from_db()
+        self.assertEqual((self.post.place_name, self.post.description, self.post.rating), ('Mamoun\'s', 'Good falafel.', 4))
+
+    def test_cannot_change_the_author_or_creation_date(self):
+        created_at = self.post.created_at
+        self.patch({'author': self.other.pk, 'created_at': '2020-01-01T00:00:00Z', 'cuisine': 'Lebanese'})
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.author, self.user)
+        self.assertEqual(self.post.created_at, created_at)
+
+    def test_another_student_cannot_edit_it(self):
+        self.client.force_login(self.other)
+        response = self.patch({'place_name': 'Hacked'})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['detail'], 'Post not found.')
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.place_name, 'Mamoun\'s')
+
+    def test_editing_someone_else_s_post_looks_the_same_as_a_missing_post(self):
+        theirs = FoodPost.objects.create(author=self.other, place_name='Theirs', description='Not mine.')
+        missing = reverse('social:post', args=[theirs.pk + 100])
+        self.assertEqual(
+            self.patch({'place_name': 'X'}, reverse('social:post', args=[theirs.pk])).json(),
+            self.patch({'place_name': 'X'}, missing).json(),
+        )
+
+    def test_logged_out_user_cannot_edit(self):
+        self.client.logout()
+        self.assertEqual(self.patch({'place_name': 'X'}).status_code, 401)
+        self.post.refresh_from_db()
+        self.assertEqual(self.post.place_name, 'Mamoun\'s')
+
+    def test_rejects_invalid_json(self):
+        for body in ['{nope', '["a list"]']:
+            with self.subTest(body=body):
+                response = self.client.patch(self.url, body, content_type='application/json')
+                self.assertEqual(response.status_code, 400)
+
+    def test_response_does_not_expose_the_author_bio(self):
+        self.user.bio = 'Alex likes ramen.'
+        self.user.save()
+        self.assertNotIn('bio', self.patch({'cuisine': 'Lebanese'}).json()['post']['author'])
+
+
+class DeleteFoodPostTests(SocialTestCase):
+    # #52: a student can delete their own food posts, and no one else's.
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(author=self.user, place_name='Mamoun\'s', description='Good falafel.')
+        self.url = reverse('social:post', args=[self.post.pk])
+
+    def test_author_can_delete_it(self):
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'ok': True})
+        self.assertFalse(FoodPost.objects.filter(pk=self.post.pk).exists())
+
+    def test_a_deleted_post_leaves_the_feed_and_its_page(self):
+        kept = FoodPost.objects.create(author=self.other, place_name='Joe\'s Pizza', description='Classic slice.')
+        self.client.delete(self.url)
+        self.assertEqual([post['id'] for post in self.client.get(reverse('social:posts')).json()['posts']], [kept.pk])
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    def test_deleting_it_twice_is_not_found(self):
+        self.client.delete(self.url)
+        self.assertEqual(self.client.delete(self.url).status_code, 404)
+
+    def test_another_student_cannot_delete_it(self):
+        self.client.force_login(self.other)
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()['detail'], 'Post not found.')
+        self.assertTrue(FoodPost.objects.filter(pk=self.post.pk).exists())
+
+    def test_logged_out_user_cannot_delete(self):
+        self.client.logout()
+        self.assertEqual(self.client.delete(self.url).status_code, 401)
+        self.assertTrue(FoodPost.objects.filter(pk=self.post.pk).exists())
+
+    def test_deleting_one_post_leaves_the_author_s_other_posts(self):
+        other_post = FoodPost.objects.create(author=self.user, place_name='Ippudo', description='Rich broth.')
+        self.client.delete(self.url)
+        self.assertTrue(FoodPost.objects.filter(pk=other_post.pk).exists())
+
+
+class SaveFoodPostTests(SocialTestCase):
+    # #53: saving a recommendation to try later.
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(author=self.other, place_name='Joe\'s Pizza', description='Classic slice.')
+
+    def url(self, pk=None):
+        return reverse('social:post_save', args=[pk or self.post.pk])
+
+    def save(self, pk=None):
+        return self.client.put(self.url(pk))
+
+    def unsave(self, pk=None):
+        return self.client.delete(self.url(pk))
+
+    def test_saving_a_post_stores_it_for_the_logged_in_student(self):
+        response = self.save()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'saved': True})
+        self.assertEqual(list(SavedPost.objects.values_list('user', 'post')), [(self.user.pk, self.post.pk)])
+
+    def test_saving_twice_keeps_one_save(self):
+        self.save()
+        self.assertEqual(self.save().json(), {'saved': True})
+        self.assertEqual(SavedPost.objects.count(), 1)
+
+    def test_unsaving_removes_the_save_but_not_the_post(self):
+        self.save()
+        response = self.unsave()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'saved': False})
+        self.assertFalse(SavedPost.objects.exists())
+        self.assertTrue(FoodPost.objects.filter(pk=self.post.pk).exists())
+
+    def test_unsaving_a_post_that_was_never_saved_is_fine(self):
+        self.assertEqual(self.unsave().json(), {'saved': False})
+
+    def test_unsaving_only_removes_your_own_save(self):
+        SavedPost.objects.create(user=self.third, post=self.post)
+        self.save()
+        self.unsave()
+        self.assertEqual(list(SavedPost.objects.values_list('user', flat=True)), [self.third.pk])
+
+    def test_you_can_save_your_own_post(self):
+        own = FoodPost.objects.create(author=self.user, place_name='Mine', description='Mine.')
+        self.assertEqual(self.save(own.pk).json(), {'saved': True})
+
+    def test_a_missing_post_cannot_be_saved(self):
+        self.assertEqual(self.save(self.post.pk + 100).status_code, 404)
+        self.assertFalse(SavedPost.objects.exists())
+
+    def test_a_post_by_a_deactivated_account_cannot_be_saved(self):
+        User.objects.filter(pk=self.other.pk).update(is_active=False)
+        self.assertEqual(self.save().status_code, 404)
+        self.assertFalse(SavedPost.objects.exists())
+
+    def test_logged_out_students_cannot_save_or_unsave(self):
+        SavedPost.objects.create(user=self.user, post=self.post)
+        self.client.logout()
+        self.assertEqual(self.save().status_code, 401)
+        self.assertEqual(self.unsave().status_code, 401)
+        self.assertEqual(SavedPost.objects.count(), 1)
+
+    def test_only_put_and_delete_are_allowed(self):
+        self.assertEqual(self.client.get(self.url()).status_code, 405)
+        self.assertEqual(self.client.post(self.url()).status_code, 405)
+
+    def test_the_database_allows_one_save_per_student_per_post(self):
+        SavedPost.objects.create(user=self.user, post=self.post)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            SavedPost.objects.create(user=self.user, post=self.post)
+
+    def test_deleting_the_post_or_the_account_removes_its_saves(self):
+        SavedPost.objects.create(user=self.user, post=self.post)
+        self.post.delete()
+        self.assertFalse(SavedPost.objects.exists())
+        other_post = FoodPost.objects.create(author=self.other, place_name='X', description='Y')
+        SavedPost.objects.create(user=self.third, post=other_post)
+        self.third.delete()
+        self.assertFalse(SavedPost.objects.exists())
+
+
+class SavedStatusTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.saved = FoodPost.objects.create(author=self.other, place_name='Saved', description='a')
+        self.not_saved = FoodPost.objects.create(author=self.other, place_name='Not saved', description='b')
+        SavedPost.objects.create(user=self.user, post=self.saved)
+
+    def test_the_feed_says_which_posts_you_saved(self):
+        posts = self.client.get(reverse('social:posts')).json()['posts']
+        self.assertEqual({post['place_name']: post['is_saved'] for post in posts}, {'Saved': True, 'Not saved': False})
+
+    def test_the_post_page_says_whether_you_saved_it(self):
+        self.assertTrue(self.client.get(reverse('social:post', args=[self.saved.pk])).json()['post']['is_saved'])
+        self.assertFalse(self.client.get(reverse('social:post', args=[self.not_saved.pk])).json()['post']['is_saved'])
+
+    def test_another_students_saves_do_not_show_as_yours(self):
+        self.client.force_login(self.third)
+        posts = self.client.get(reverse('social:posts')).json()['posts']
+        self.assertFalse(any(post['is_saved'] for post in posts))
+
+    def test_a_new_post_starts_unsaved(self):
+        response = self.client.post(
+            reverse('social:posts'), json.dumps({'place_name': 'New', 'description': 'c'}), content_type='application/json',
+        )
+        self.assertFalse(response.json()['post']['is_saved'])
+
+
+class SavedFoodPostsTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('social:saved_posts')
+
+    def save_at(self, post, minutes_ago, user=None):
+        saved = SavedPost.objects.create(user=user or self.user, post=post)
+        SavedPost.objects.filter(pk=saved.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+
+    def test_lists_your_saved_posts_most_recently_saved_first(self):
+        older_post = FoodPost.objects.create(author=self.other, place_name='Saved first', description='a')
+        newer_post = FoodPost.objects.create(author=self.third, place_name='Saved second', description='b')
+        FoodPost.objects.create(author=self.other, place_name='Not saved', description='c')
+        self.save_at(older_post, 10)
+        self.save_at(newer_post, 5)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        posts = response.json()['posts']
+        self.assertEqual([post['place_name'] for post in posts], ['Saved second', 'Saved first'])
+        self.assertTrue(all(post['is_saved'] for post in posts))
+        self.assertEqual(posts[0]['author']['first_name'], 'Jordan')
+        self.assertNotIn('bio', posts[0]['author'])
+
+    def test_saved_posts_belong_to_your_account_only(self):
+        post = FoodPost.objects.create(author=self.other, place_name='Theirs', description='a')
+        self.save_at(post, 1, user=self.third)
+        self.assertEqual(self.client.get(self.url).json(), {'posts': []})
+        self.client.force_login(self.third)
+        self.assertEqual([item['place_name'] for item in self.client.get(self.url).json()['posts']], ['Theirs'])
+
+    def test_saves_are_still_there_on_the_next_request(self):
+        post = FoodPost.objects.create(author=self.other, place_name='Keep', description='a')
+        self.client.put(reverse('social:post_save', args=[post.pk]))
+        self.client.logout()
+        self.client.force_login(self.user)
+        self.assertEqual([item['place_name'] for item in self.client.get(self.url).json()['posts']], ['Keep'])
+
+    def test_unsaved_posts_leave_the_list(self):
+        post = FoodPost.objects.create(author=self.other, place_name='Gone', description='a')
+        self.save_at(post, 1)
+        self.client.delete(reverse('social:post_save', args=[post.pk]))
+        self.assertEqual(self.client.get(self.url).json(), {'posts': []})
+
+    def test_a_post_by_a_deactivated_account_is_hidden_until_reactivated(self):
+        post = FoodPost.objects.create(author=self.other, place_name='Paused', description='a')
+        self.save_at(post, 1)
+        User.objects.filter(pk=self.other.pk).update(is_active=False)
+        self.assertEqual(self.client.get(self.url).json(), {'posts': []})
+        User.objects.filter(pk=self.other.pk).update(is_active=True)
+        self.assertEqual([item['place_name'] for item in self.client.get(self.url).json()['posts']], ['Paused'])
+
+    def test_empty_when_nothing_is_saved(self):
+        self.assertEqual(self.client.get(self.url).json(), {'posts': []})
+
+    def test_logged_out_students_cannot_see_saved_posts(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 401)
+
+    def test_only_get_is_allowed(self):
+        self.assertEqual(self.client.post(self.url).status_code, 405)
+
+
+class PostCommentTests(SocialTestCase):
+    # #49: commenting on food posts.
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(author=self.other, place_name='Joe\'s Pizza', description='Classic slice.')
+        self.other_post = FoodPost.objects.create(author=self.third, place_name='Katz\'s', description='Pastrami.')
+
+    def url(self, pk=None):
+        return reverse('social:post_comments', args=[pk or self.post.pk])
+
+    def comment(self, body, pk=None):
+        return self.client.post(self.url(pk), json.dumps({'body': body}), content_type='application/json')
+
+    def comments(self, pk=None):
+        return self.client.get(self.url(pk)).json()['comments']
+
+    def test_adds_a_comment_as_the_logged_in_student(self):
+        response = self.comment('The white pie is great too.')
+        self.assertEqual(response.status_code, 201)
+        comment = response.json()['comment']
+        self.assertEqual(comment['body'], 'The white pie is great too.')
+        self.assertEqual(comment['author']['email'], self.user.email)
+        self.assertIn('created_at', comment)
+        saved = PostComment.objects.get()
+        self.assertEqual((saved.post, saved.author), (self.post, self.user))
+
+    def test_the_author_comes_from_the_session_not_the_request(self):
+        self.client.post(self.url(), json.dumps({'body': 'Hi', 'author': self.third.pk}), content_type='application/json')
+        self.assertEqual(PostComment.objects.get().author, self.user)
+
+    def test_a_comment_needs_text(self):
+        for body in ['', '   ', '\n\t']:
+            with self.subTest(body=body):
+                response = self.comment(body)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['errors']['body'], ['Write a comment before posting.'])
+        self.assertEqual(self.client.post(self.url(), '{}', content_type='application/json').status_code, 400)
+        self.assertFalse(PostComment.objects.exists())
+
+    def test_surrounding_spaces_are_trimmed(self):
+        self.assertEqual(self.comment('  So good.  ').json()['comment']['body'], 'So good.')
+
+    def test_comments_over_1000_characters_are_rejected(self):
+        self.assertEqual(self.comment('a' * 1000).status_code, 201)
+        response = self.comment('a' * 1001)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['errors']['body'], ['Comments must be 1000 characters or fewer.'])
+
+    def test_invalid_json_is_rejected(self):
+        response = self.client.post(self.url(), '{not json', content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.post(self.url(), '[]', content_type='application/json').status_code, 400)
+        self.assertFalse(PostComment.objects.exists())
+
+    def test_a_comment_shows_under_the_post_it_was_written_on_only(self):
+        self.comment('About pizza.')
+        self.comment('About pastrami.', pk=self.other_post.pk)
+        self.assertEqual([item['body'] for item in self.comments()], ['About pizza.'])
+        self.assertEqual([item['body'] for item in self.comments(self.other_post.pk)], ['About pastrami.'])
+
+    def test_comments_are_still_there_on_the_next_request(self):
+        self.comment('Still here.')
+        self.client.logout()
+        self.client.force_login(self.third)
+        self.assertEqual([(item['body'], item['author']['email']) for item in self.comments()], [('Still here.', self.user.email)])
+
+    def test_comments_are_listed_oldest_first(self):
+        first = PostComment.objects.create(post=self.post, author=self.other, body='First')
+        PostComment.objects.create(post=self.post, author=self.third, body='Second')
+        PostComment.objects.filter(pk=first.pk).update(created_at=timezone.now() - timedelta(hours=1))
+        PostComment.objects.create(post=self.post, author=self.user, body='Third')
+        self.assertEqual([item['body'] for item in self.comments()], ['First', 'Second', 'Third'])
+
+    def test_comment_authors_do_not_expose_their_bio(self):
+        self.other.bio = 'Sam studies math.'
+        self.other.save()
+        PostComment.objects.create(post=self.post, author=self.other, body='Hi')
+        self.assertNotIn('bio', self.comments()[0]['author'])
+        self.assertEqual(self.comments()[0]['author']['first_name'], 'Sam')
+
+    def test_comments_by_a_deactivated_account_are_hidden_until_reactivated(self):
+        PostComment.objects.create(post=self.post, author=self.third, body='Hidden for now')
+        User.objects.filter(pk=self.third.pk).update(is_active=False)
+        self.assertEqual(self.comments(), [])
+        User.objects.filter(pk=self.third.pk).update(is_active=True)
+        self.assertEqual([item['body'] for item in self.comments()], ['Hidden for now'])
+
+    def test_a_missing_or_hidden_post_cannot_be_read_or_commented_on(self):
+        self.assertEqual(self.client.get(self.url(self.post.pk + 100)).status_code, 404)
+        self.assertEqual(self.comment('Hi', pk=self.post.pk + 100).status_code, 404)
+        User.objects.filter(pk=self.other.pk).update(is_active=False)
+        self.assertEqual(self.client.get(self.url()).status_code, 404)
+        self.assertEqual(self.comment('Hi').status_code, 404)
+        self.assertFalse(PostComment.objects.exists())
+
+    def test_logged_out_students_cannot_read_or_comment(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url()).status_code, 401)
+        self.assertEqual(self.comment('Hi').status_code, 401)
+        self.assertFalse(PostComment.objects.exists())
+
+    def test_only_get_and_post_are_allowed(self):
+        self.assertEqual(self.client.delete(self.url()).status_code, 405)
+        self.assertEqual(self.client.put(self.url()).status_code, 405)
+
+    def test_deleting_the_post_or_the_author_removes_their_comments(self):
+        PostComment.objects.create(post=self.post, author=self.user, body='On a deleted post')
+        PostComment.objects.create(post=self.other_post, author=self.third, body='By a deleted account')
+        self.post.delete()
+        self.third.delete()
+        self.assertFalse(PostComment.objects.exists())
+
+
+class CommentCountTests(SocialTestCase):
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(author=self.other, place_name='Busy', description='a')
+        self.quiet = FoodPost.objects.create(author=self.other, place_name='Quiet', description='b')
+        PostComment.objects.create(post=self.post, author=self.user, body='One')
+        PostComment.objects.create(post=self.post, author=self.third, body='Two')
+
+    def test_the_feed_and_post_page_count_comments(self):
+        posts = self.client.get(reverse('social:posts')).json()['posts']
+        self.assertEqual({post['place_name']: post['comment_count'] for post in posts}, {'Busy': 2, 'Quiet': 0})
+        self.assertEqual(self.client.get(reverse('social:post', args=[self.post.pk])).json()['post']['comment_count'], 2)
+
+    def test_the_count_leaves_out_hidden_comments(self):
+        User.objects.filter(pk=self.third.pk).update(is_active=False)
+        self.assertEqual(self.client.get(reverse('social:post', args=[self.post.pk])).json()['post']['comment_count'], 1)
+
+    def test_saves_do_not_inflate_the_count(self):
+        SavedPost.objects.create(user=self.user, post=self.post)
+        SavedPost.objects.create(user=self.third, post=self.post)
+        posts = self.client.get(reverse('social:saved_posts')).json()['posts']
+        self.assertEqual([(post['place_name'], post['comment_count']) for post in posts], [('Busy', 2)])
+        self.assertEqual(self.client.get(reverse('social:post', args=[self.post.pk])).json()['post']['comment_count'], 2)
+
+    def test_a_new_post_has_no_comments(self):
+        response = self.client.post(
+            reverse('social:posts'), json.dumps({'place_name': 'New', 'description': 'c'}), content_type='application/json',
+        )
+        self.assertEqual(response.json()['post']['comment_count'], 0)
+
+
+class FoodPostModelTests(SocialTestCase):
+    def test_database_rejects_a_rating_outside_1_to_5(self):
+        for rating in [0, 6]:
+            with self.subTest(rating=rating), self.assertRaises(IntegrityError), transaction.atomic():
+                FoodPost.objects.create(author=self.user, place_name='X', description='Y', rating=rating)
+
+    def test_deleting_an_account_deletes_its_posts(self):
+        FoodPost.objects.create(author=self.other, place_name='X', description='Y')
+        self.other.delete()
+        self.assertFalse(FoodPost.objects.exists())
+
+
+class PostLikeTests(SocialTestCase):
+    # #50: liking and unliking is per-account, idempotent, and visible in the
+    # feed and on the post's detail page.
+    def setUp(self):
+        super().setUp()
+        self.post = FoodPost.objects.create(author=self.other, place_name='Joe\'s Pizza', description='Slices')
+        self.url = reverse('social:post_like', args=[self.post.pk])
+
+    def likes_in_feed(self):
+        return self.client.get(reverse('social:posts')).json()['posts'][0]
+
+    def test_liking_post_updates_the_count_and_persists_across_requests(self):
+        response = self.client.put(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'is_liked': True, 'like_count': 1})
+        self.assertTrue(PostLike.objects.filter(user=self.user, post=self.post).exists())
+        self.assertTrue(self.likes_in_feed()['is_liked'])
+        self.assertEqual(self.likes_in_feed()['like_count'], 1)
+        self.client.logout()
+        self.client.force_login(self.user)
+        detail = self.client.get(reverse('social:post', args=[self.post.pk])).json()['post']
+        self.assertEqual((detail['is_liked'], detail['like_count']), (True, 1))
+
+    def test_same_account_cannot_like_twice(self):
+        self.client.put(self.url)
+        repeated = self.client.put(self.url)
+        self.assertEqual(repeated.json(), {'is_liked': True, 'like_count': 1})
+        self.assertEqual(PostLike.objects.count(), 1)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            PostLike.objects.create(user=self.user, post=self.post)
+
+    def test_multiple_students_have_independent_like_state(self):
+        self.client.put(self.url)
+        self.client.force_login(self.third)
+        mine = self.likes_in_feed()
+        self.assertFalse(mine['is_liked'])
+        self.assertEqual(mine['like_count'], 1)
+        self.assertEqual(self.client.put(self.url).json()['like_count'], 2)
+        self.client.force_login(self.user)
+        self.assertEqual((self.likes_in_feed()['is_liked'], self.likes_in_feed()['like_count']), (True, 2))
+
+    def test_unlike_is_idempotent_and_does_not_remove_another_students_like(self):
+        self.client.put(self.url)
+        self.client.force_login(self.third)
+        self.client.put(self.url)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.delete(self.url).json(), {'is_liked': False, 'like_count': 1})
+        self.assertEqual(self.client.delete(self.url).json(), {'is_liked': False, 'like_count': 1})
+        self.assertFalse(self.likes_in_feed()['is_liked'])
+        self.assertEqual(PostLike.objects.count(), 1)
+
+    def test_new_posts_start_with_no_likes(self):
+        response = self.client.post(
+            reverse('social:posts'), json.dumps({'place_name': 'New place', 'description': 'Great'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['post']['like_count'], 0)
+        self.assertFalse(response.json()['post']['is_liked'])
+
+    def test_comment_and_save_joins_do_not_inflate_likes(self):
+        PostLike.objects.create(user=self.user, post=self.post)
+        PostLike.objects.create(user=self.third, post=self.post)
+        PostComment.objects.create(post=self.post, author=self.user, body='First')
+        PostComment.objects.create(post=self.post, author=self.third, body='Second')
+        SavedPost.objects.create(user=self.user, post=self.post)
+        SavedPost.objects.create(user=self.third, post=self.post)
+        feed_post = self.likes_in_feed()
+        self.assertEqual(feed_post['like_count'], 2)
+        self.assertEqual(feed_post['comment_count'], 2)
+        self.assertTrue(feed_post['is_liked'])
+        saved = self.client.get(reverse('social:saved_posts')).json()['posts'][0]
+        self.assertEqual((saved['like_count'], saved['comment_count']), (2, 2))
+
+    def test_deactivated_authors_posts_cannot_be_liked(self):
+        self.client.put(self.url)
+        User.objects.filter(pk=self.other.pk).update(is_active=False)
+        self.assertEqual(self.client.put(self.url).status_code, 404)
+        self.assertEqual(self.client.delete(self.url).status_code, 404)
+        self.assertFalse(self.client.get(reverse('social:posts')).json()['posts'])
+        User.objects.filter(pk=self.other.pk).update(is_active=True)
+        self.assertEqual((self.likes_in_feed()['is_liked'], self.likes_in_feed()['like_count']), (True, 1))
+
+    def test_unavailable_post_returns_404(self):
+        url = reverse('social:post_like', args=[999999])
+        self.assertEqual(self.client.put(url).status_code, 404)
+        self.assertEqual(self.client.delete(url).status_code, 404)
+
+    def test_logged_out_cannot_like_or_unlike(self):
+        self.client.logout()
+        self.assertEqual(self.client.put(self.url).status_code, 401)
+        self.assertEqual(self.client.delete(self.url).status_code, 401)
+        self.assertFalse(PostLike.objects.exists())
+
+    def test_only_put_and_delete_are_allowed(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        self.assertEqual(self.client.post(self.url, json.dumps({}), content_type='application/json').status_code, 405)
+
+    def test_likes_are_deleted_with_the_post_or_user(self):
+        PostLike.objects.create(user=self.user, post=self.post)
+        self.post.delete()
+        self.assertFalse(PostLike.objects.exists())
+        second = FoodPost.objects.create(author=self.other, place_name='Another', description='Good')
+        PostLike.objects.create(user=self.user, post=second)
+        self.user.delete()
+        self.assertFalse(PostLike.objects.exists())

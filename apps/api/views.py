@@ -17,15 +17,16 @@ from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from apps.accounts.forms import AccountActionForm, ProfileForm, ProfilePictureForm, SignUpForm
-from apps.accounts.models import User
+from apps.accounts.forms import (
+    AccountActionForm, NotificationPreferencesForm, PrivacySettingsForm, ProfileForm, ProfilePictureForm, SignUpForm,
+)
+from apps.accounts.models import DEADLINE_REMINDER_HOUR_CHOICES, STUDY_REMINDER_MINUTE_CHOICES, User
 from apps.coursework.forms import AssignmentForm, CourseForm, ExamForm
 from apps.coursework.models import Assignment, Course, Exam
 from apps.study.models import StudySession
+from apps.study.services import session_item_payload
 
 logger = logging.getLogger(__name__)
-
-STUDY_REMINDER_WINDOW = timedelta(hours=1)
 
 
 def _json_body(request):
@@ -54,6 +55,11 @@ def _user_payload(user):
         'last_name': user.last_name,
         'profile_picture': user.profile_picture.url if user.profile_picture else None,
         'bio': user.bio,
+        # Only ever sent to the user themselves (see _user_payload's callers);
+        # what other students actually see is built in apps/social/views.py.
+        'show_email': user.show_email,
+        'show_bio': user.show_bio,
+        'show_profile_picture': user.show_profile_picture,
     }
 
 
@@ -129,21 +135,57 @@ def _upcoming_payload(assignments, exams):
 
 
 def _study_reminder_payload(user, now):
-    sessions = StudySession.objects.filter(
-        assignment__course__owner=user,
+    # A student can turn reminders off, or change how far ahead they appear (#37).
+    if not user.study_reminders_enabled:
+        return []
+    # Nothing to remind about once a session is already marked complete.
+    sessions = StudySession.objects.owned_by(user).filter(
+        is_complete=False,
         starts_at__gt=now,
-        starts_at__lte=now + STUDY_REMINDER_WINDOW,
-    ).select_related('assignment__course')
+        starts_at__lte=now + timedelta(minutes=user.study_reminder_minutes),
+    ).with_course()
     return [
         {
             'id': session.pk,
             'starts_at': timezone.localtime(session.starts_at).isoformat(),
             'ends_at': timezone.localtime(session.ends_at).isoformat(),
-            'assignment': {'id': session.assignment_id, 'title': session.assignment.title},
-            'course': {'id': session.assignment.course_id, 'name': session.assignment.course.name, 'code': session.assignment.course.code},
+            **session_item_payload(session),
         }
         for session in sessions
     ]
+
+
+def _deadline_reminder_payload(user, now):
+    # Assignments and exams coming up within the student's chosen window (#37).
+    # Overdue work isn't a reminder: the dashboard already counts it.
+    if not user.deadline_reminders_enabled:
+        return []
+    until = now + timedelta(hours=user.deadline_reminder_hours)
+    assignments = (
+        Assignment.objects.owned_by(user).outstanding()
+        .filter(due_date__gt=now, due_date__lte=until).select_related('course')
+    )
+    exams = Exam.objects.owned_by(user).upcoming().filter(starts_at__gt=now, starts_at__lte=until).select_related('course')
+    items = [
+        {
+            'id': item.pk,
+            'kind': 'assignment',
+            'title': item.title,
+            'when': timezone.localtime(item.due_date).isoformat(),
+            'course': {'id': item.course_id, 'name': item.course.name, 'code': item.course.code},
+        }
+        for item in assignments
+    ] + [
+        {
+            'id': item.pk,
+            'kind': 'exam',
+            'title': item.title,
+            'when': timezone.localtime(item.starts_at).isoformat(),
+            'course': {'id': item.course_id, 'name': item.course.name, 'code': item.course.code},
+        }
+        for item in exams
+    ]
+    return sorted(items, key=lambda item: (item['when'], item['title']))
 
 
 def _semester_payload(instance=None):
@@ -311,6 +353,36 @@ def profile_view(request):
     return JsonResponse({'user': _user_payload(user)})
 
 
+PRIVACY_FIELDS = ('show_email', 'show_bio', 'show_profile_picture')
+
+
+@require_http_methods(['PUT'])
+def profile_privacy_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    # A field left out keeps its current value, so a client can change one
+    # setting without resending the others. A BooleanField would read a
+    # missing key as False (and any non-empty junk as True), so insist on
+    # real booleans instead of letting a typo silently hide or show a field.
+    errors = {
+        field: ['Choose on or off.']
+        for field in PRIVACY_FIELDS
+        if field in body and not isinstance(body[field], bool)
+    }
+    if errors:
+        return JsonResponse({'errors': errors}, status=400)
+    data = {field: getattr(request.user, field) for field in PRIVACY_FIELDS}
+    data.update({field: body[field] for field in PRIVACY_FIELDS if field in body})
+    form = PrivacySettingsForm(data, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    user = form.save()
+    return JsonResponse({'user': _user_payload(user)})
+
+
 @require_http_methods(['POST', 'DELETE'])
 def profile_picture_view(request):
     if not request.user.is_authenticated:
@@ -337,6 +409,69 @@ def profile_picture_view(request):
         # under its own (storage-assigned) name.
         request.user.profile_picture.storage.delete(old_name)
     return JsonResponse({'user': _user_payload(request.user)})
+
+
+# Every notification setting, with the kind of value it takes. Booleans are
+# on/off switches; the others take one of a fixed list of choices (#37).
+NOTIFICATION_SWITCHES = (
+    'study_reminders_enabled',
+    'deadline_reminders_enabled',
+    'friend_request_alerts_enabled',
+    'message_alerts_enabled',
+)
+NOTIFICATION_CHOICES = {
+    'study_reminder_minutes': (STUDY_REMINDER_MINUTE_CHOICES, 'Choose how early to be reminded.'),
+    'deadline_reminder_hours': (DEADLINE_REMINDER_HOUR_CHOICES, 'Choose how early to be reminded.'),
+}
+
+
+def _notification_payload(user):
+    return {
+        key: getattr(user, key)
+        for key in (*NOTIFICATION_SWITCHES, *NOTIFICATION_CHOICES)
+    }
+
+
+def _notification_response(user):
+    # The choices come from the server so the settings screen can't drift out
+    # of step with what the API accepts.
+    return JsonResponse({
+        'notifications': _notification_payload(user),
+        'options': {key: list(choices) for key, (choices, _) in NOTIFICATION_CHOICES.items()},
+    })
+
+
+@require_http_methods(['GET', 'PUT'])
+def profile_notifications_view(request):
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    if request.method == 'GET':
+        return _notification_response(request.user)
+    body = _json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({'detail': 'Invalid JSON.'}, status=400)
+    # A setting left out keeps its current value. Check types ourselves: a
+    # BooleanField would read a missing key as False and "false" as True-ish
+    # junk, and a number field would accept "60" or 60.0 where we want a
+    # real choice from the list.
+    errors = {}
+    for key in NOTIFICATION_SWITCHES:
+        if key in body and not isinstance(body[key], bool):
+            errors[key] = ['Choose on or off.']
+    for key, (choices, message) in NOTIFICATION_CHOICES.items():
+        if key in body:
+            value = body[key]
+            if isinstance(value, bool) or not isinstance(value, int) or value not in choices:
+                errors[key] = [message]
+    if errors:
+        return JsonResponse({'errors': errors}, status=400)
+    data = _notification_payload(request.user)
+    data.update({key: body[key] for key in data if key in body})
+    form = NotificationPreferencesForm(data, instance=request.user)
+    if not form.is_valid():
+        return JsonResponse({'errors': _errors(form)}, status=400)
+    form.save()
+    return _notification_response(request.user)
 
 
 @require_POST
@@ -390,6 +525,7 @@ def dashboard_view(request):
         'assignments': [_assignment_payload(item) for item in outstanding],
         'upcoming': _upcoming_payload(outstanding, exams),
         'study_reminders': _study_reminder_payload(request.user, now),
+        'deadline_reminders': _deadline_reminder_payload(request.user, now),
     })
 
 
