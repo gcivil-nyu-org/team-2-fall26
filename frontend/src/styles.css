@@ -605,3 +605,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .event-description { white-space: pre-wrap; line-height: 1.7; margin: 1.5rem 0; }
 @media (max-width: 900px) { .event-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .event-filters, .event-grid { grid-template-columns: 1fr; } .event-detail { padding: 1.25rem; } }
+
+/* #48: independent search/filter controls above the community feed. */
+.food-feed-filters__fields { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 1rem; padding: 1.25rem 1.4rem; }
+.food-feed-filters__search { display: flex; align-items: center; gap: .55rem; padding: 0 .8rem; background: #fff; border: 1px solid #ddd6e3; border-radius: 11px; }
+.food-feed-filters__search:focus-within { border-color: #9c73b8; box-shadow: 0 0 0 3px #57068c14; }
+.food-feed-filters__search svg { flex-shrink: 0; color: var(--muted); }
+.food-feed-filters__search input { padding: .7rem 0; min-height: 47px; border: 0; box-shadow: none; outline: 0; }
+.food-feed-filters__search input:focus { border: 0; box-shadow: none; }
+@media (max-width: 750px) { .food-feed-filters__fields { grid-template-columns: 1fr; padding: 1rem; } }
