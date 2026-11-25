@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ('social', '0005_postcomment'),
+        ('social', '0008_postcomment'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
