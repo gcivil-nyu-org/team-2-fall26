@@ -9,6 +9,12 @@ export default defineConfig(({ command }) => ({
     setupFiles: ['./src/setupTests.js'],
     include: ['src/**/*.test.jsx'],
     globals: true,
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{js,jsx}'],
+      exclude: ['src/**/*.test.{js,jsx}', 'src/setupTests.js', 'src/main.jsx'],
+      reporter: ['text', 'html', 'json-summary', 'lcov'],
+    },
   },
   build: {
     outDir: '../static/frontend',

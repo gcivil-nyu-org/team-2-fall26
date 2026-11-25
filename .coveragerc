@@ -1,0 +1,21 @@
+[run]
+source = apps
+branch = True
+omit =
+    */migrations/*
+    */tests.py
+    */test_*.py
+
+[report]
+precision = 2
+show_missing = True
+fail_under = 85
+
+[html]
+directory = coverage/backend/html
+
+[xml]
+output = coverage/backend/coverage.xml
+
+[json]
+output = coverage/backend/coverage.json
