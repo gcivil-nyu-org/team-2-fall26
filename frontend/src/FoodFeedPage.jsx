@@ -85,7 +85,7 @@ function SaveButton({ post, onChange }) {
     setError('')
     try {
       const result = await api(`/social/posts/${post.id}/save/`, { method: post.is_saved ? 'DELETE' : 'PUT' })
-      onChange({ ...post, is_saved: result.saved })
+      onChange({ id: post.id, is_saved: result.saved })
     } catch (err) {
       setError(err.message || 'Could not update your saved recommendations.')
     } finally {
@@ -250,7 +250,7 @@ function LikeButton({ post, onChange }) {
     setError('')
     try {
       const result = await api(`/social/posts/${post.id}/like/`, { method: post.is_liked ? 'DELETE' : 'PUT' })
-      onChange({ ...post, is_liked: result.is_liked, like_count: result.like_count })
+      onChange({ id: post.id, is_liked: result.is_liked, like_count: result.like_count })
     } catch (err) {
       setError(err.message || 'Could not update your like.')
     } finally {
@@ -449,7 +449,7 @@ export function FoodPostPage() {
         : error ? <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
           : post && <>
             <section className="panel" aria-label="Post">
-              <FoodPostCard post={post} full onChange={setPost} />
+              <FoodPostCard post={post} full onChange={(changes) => setPost((current) => ({ ...current, ...changes }))} />
               {/* #51/#52: only the author sees these; the server checks too. */}
               {post.is_author && <div className="food-post__owner-actions">
                 <Link className="button button--secondary button--small" to={`/community/posts/${post.id}/edit`}><Pencil size={15} /> Edit post</Link>
@@ -577,7 +577,7 @@ export function FoodFeedPage() {
   }, [attempt])
 
   function replacePost(updated) {
-    setPosts((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+    setPosts((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)))
   }
 
   function update(event) {
@@ -674,9 +674,9 @@ export function SavedPostsPage() {
   }, [attempt])
 
   function changed(updated) {
-    setPosts((current) => (updated.is_saved
-      ? current.map((item) => (item.id === updated.id ? updated : item))
-      : current.filter((item) => item.id !== updated.id)))
+    setPosts((current) => (updated.is_saved === false
+      ? current.filter((item) => item.id !== updated.id)
+      : current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))))
   }
 
   return <>

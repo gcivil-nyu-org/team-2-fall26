@@ -104,3 +104,42 @@ test('likes and saves use separate controls in food cards', async () => {
   expect(screen.getByRole('button', { name: "Save Joe's Pizza" })).toHaveAttribute('aria-pressed', 'false')
   expect(screen.getByRole('button', { name: "Like Joe's Pizza" })).toHaveAttribute('aria-pressed', 'false')
 })
+
+test.each([
+  ['/community', false], ['/community', true],
+  ['/community/posts/7', false], ['/community/posts/7', true],
+  ['/community/saved', false], ['/community/saved', true],
+])('overlapping like and save preserve both results on %s (save first: %s)', async (route, saveFirst) => {
+  const initiallySaved = route === '/community/saved'
+  const initial = post({ is_saved: initiallySaved })
+  let finishLike, finishSave
+  vi.mocked(api).mockImplementation(async (path, options = {}) => {
+    if (path === '/social/posts/' && !options.method) return { posts: [initial] }
+    if (path === '/social/posts/saved/' && !options.method) return { posts: [initial] }
+    if (path === '/social/posts/7/' && !options.method) return { post: initial }
+    if (path === '/social/posts/7/comments/' && !options.method) return { comments: [] }
+    if (path.endsWith('/like/')) return new Promise(resolve => { finishLike = resolve })
+    if (path.endsWith('/save/')) return new Promise(resolve => { finishSave = resolve })
+    throw new Error(`unexpected: ${path}`)
+  })
+  renderPage(route)
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: "Like Joe's Pizza" }))
+  await user.click(screen.getByRole('button', { name: `${initiallySaved ? 'Unsave' : 'Save'} Joe's Pizza` }))
+  if (saveFirst) {
+    finishSave({ saved: !initiallySaved })
+    if (initiallySaved) await screen.findByText('No saved recommendations yet')
+    else await screen.findByRole('button', { name: "Unsave Joe's Pizza" })
+    finishLike({ is_liked: true, like_count: 1 })
+  } else {
+    finishLike({ is_liked: true, like_count: 1 })
+    expect(await screen.findByRole('button', { name: "Unlike Joe's Pizza" })).toHaveTextContent('1 like')
+    finishSave({ saved: !initiallySaved })
+  }
+  if (initiallySaved) {
+    await waitFor(() => expect(screen.queryByRole('article', { name: "Joe's Pizza" })).not.toBeInTheDocument())
+  } else {
+    await screen.findByRole('button', { name: "Unsave Joe's Pizza" })
+    expect(await screen.findByRole('button', { name: "Unlike Joe's Pizza" })).toHaveTextContent('1 like')
+  }
+})
