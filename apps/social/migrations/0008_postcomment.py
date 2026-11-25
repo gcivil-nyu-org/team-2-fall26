@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('social', '0004_savedpost'),
+        ('social', '0007_friendrequest_response_seen_at'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
