@@ -12,7 +12,7 @@ from .forms import (
     FoodPostForm, PostCommentForm, ReportContentForm, RespondToFriendRequestForm, SendDirectMessageForm,
     SendFriendRequestForm, ShareFoodPostForm,
 )
-from .models import ContentReport, DirectMessage, FoodPost, FriendRequest, PostComment, SavedPost
+from .models import ContentReport, DirectMessage, FoodPost, FriendRequest, PostComment, PostLike, SavedPost
 
 
 def _json_body(request):
@@ -89,6 +89,8 @@ def _post_payload(post, viewer):
         'is_saved': bool(getattr(post, 'is_saved', False)),
         # #49: how many comments the post page will show.
         'comment_count': getattr(post, 'comment_count', 0),
+        'is_liked': bool(getattr(post, 'is_liked', False)),
+        'like_count': getattr(post, 'like_count', 0),
         # #67: whether the student viewing it has already reported it.
         'is_reported': bool(getattr(post, 'is_reported', False)),
     }
@@ -116,7 +118,7 @@ def _community_posts(user):
     # Counting comments groups the query, and Django drops Meta.ordering from
     # grouped queries, so the newest-first order is spelled out here.
     return (
-        FoodPost.objects.community().with_saved(user).with_reported(user).with_comment_count()
+        FoodPost.objects.community().with_saved(user).with_reported(user).with_comment_count().with_likes(user).with_like_count()
         .select_related('author').order_by('-created_at', '-id')
     )
 
@@ -456,6 +458,25 @@ def food_post_save_view(request, pk):
         return JsonResponse({'saved': True})
     SavedPost.objects.filter(user=request.user, post=post).delete()
     return JsonResponse({'saved': False})
+
+
+@require_http_methods(['PUT', 'DELETE'])
+def food_post_like_view(request, pk):
+    # #50: liking or unliking a post is idempotent, and only community posts
+    # are available. The unique DB constraint protects concurrent likes.
+    if not request.user.is_authenticated:
+        return _unauthorized()
+    post = FoodPost.objects.community().filter(pk=pk).first()
+    if post is None:
+        return JsonResponse({'detail': 'Post not found.'}, status=404)
+    if request.method == 'PUT':
+        PostLike.objects.get_or_create(user=request.user, post=post)
+    else:
+        PostLike.objects.filter(user=request.user, post=post).delete()
+    return JsonResponse({
+        'is_liked': request.method == 'PUT',
+        'like_count': PostLike.objects.filter(post=post).count(),
+    })
 
 
 @require_http_methods(['POST'])

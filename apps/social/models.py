@@ -162,6 +162,17 @@ class FoodPostQuerySet(models.QuerySet):
             ContentReport.objects.filter(reporter=user, post=models.OuterRef('pk')),
         ))
 
+    def with_likes(self, user):
+        # Use EXISTS to keep the viewer's like state independent of the
+        # comment and saved-post joins used in the feed.
+        return self.annotate(is_liked=models.Exists(
+            PostLike.objects.filter(user=user, post=models.OuterRef('pk')),
+        ))
+
+    def with_like_count(self):
+        # DISTINCT prevents comments/saves from multiplying the like count.
+        return self.annotate(like_count=models.Count('likes', distinct=True))
+
     def with_comment_count(self):
         # #49: comments the community can see, so the count matches the list.
         return self.annotate(comment_count=models.Count(
@@ -318,3 +329,23 @@ class ContentReport(models.Model):
 
     def __str__(self):
         return f'{self.reporter} reported {self.content_type_label.lower()} {self.post_id or self.comment_id}'
+
+
+class PostLike(models.Model):
+    # #50: a student's like on a food recommendation. The unique constraint
+    # keeps repeated taps or simultaneous requests from counting twice.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='liked_food_posts',
+    )
+    post = models.ForeignKey(
+        FoodPost, on_delete=models.CASCADE, related_name='likes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'post'], name='food_post_like_once_per_user'),
+        ]
+
+    def __str__(self):
+        return f'{self.user} liked {self.post}'

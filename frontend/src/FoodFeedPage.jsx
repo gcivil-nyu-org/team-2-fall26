@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Bookmark, BookmarkCheck, Flag, MapPin, Search, MessageSquare, Pencil, Save, Send, Share2, Star, Trash2, Utensils } from 'lucide-react'
+import { ArrowLeft, Bookmark, BookmarkCheck, Flag, Heart, MapPin, Search, MessageSquare, Pencil, Save, Send, Share2, Star, Trash2, Utensils } from 'lucide-react'
 
 import { api, formatDate } from './api'
 import { displayName, initial } from './friends'
@@ -85,7 +85,7 @@ function SaveButton({ post, onChange }) {
     setError('')
     try {
       const result = await api(`/social/posts/${post.id}/save/`, { method: post.is_saved ? 'DELETE' : 'PUT' })
-      onChange({ ...post, is_saved: result.saved })
+      onChange({ id: post.id, is_saved: result.saved })
     } catch (err) {
       setError(err.message || 'Could not update your saved recommendations.')
     } finally {
@@ -240,6 +240,35 @@ function ReportToggle({ label, reported, open, onToggle, className = '' }) {
   </button>
 }
 
+// #50: like/unlike a post; the server returns the authoritative count.
+function LikeButton({ post, onChange }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function toggle() {
+    setBusy(true)
+    setError('')
+    try {
+      const result = await api(`/social/posts/${post.id}/like/`, { method: post.is_liked ? 'DELETE' : 'PUT' })
+      onChange({ id: post.id, is_liked: result.is_liked, like_count: result.like_count })
+    } catch (err) {
+      setError(err.message || 'Could not update your like.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return <div className="food-post__like">
+    <button type="button" className={`button ${post.is_liked ? 'button--soft' : 'button--secondary'}`}
+      aria-pressed={Boolean(post.is_liked)} aria-label={`${post.is_liked ? 'Unlike' : 'Like'} ${post.place_name}`}
+      disabled={busy} onClick={toggle}>
+      <Heart size={15} fill={post.is_liked ? 'currentColor' : 'none'} aria-hidden="true" />
+      {post.like_count || 0} {post.like_count === 1 ? 'like' : 'likes'}
+    </button>
+    {error && <span className="field__error" role="alert">{error}</span>}
+  </div>
+}
+
 function FoodPostCard({ post, full = false, onChange }) {
   // Share and Report open one panel at a time under the card.
   const [panel, setPanel] = useState(null)
@@ -272,6 +301,7 @@ function FoodPostCard({ post, full = false, onChange }) {
         <button type="button" className="button button--secondary food-post__share-toggle" aria-expanded={sharing} aria-label={`Share ${post.place_name} with a friend`} onClick={() => togglePanel('share')}>
           <Share2 size={15} /> Share
         </button>
+        {onChange && <LikeButton post={post} onChange={onChange} />}
         {onChange && <SaveButton post={post} onChange={onChange} />}
         {!post.is_author && <ReportToggle label={post.place_name} reported={reported} open={panel === 'report'} onToggle={() => togglePanel('report')} />}
       </div>
@@ -419,7 +449,7 @@ export function FoodPostPage() {
         : error ? <LoadError message={error} retry={() => setAttempt((value) => value + 1)} />
           : post && <>
             <section className="panel" aria-label="Post">
-              <FoodPostCard post={post} full onChange={setPost} />
+              <FoodPostCard post={post} full onChange={(changes) => setPost((current) => ({ ...current, ...changes }))} />
               {/* #51/#52: only the author sees these; the server checks too. */}
               {post.is_author && <div className="food-post__owner-actions">
                 <Link className="button button--secondary button--small" to={`/community/posts/${post.id}/edit`}><Pencil size={15} /> Edit post</Link>
@@ -547,7 +577,7 @@ export function FoodFeedPage() {
   }, [attempt])
 
   function replacePost(updated) {
-    setPosts((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+    setPosts((current) => current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)))
   }
 
   function update(event) {
@@ -644,9 +674,9 @@ export function SavedPostsPage() {
   }, [attempt])
 
   function changed(updated) {
-    setPosts((current) => (updated.is_saved
-      ? current.map((item) => (item.id === updated.id ? updated : item))
-      : current.filter((item) => item.id !== updated.id)))
+    setPosts((current) => (updated.is_saved === false
+      ? current.filter((item) => item.id !== updated.id)
+      : current.map((item) => (item.id === updated.id ? { ...item, ...updated } : item))))
   }
 
   return <>
