@@ -84,6 +84,7 @@ describe('authors who hide their details (#31)', () => {
   function mockPostPage(author, isAuthor) {
     vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
       if (path === '/social/posts/7/' && !options.method) return { post: post({ id: 7, author, is_author: isAuthor }) }
+      if (path === '/social/posts/7/comments/' && !options.method) return { comments: [] }
       throw new Error(`unexpected call to api(${path})`)
     })
   }
