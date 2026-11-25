@@ -83,6 +83,7 @@ jobs:
       contents: write
     concurrency:
       group: coverage-badges
+      queue: max
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
