@@ -257,7 +257,7 @@ describe('opening a food post', () => {
     expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
     expect(within(card).queryByRole('link', { name: /Read more/ })).not.toBeInTheDocument()
     const comments = screen.getByRole('region', { name: 'Comments' })
-    expect(within(comments).getByText('No comments yet')).toBeInTheDocument()
+    expect(await within(comments).findByText('No comments yet')).toBeInTheDocument()
     expect(realApi).toHaveBeenCalledWith('/social/posts/7/')
   })
 
@@ -767,5 +767,141 @@ describe('commenting on food posts', () => {
     expect(commentCountLabel(0)).toBe('No comments yet')
     expect(commentCountLabel(1)).toBe('1 comment')
     expect(commentCountLabel(12)).toBe('12 comments')
+  })
+})
+
+describe('reporting posts and comments (#67)', () => {
+  const jordan = { id: 3, first_name: 'Jordan', last_name: '', email: 'jordan@nyu.edu', profile_picture: null }
+  const spam = { id: 1, body: 'Buy my crypto course!', author: jordan, created_at: '2026-11-04T18:00:00+00:00', is_author: false, is_reported: false }
+  const mine = { id: 2, body: 'Love this place.', author: alex, created_at: '2026-11-04T19:00:00+00:00', is_author: true, is_reported: false }
+
+  function mockReporting({ posts = [post({ id: 7 })], detail = post({ id: 7 }), comments = [], reportError = null } = {}) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/' && !options.method) return { posts }
+      if (path === '/social/posts/7/' && !options.method) return { post: detail }
+      if (path === '/social/posts/7/comments/' && !options.method) return { comments }
+      if (/^\/social\/(posts|comments)\/\d+\/report\/$/.test(path) && options.method === 'POST') {
+        if (reportError) throw reportError
+        return { reported: true }
+      }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('reporting a post sends the reason and details, confirms it, and keeps the post', async () => {
+    mockReporting()
+    renderFeed()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    const form = screen.getByRole('form', { name: "Report Joe's Pizza" })
+    expect(within(form).getAllByRole('radio').map((radio) => radio.parentElement.textContent.trim()))
+      .toEqual(['Spam', 'Harassment or bullying', 'Inappropriate content', 'Something else'])
+    const send = within(form).getByRole('button', { name: 'Send report' })
+    expect(send).toBeDisabled()
+    await user.click(within(form).getByLabelText('Spam'))
+    await user.type(within(form).getByLabelText(/Details/), '  Posted three times  ')
+    await user.click(send)
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/report/', { method: 'POST', body: { reason: 'spam', details: 'Posted three times' } })
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks, your report was sent to the moderators.')
+    expect(screen.queryByRole('form', { name: "Report Joe's Pizza" })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: "Report Joe's Pizza" })).not.toBeInTheDocument()
+    const card = screen.getByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText('Reported')).toBeInTheDocument()
+    expect(within(card).getByText('Grab a plain slice.')).toBeInTheDocument()
+  })
+
+  test('a post you already reported shows as reported, with no way to report it again', async () => {
+    mockReporting({ posts: [post({ id: 7, is_reported: true })] })
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText('Reported')).toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: /Report/ })).not.toBeInTheDocument()
+  })
+
+  test('your own post has no report option', async () => {
+    mockReporting({ posts: [post({ id: 7, author: alex, is_author: true })] })
+    renderFeed()
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).queryByRole('button', { name: /Report/ })).not.toBeInTheDocument()
+    expect(within(card).queryByText('Reported')).not.toBeInTheDocument()
+  })
+
+  test('a failed report shows the error and keeps your choices', async () => {
+    mockReporting({ reportError: new Error('Network down.') })
+    renderFeed()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    const form = screen.getByRole('form', { name: "Report Joe's Pizza" })
+    await user.click(within(form).getByLabelText('Something else'))
+    await user.type(within(form).getByLabelText(/Details/), 'Not a real place')
+    await user.click(within(form).getByRole('button', { name: 'Send report' }))
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Network down.')
+    expect(within(form).getByLabelText('Something else')).toBeChecked()
+    expect(within(form).getByLabelText(/Details/)).toHaveValue('Not a real place')
+  })
+
+  test('a report the server already has counts as reported', async () => {
+    mockReporting({ reportError: Object.assign(new Error('You’ve already reported this.'), { status: 409 }) })
+    renderFeed()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    await user.click(screen.getByLabelText('Spam'))
+    await user.click(screen.getByRole('button', { name: 'Send report' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks, your report was sent to the moderators.')
+    expect(screen.getByText('Reported')).toBeInTheDocument()
+  })
+
+  test('cancel closes the report form, and opening Share closes it too', async () => {
+    mockReporting()
+    renderFeed()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('form', { name: "Report Joe's Pizza" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: "Report Joe's Pizza" }))
+    vi.mocked(realApi).mockImplementation(async (path) => {
+      if (path === '/social/friends/') return { friends: [], received_requests: [], sent_requests: [] }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+    await user.click(screen.getByRole('button', { name: "Share Joe's Pizza with a friend" }))
+    expect(screen.queryByRole('form', { name: "Report Joe's Pizza" })).not.toBeInTheDocument()
+  })
+
+  test('a post can be reported from its own page', async () => {
+    mockReporting()
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: "Report Joe's Pizza" }))
+    await user.click(screen.getByLabelText('Inappropriate content'))
+    await user.click(screen.getByRole('button', { name: 'Send report' }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/posts/7/report/', { method: 'POST', body: { reason: 'inappropriate', details: '' } })
+    expect(await screen.findByRole('status')).toHaveTextContent('Thanks, your report was sent to the moderators.')
+  })
+
+  test('reporting a comment confirms it and keeps the comment on the page', async () => {
+    mockReporting({ comments: [spam, mine] })
+    renderApp('/community/posts/7')
+    const user = userEvent.setup()
+    const section = await screen.findByRole('region', { name: 'Comments' })
+    await user.click(await within(section).findByRole('button', { name: 'Report comment by Jordan' }))
+    const form = within(section).getByRole('form', { name: 'Report comment by Jordan' })
+    await user.click(within(form).getByLabelText('Spam'))
+    await user.click(within(form).getByRole('button', { name: 'Send report' }))
+    expect(realApi).toHaveBeenLastCalledWith('/social/comments/1/report/', { method: 'POST', body: { reason: 'spam', details: '' } })
+    expect(await within(section).findByRole('status')).toHaveTextContent('Thanks, your report was sent to the moderators.')
+    const [first] = within(section).getAllByRole('listitem')
+    expect(first).toHaveTextContent('Buy my crypto course!')
+    expect(within(first).getByText('Reported')).toBeInTheDocument()
+  })
+
+  test('your own comments have no report option and reported ones show as reported', async () => {
+    mockReporting({ comments: [{ ...spam, is_reported: true }, mine] })
+    renderApp('/community/posts/7')
+    const section = await screen.findByRole('region', { name: 'Comments' })
+    const [theirs, own] = await within(section).findAllByRole('listitem')
+    expect(within(theirs).getByText('Reported')).toBeInTheDocument()
+    expect(within(theirs).queryByRole('button', { name: /Report/ })).not.toBeInTheDocument()
+    expect(within(own).queryByRole('button', { name: /Report/ })).not.toBeInTheDocument()
+    expect(within(own).queryByText('Reported')).not.toBeInTheDocument()
   })
 })

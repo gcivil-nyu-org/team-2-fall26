@@ -6,7 +6,7 @@ from django.test import Client
 from django.urls import reverse
 
 from .administrators import (
-    ADMIN_GROUP_NAME, ADMIN_PERMISSIONS, access_level, administrator_group, can_manage_administrators,
+    ADMIN_GROUP_NAME, ADMIN_PERMISSIONS, REPORT_PERMISSIONS, access_level, administrator_group, can_manage_administrators,
 )
 from .models import User
 from .test_admin import PASSWORD, AdminTestCase, make_user
@@ -127,11 +127,13 @@ class GrantAccessTests(AdministratorAccessTestCase):
         self.make_administrator(self.sam)
         self.assertTrue(self.sam.groups.filter(name=ADMIN_GROUP_NAME).exists())
 
-    def test_the_group_gives_exactly_the_student_account_permissions(self):
+    def test_the_group_gives_exactly_the_student_account_and_report_permissions(self):
         self.make_administrator(self.sam)
         group = Group.objects.get(name=ADMIN_GROUP_NAME)
-        self.assertEqual(set(group.permissions.values_list('codename', flat=True)), set(ADMIN_PERMISSIONS))
-        self.assertEqual({p.content_type.model for p in group.permissions.all()}, {'user'})
+        self.assertEqual(
+            set(group.permissions.values_list('codename', flat=True)), set(ADMIN_PERMISSIONS) | set(REPORT_PERMISSIONS),
+        )
+        self.assertEqual({p.content_type.model for p in group.permissions.all()}, {'user', 'contentreport'})
 
     def test_the_group_is_put_right_even_if_someone_changed_it(self):
         group = administrator_group()
@@ -140,7 +142,7 @@ class GrantAccessTests(AdministratorAccessTestCase):
         self.make_administrator(self.sam)
         self.assertEqual(
             set(Group.objects.get(name=ADMIN_GROUP_NAME).permissions.values_list('codename', flat=True)),
-            set(ADMIN_PERMISSIONS),
+            set(ADMIN_PERMISSIONS) | set(REPORT_PERMISSIONS),
         )
 
     def test_several_accounts_can_be_granted_at_once(self):

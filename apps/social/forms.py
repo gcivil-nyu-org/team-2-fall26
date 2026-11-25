@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import FoodPost
+from .models import ContentReport, FoodPost
 
 
 class SendFriendRequestForm(forms.Form):
@@ -84,3 +84,20 @@ class FoodPostForm(forms.ModelForm):
                 'max_value': 'Choose a rating from 1 to 5.',
             },
         }
+
+
+class ReportContentForm(forms.Form):
+    # #67: why a student is reporting a post or comment.
+    reason = forms.ChoiceField(
+        choices=ContentReport.Reason.choices,
+        error_messages={
+            'required': 'Choose a reason for your report.',
+            'invalid_choice': 'Choose a reason for your report.',
+        },
+    )
+    details = forms.CharField(
+        required=False,
+        max_length=500,
+        strip=True,
+        error_messages={'max_length': 'Details must be 500 characters or fewer.'},
+    )
