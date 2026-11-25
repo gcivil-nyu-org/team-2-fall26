@@ -1,8 +1,8 @@
 # SemesterPilot
 
 [![CI — main](https://github.com/gcivil-nyu-org/team-2-fall26/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gcivil-nyu-org/team-2-fall26/actions/workflows/ci.yml?query=branch%3Amain)
-[![Backend coverage — main](https://raw.githubusercontent.com/gcivil-nyu-org/team-2-fall26/coverage-badges/main-backend.svg)](https://github.com/gcivil-nyu-org/team-2-fall26/actions/workflows/ci.yml?query=branch%3Amain)
-[![Frontend coverage — main](https://raw.githubusercontent.com/gcivil-nyu-org/team-2-fall26/coverage-badges/main-frontend.svg)](https://github.com/gcivil-nyu-org/team-2-fall26/actions/workflows/ci.yml?query=branch%3Amain)
+[![Coverage — main](https://raw.githubusercontent.com/gcivil-nyu-org/team-2-fall26/coverage-badges/main.svg)](https://github.com/gcivil-nyu-org/team-2-fall26/actions/workflows/ci.yml?query=branch%3Amain)
+[![Coverage — develop](https://raw.githubusercontent.com/gcivil-nyu-org/team-2-fall26/coverage-badges/develop.svg)](https://github.com/gcivil-nyu-org/team-2-fall26/actions/workflows/ci.yml?query=branch%3Adevelop)
 
 A React and Django web app for NYU students to track courses, assignments, and deadlines in one place.
 
@@ -63,20 +63,29 @@ Frontend coverage measures all source modules through the Vitest component suite
 including modules with no tests. Test files, test setup, and the React mount entry
 point (`main.jsx`) are excluded. The Node unit suite also runs, but its execution
 is not included in Vitest's coverage totals. Frontend line coverage is reported
-separately and is currently below 85%; it is not subject to the backend gate.
+separately in the reports; it is not subject to the backend gate.
+
+Each branch's badge shows **combined line coverage**:
+`(backend covered lines + frontend covered lines) / (backend executable lines + frontend executable lines)`.
+This uses backend line counts, rather than its combined line/branch percentage,
+so the two sides use the same metric. Percentages are not averaged. Badges are
+green at 85% or higher and red below 85%. For the measured development baseline,
+3,047 of 3,509 executable lines were covered (86.83%).
 
 HTML reports are generated at `coverage/backend/html/index.html` and
 `frontend/coverage/index.html`. Every successful CI run uploads downloadable
 `backend-coverage` and `frontend-coverage` artifacts.
 
-The README badges track the last successful **main** run, not `develop` or a PR.
-After this workflow first lands on `main`, its successful run creates the
-`coverage-badges` branch and publishes measured SVGs there. Before that first run,
-the coverage badge images are unavailable. No Codecov token or external service
-is needed. Only the main badge publishing job receives repository write access;
+The README has one combined coverage badge for **main** and one for **develop**.
+Each tracks its own branch's last successful run. After this workflow lands on
+`develop`, a successful run publishes `develop.svg` on the `coverage-badges`
+branch; it does not need to reach `main` first. The main badge becomes available
+after the first successful main run containing this workflow. Before a branch's
+first run, its badge image is unavailable. No Codecov token or external service
+is needed. Only the branch badge publishing job receives repository write access;
 PR test jobs remain read-only. Failed runs leave the last successful badges in
 place; check the adjacent CI badge for the current build status. The workflow
-can also be run manually on `main` from GitHub Actions.
+can also be run manually on `main` or `develop` from GitHub Actions.
 
 ```bash
 python manage.py test
