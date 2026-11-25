@@ -552,7 +552,7 @@ describe('editing a food post (#51)', () => {
     expect(calls('PATCH')).toEqual([['/social/posts/7/', { method: 'PATCH', body: {
       place_name: "Joe's Pizza", description: 'Get the grandma slice.', location: '7 Carmine St', cuisine: 'Pizza', rating: null,
     } }]])
-    expect(await screen.findByRole('status')).toHaveTextContent('Saved your changes.')
+    expect(await screen.findByText('Saved your changes.')).toHaveAttribute('role', 'status')
     const card = screen.getByRole('article', { name: "Joe's Pizza" })
     expect(within(card).getByText('Get the grandma slice.')).toBeInTheDocument()
     expect(within(card).queryByLabelText(/Rated/)).not.toBeInTheDocument()
