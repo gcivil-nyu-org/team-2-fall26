@@ -38,7 +38,7 @@ test('initially shows the whole feed newest first', async () => {
   setup()
   await screen.findByRole('article', { name: "Joe's Pizza" })
   expect(names()).toEqual(["Joe's Pizza", 'Tasty Dumplings', 'Green Garden'])
-  expect(screen.getByLabelText('Matching recommendations')).toHaveTextContent('3')
+  expect(screen.getByLabelText('3 matching recommendations')).toHaveTextContent('3')
 })
 
 test('search matches place names regardless of case or surrounding spaces', async () => {
@@ -80,7 +80,7 @@ test('multiple filters combine rather than replace each other', async () => {
   await user.type(screen.getByRole('searchbox', { name: 'Search recommendations' }), 'sushi')
   expect(names()).toEqual([])
   expect(screen.getByText('No matching recommendations')).toBeInTheDocument()
-  expect(screen.getByLabelText('Matching recommendations')).toHaveTextContent('0')
+  expect(screen.getByLabelText('0 matching recommendations')).toHaveTextContent('0')
   await user.click(screen.getByRole('button', { name: 'Clear filters' }))
   expect(names()).toEqual(["Joe's Pizza", 'Tasty Dumplings', 'Green Garden'])
 })

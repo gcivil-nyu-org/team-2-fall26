@@ -17,6 +17,8 @@ urlpatterns = [
     path('posts/<int:pk>/save/', views.food_post_save_view, name='post_save'),
     path('posts/<int:pk>/like/', views.food_post_like_view, name='post_like'),
     path('posts/<int:pk>/comments/', views.food_post_comments_view, name='post_comments'),
+    path('posts/<int:pk>/report/', views.food_post_report_view, name='post_report'),
+    path('comments/<int:pk>/report/', views.comment_report_view, name='comment_report'),
     path('posts/<int:pk>/share/', views.food_post_share_view, name='post_share'),
     path('posts/saved/', views.saved_food_posts_view, name='saved_posts'),
 ]
