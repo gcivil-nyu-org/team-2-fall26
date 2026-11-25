@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [develop, main]
   pull_request:
@@ -21,7 +22,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       # No .env in CI, so settings fall back to DEBUG=True, SQLite, and local
       # media storage: no secrets or AWS credentials needed.
@@ -29,7 +30,19 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
 
       - name: Run Django tests
-        run: python manage.py test
+        run: python -m coverage run manage.py test
+
+      - name: Report backend coverage (minimum 85%)
+        run: |
+          python -m coverage report
+          python -m coverage xml
+          python -m coverage json
+          python -m coverage html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage/backend/
 
   frontend:
     runs-on: ubuntu-latest
@@ -49,7 +62,70 @@ jobs:
         run: npm ci
 
       - name: Run frontend tests
-        run: npm test
+        run: npm run test:coverage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
 
       - name: Build
         run: npm run build
+
+  coverage-badges:
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: main-coverage-badges
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage/backend/
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+      - name: Generate measured badges
+        run: python scripts/coverage_badges.py
+      - name: Publish badges to dedicated branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const repo = context.repo;
+            const mainHead = (await github.rest.git.getRef({...repo, ref: 'heads/main'})).data.object.sha;
+            if (mainHead !== context.sha) {
+              core.notice('A newer main commit exists; skipping outdated coverage badges.');
+              return;
+            }
+            const branch = 'coverage-badges';
+            let parent;
+            try {
+              parent = (await github.rest.git.getRef({...repo, ref: `heads/${branch}`})).data.object.sha;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+            const tree = await github.rest.git.createTree({
+              ...repo,
+              tree: ['backend', 'frontend'].map(name => ({
+                path: `main-${name}.svg`, mode: '100644', type: 'blob',
+                content: fs.readFileSync(`coverage/badges/main-${name}.svg`, 'utf8')
+              }))
+            });
+            const commit = await github.rest.git.createCommit({
+              ...repo, message: `Coverage for main ${context.sha}`,
+              tree: tree.data.sha, parents: parent ? [parent] : []
+            });
+            if (parent) {
+              await github.rest.git.updateRef({...repo, ref: `heads/${branch}`, sha: commit.data.sha});
+            } else {
+              await github.rest.git.createRef({...repo, ref: `refs/heads/${branch}`, sha: commit.data.sha});
+            }

@@ -6,6 +6,10 @@ db.sqlite3
 staticfiles/
 media/
 frontend/node_modules/
+.coverage*
+!.coveragerc
+coverage/
+frontend/coverage/
 .DS_Store
 # Elastic Beanstalk Files
 .elasticbeanstalk/*
