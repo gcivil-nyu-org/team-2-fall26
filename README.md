@@ -323,21 +323,22 @@ server when `DEBUG=True`. This is also what the test suite uses — nothing abou
 testing or local dev changes with the S3 support described below.
 
 **Staging/prod: S3-ready, but still needs real infrastructure set up.**
+Use the [private S3 deployment checklist](docs/s3-media-deployment.md) to configure buckets, EB instance-role IAM permissions, and acceptance tests. Keep the bucket private: the S3-backed storage emits time-limited signed URLs rather than publicly readable object URLs.
 Elastic Beanstalk's app servers have ephemeral, non-shared local disks, so local
 storage would lose every uploaded picture on the next deploy, or not show it on
 a different instance behind the load balancer. The app code now supports S3 via
 `django-storages` — setting `AWS_STORAGE_BUCKET_NAME` (plus optionally
 `AWS_S3_REGION_NAME`, default `us-east-1`) in `config/settings.py` switches
 `STORAGES['default']` to S3 automatically, no code change needed. AWS
-credentials are deliberately **not** read from Django settings: boto3 resolves
-them itself and will prefer an IAM instance role attached to the EB environment
-over any access-key env vars, so no secret keys need to be stored in EB's
-environment config at all.
+credentials are deliberately **not** hardcoded in Django settings: boto3
+resolves them via its normal credential chain. **Environment access keys take
+precedence over the EC2 instance role**, so avoid setting `AWS_ACCESS_KEY_ID`
+and `AWS_SECRET_ACCESS_KEY` in EB properties; use the instance role instead.
 
 What *isn't* done, and can't be from code alone: an actual S3 bucket and IAM
-role/policy need to exist in AWS, and `AWS_STORAGE_BUCKET_NAME` (and the IAM
-role, or `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`) need to be set on the real
-EB environment. Flagging this the same way the SMTP setup was flagged for
+role/policy need to exist in AWS and `AWS_STORAGE_BUCKET_NAME` must be set
+in the applicable EB environment. Use a properly scoped EC2 instance role
+rather than embedding static AWS keys in environment properties. Flagging this the same way the SMTP setup was flagged for
 password reset: it's an infrastructure/ops task for whoever manages the EB
 environments and AWS account, not something this app's code alone can finish.
 
