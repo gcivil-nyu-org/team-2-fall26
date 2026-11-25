@@ -79,6 +79,36 @@ describe('authors who hide their details (#31)', () => {
     expect(within(card).getByText(/SemesterPilot student/)).toBeInTheDocument()
     expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('?')
   })
+
+  // #122: the post's own page (#47) follows the same settings as the feed.
+  function mockPostPage(author, isAuthor) {
+    vi.mocked(realApi).mockImplementation(async (path, options = {}) => {
+      if (path === '/social/posts/7/' && !options.method) return { post: post({ id: 7, author, is_author: isAuthor }) }
+      if (path === '/social/posts/7/comments/' && !options.method) return { comments: [] }
+      throw new Error(`unexpected call to api(${path})`)
+    })
+  }
+
+  test('the post page shows a hidden author’s name and an initial', async () => {
+    mockPostPage({ ...sam, email: null, profile_picture: null }, false)
+    renderApp('/community/posts/7')
+    const card = await screen.findByRole('article', { name: "Joe's Pizza" })
+    expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
+    expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('S')
+    expect(card.querySelector('.food-post__author img')).toBeNull()
+    expect(card).not.toHaveTextContent('null')
+    expect(card).not.toHaveTextContent('sam@nyu.edu')
+  })
+
+  test('an author who hides their details still gets Edit and Delete on their own post', async () => {
+    mockPostPage({ ...alex, email: null, profile_picture: null }, true)
+    renderApp('/community/posts/7')
+    expect(await screen.findByRole('link', { name: /Edit post/ })).toHaveAttribute('href', '/community/posts/7/edit')
+    expect(screen.getByRole('button', { name: /Delete post/ })).toBeEnabled()
+    const card = screen.getByRole('article', { name: "Joe's Pizza" })
+    expect(card.querySelector('.food-post__author .avatar')).toHaveTextContent('A')
+    expect(card).not.toHaveTextContent('null')
+  })
 })
 
 describe('viewing the food feed', () => {

@@ -351,3 +351,108 @@ class CommunityFeedPrivacyTests(TestCase):
         for response in (saved, unsaved):
             self.assertNotIn('sam@nyu.edu', response.content.decode())
             self.assertNotIn('profile-pictures', response.content.decode())
+
+    # #122: editing (#121) and sharing (#125) came after #108, so they get the
+    # same checks: hidden details stay hidden, the name always shows and the
+    # bio never does.
+    def edit_response(self, **changes):
+        post = FoodPost.objects.get()
+        self.client.force_login(self.author)
+        return self.client.patch(
+            reverse('social:post', args=[post.pk]),
+            json.dumps(changes or {'description': 'Get the grandma slice.'}),
+            content_type='application/json',
+        )
+
+    def test_editing_a_post_shows_email_and_photo_by_default_but_never_the_bio(self):
+        response = self.edit_response()
+        self.assertEqual(response.status_code, 200)
+        author = response.json()['post']['author']
+        self.assertEqual(author['email'], 'sam@nyu.edu')
+        self.assertTrue(author['profile_picture'])
+        self.assertNotIn('bio', author)
+
+    def test_editing_a_post_does_not_echo_hidden_details_back(self):
+        # Same as creating a post: the author's own response follows their
+        # settings too.
+        self.hide(show_email=False, show_profile_picture=False)
+        response = self.edit_response()
+        self.assertEqual(response.status_code, 200)
+        author = response.json()['post']['author']
+        self.assertEqual((author['first_name'], author['last_name']), ('Sam', 'Lee'))
+        self.assertIsNone(author['email'])
+        self.assertIsNone(author['profile_picture'])
+        self.assertNotIn('bio', author)
+        body = response.content.decode()
+        self.assertNotIn('sam@nyu.edu', body)
+        self.assertNotIn('profile-pictures', body)
+        self.assertNotIn('CS junior', body)
+
+    def test_each_setting_applies_on_its_own_in_the_edit_response(self):
+        for hidden, expected_email, photo_shown in [
+            ({'show_email': False, 'show_profile_picture': True}, None, True),
+            ({'show_email': True, 'show_profile_picture': False}, 'sam@nyu.edu', False),
+        ]:
+            with self.subTest(**hidden):
+                self.hide(**hidden)
+                author = self.edit_response().json()['post']['author']
+                self.assertEqual(author['email'], expected_email)
+                self.assertEqual(bool(author['profile_picture']), photo_shown)
+
+    def test_an_edit_shows_on_the_post_page_with_the_authors_settings_applied(self):
+        self.hide(show_email=False, show_profile_picture=False)
+        self.edit_response(description='Now with a grandma slice.')
+        post = FoodPost.objects.get()
+        self.client.force_login(self.viewer)
+        shown = self.client.get(reverse('social:post', args=[post.pk])).json()['post']
+        self.assertEqual(shown['description'], 'Now with a grandma slice.')
+        self.assertEqual(shown['author']['first_name'], 'Sam')
+        self.assertIsNone(shown['author']['email'])
+        self.assertIsNone(shown['author']['profile_picture'])
+
+    def test_a_refused_edit_reveals_nothing_about_the_author(self):
+        post = FoodPost.objects.get()
+        self.client.force_login(self.viewer)
+        response = self.client.patch(
+            reverse('social:post', args=[post.pk]), json.dumps({'description': 'Hacked.'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 404)
+        body = response.content.decode()
+        for detail in ('sam@nyu.edu', 'profile-pictures', 'CS junior', 'Sam'):
+            self.assertNotIn(detail, body)
+
+    def test_a_shared_post_follows_the_authors_settings_in_the_conversation(self):
+        # Kim shares Sam's post with the viewer (#125). Both of them see the
+        # post's author the way Sam's settings allow.
+        kim = User.objects.create_user(username='kim@nyu.edu', email='kim@nyu.edu', first_name='Kim', password='test123')
+        FriendRequest.objects.create(sender=kim, recipient=self.viewer).accept()
+        post = FoodPost.objects.get()
+        self.client.force_login(kim)
+        shared = self.client.post(
+            reverse('social:post_share', args=[post.pk]), json.dumps({'friend_id': self.viewer.pk}),
+            content_type='application/json',
+        )
+        self.assertEqual(shared.status_code, 201)
+
+        def shared_author(viewer, friend):
+            self.client.force_login(viewer)
+            [message] = self.client.get(reverse('social:conversation', args=[friend.pk])).json()['messages']
+            return message['shared_post']['author']
+
+        author = shared_author(self.viewer, kim)
+        self.assertEqual(author['email'], 'sam@nyu.edu')
+        self.assertTrue(author['profile_picture'])
+
+        self.hide(show_email=False, show_profile_picture=False)
+        for viewer, friend in ((self.viewer, kim), (kim, self.viewer)):
+            with self.subTest(viewer=viewer.email):
+                author = shared_author(viewer, friend)
+                self.assertEqual(author['first_name'], 'Sam')
+                self.assertIsNone(author['email'])
+                self.assertIsNone(author['profile_picture'])
+                self.assertNotIn('bio', author)
+                body = self.client.get(reverse('social:conversation', args=[friend.pk])).content.decode()
+                self.assertNotIn('sam@nyu.edu', body)
+                self.assertNotIn('profile-pictures', body)
+                self.assertNotIn('CS junior', body)
