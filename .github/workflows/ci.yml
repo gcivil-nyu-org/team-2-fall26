@@ -32,6 +32,9 @@ jobs:
       - name: Run Django tests
         run: python -m coverage run manage.py test
 
+      - name: Check combined coverage calculation
+        run: python -m unittest discover -s scripts -p 'test_*.py'
+
       - name: Report backend coverage (minimum 85%)
         run: |
           python -m coverage report
@@ -74,12 +77,12 @@ jobs:
 
   coverage-badges:
     needs: [backend, frontend]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
-      group: main-coverage-badges
+      group: coverage-badges
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -94,16 +97,20 @@ jobs:
           name: frontend-coverage
           path: frontend/coverage/
       - name: Generate measured badges
-        run: python scripts/coverage_badges.py
+        run: python scripts/coverage_badges.py --branch "$COVERAGE_BRANCH"
+        env:
+          COVERAGE_BRANCH: ${{ github.ref_name }}
       - name: Publish badges to dedicated branch
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const repo = context.repo;
-            const mainHead = (await github.rest.git.getRef({...repo, ref: 'heads/main'})).data.object.sha;
-            if (mainHead !== context.sha) {
-              core.notice('A newer main commit exists; skipping outdated coverage badges.');
+            const sourceBranch = context.ref.replace('refs/heads/', '');
+            if (!['main', 'develop'].includes(sourceBranch)) throw new Error('Unexpected coverage branch');
+            const sourceHead = (await github.rest.git.getRef({...repo, ref: `heads/${sourceBranch}`})).data.object.sha;
+            if (sourceHead !== context.sha) {
+              core.notice('A newer source commit exists; skipping outdated coverage badges.');
               return;
             }
             const branch = 'coverage-badges';
@@ -115,13 +122,15 @@ jobs:
             }
             const tree = await github.rest.git.createTree({
               ...repo,
-              tree: ['backend', 'frontend'].map(name => ({
-                path: `main-${name}.svg`, mode: '100644', type: 'blob',
-                content: fs.readFileSync(`coverage/badges/main-${name}.svg`, 'utf8')
-              }))
+              // Preserve the other branch's badge when updating this one.
+              ...(parent ? {base_tree: (await github.rest.git.getCommit({...repo, commit_sha: parent})).data.tree.sha} : {}),
+              tree: [{
+                path: `${sourceBranch}.svg`, mode: '100644', type: 'blob',
+                content: fs.readFileSync(`coverage/badges/${sourceBranch}.svg`, 'utf8')
+              }]
             });
             const commit = await github.rest.git.createCommit({
-              ...repo, message: `Coverage for main ${context.sha}`,
+              ...repo, message: `Coverage for ${sourceBranch} ${context.sha}`,
               tree: tree.data.sha, parents: parent ? [parent] : []
             });
             if (parent) {
