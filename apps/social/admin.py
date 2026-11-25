@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import DirectMessage, FoodPost, FriendRequest, SavedPost
+from .models import DirectMessage, FoodPost, FriendRequest, PostComment, SavedPost
 
 
 @admin.register(FriendRequest)
@@ -35,3 +35,10 @@ class FoodPostAdmin(admin.ModelAdmin):
 class SavedPostAdmin(admin.ModelAdmin):
     list_display = ['user', 'post', 'created_at']
     list_select_related = ['user', 'post']
+
+
+@admin.register(PostComment)
+class PostCommentAdmin(admin.ModelAdmin):
+    list_display = ['post', 'author', 'created_at']
+    list_select_related = ['post', 'author']
+    search_fields = ['body']
