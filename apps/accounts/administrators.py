@@ -1,4 +1,5 @@
 from django.contrib.auth.models import Group, Permission
+from django.db.models import Q
 from django.db import transaction
 
 # #60: who can use the admin site, and who decides that.
@@ -8,10 +9,13 @@ from django.db import transaction
 #     and revoking administrator access. The first one is created with
 #     `python manage.py createsuperuser`; they are never changed from the admin.
 #   - Administrators (is_staff, in the "Administrators" group) can sign in to
-#     the admin and manage student accounts (#54). Nothing else: they cannot
-#     see other administrators or change who has access.
+#     the admin, manage student accounts (#54) and view reported content
+#     (#67). Nothing else: they cannot see other administrators or change who
+#     has access.
 ADMIN_GROUP_NAME = 'Administrators'
 ADMIN_PERMISSIONS = ('view_user', 'change_user', 'delete_user')
+# #67: the reported-content queue. Reviewing reports is #56.
+REPORT_PERMISSIONS = ('view_contentreport',)
 
 
 def can_manage_administrators(user):
@@ -30,10 +34,11 @@ def access_level(user):
 
 def administrator_group():
     # Created on first use and re-synced every time, so the group always holds
-    # exactly the student-account permissions and never drifts.
+    # exactly the student-account and report permissions and never drifts.
     group, _ = Group.objects.get_or_create(name=ADMIN_GROUP_NAME)
     permissions = Permission.objects.filter(
-        content_type__app_label='accounts', content_type__model='user', codename__in=ADMIN_PERMISSIONS,
+        Q(content_type__app_label='accounts', content_type__model='user', codename__in=ADMIN_PERMISSIONS)
+        | Q(content_type__app_label='social', content_type__model='contentreport', codename__in=REPORT_PERMISSIONS),
     )
     group.permissions.set(permissions)
     return group
