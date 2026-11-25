@@ -257,7 +257,7 @@ describe('opening a food post', () => {
     expect(within(card).getByText(/Sam Lee/)).toBeInTheDocument()
     expect(within(card).queryByRole('link', { name: /Read more/ })).not.toBeInTheDocument()
     const comments = screen.getByRole('region', { name: 'Comments' })
-    expect(within(comments).getByText('No comments yet')).toBeInTheDocument()
+    expect(await within(comments).findByText('No comments yet')).toBeInTheDocument()
     expect(realApi).toHaveBeenCalledWith('/social/posts/7/')
   })
 
